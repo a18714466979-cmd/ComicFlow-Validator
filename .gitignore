@@ -1,24 +1,8 @@
 
-# Python 缓存
+.venv/
 __pycache__/
 *.py[cod]
-
-# 虚拟环境
-.venv/
-venv/
-
-# 测试缓存
 .pytest_cache/
-.coverage
-
-# 软件构建产物
-build/
-dist/
-*.spec
-
-# 日志文件
-*.log
-
-# 编辑器临时文件
-.idea/
 test_images/
+.coverage
+htmlcov/
