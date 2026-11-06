@@ -21,3 +21,4 @@ dist/
 
 # 编辑器临时文件
 .idea/
+test_images/
