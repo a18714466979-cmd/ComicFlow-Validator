@@ -21,6 +21,5 @@ set "COMICFLOW_EXIT=2"
 
 :complete
 popd
-echo.
-pause
+if not "%COMICFLOW_EXIT%"=="0" pause
 exit /b %COMICFLOW_EXIT%

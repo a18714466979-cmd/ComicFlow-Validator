@@ -67,7 +67,7 @@ Strict mode is the default. Use `--allow-legacy` for historical packages. `--rul
 
 When reviewing a package from another workspace, add `--review-missing-sources` to report inaccessible local reuse sources as unverified. Exit code `3` means that source availability was the only outstanding check. Exit code `1` still indicates errors such as missing deliverables, mismatched file bytes, or invalid panel counts. Code `0` indicates that the automated checks ran without errors.
 
-On Windows, install the requirements with the Python 3 interpreter used by the launcher. Double-click `ComicFlow-Windows.bat` and pick a ZIP, or drop a ZIP on the `.bat` file in Explorer. Select the trusted workflow validator, then start the check. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill its path. The result stays in the console until you press a key.
+On Windows, install the requirements with the Python 3 interpreter used by the launcher. Double-click `ComicFlow-Windows.bat` and pick a ZIP, or drop a ZIP on the `.bat` file in Explorer. Select the trusted workflow validator, then start the check. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill its path. The result table shows groups, shot IDs and filenames when the validator identifies them. Select a row to preview its text or image in the window, or switch to the full report tab.
 
 For an approved extra-panel exception to the six-panel dialogue rule, pass `--panel-exception file.json` when validating a ZIP directly, or select the JSON in the launcher. The entry is tied to one ZIP SHA-256, one group such as `SB05`, its approved `panels` count (7–12), and a one-line `reason`. Only the matching six-panel-rule diagnostic is treated as an approved exception.
 
@@ -135,7 +135,8 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 1. 用启动器所用的 Python 3 安装依赖，有 `py` 时运行 `py -3 -m pip install -r requirements.txt`，否则使用 `python -m pip install -r requirements.txt`。
 2. 双击 `ComicFlow-Windows.bat` 选择 ZIP，或在资源管理器把 ZIP 拖到该文件上。
-3. 选择可信的故事板校验脚本，点击「开始验收」。结果显示在命令窗口。可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填脚本路径。
+3. 选择可信的故事板校验脚本，点击「开始验收」。可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填脚本路径。
+4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 
 常规长对白组确有获批的超六格例外时，直验 ZIP 可加 `--panel-exception 文件.json`，也可在启动器选择该 JSON。填写 `zip_sha256`（最终 ZIP 的小写 SHA-256）、`group`（如 `SB05`）、`panels`（批准的格数，7–12）和 `reason`（单行批准理由）。例外只适用于该 ZIP，该组及该条六格规则。
 
