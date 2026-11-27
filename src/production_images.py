@@ -16,7 +16,7 @@ from .asset_registry import sha256_file
 from .image_api import EDIT, REFERENCE, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES, IMAGE_PROVIDERS, ImageReply, ImageSettings, build_image_request
 from .production_project import ProductionProject, checked_name, identifier
 from .production_layout import replace_laid_out_asset, windows_for_shots
-from .production_rules import CHINESE
+from .production_rules import CAMERA_ACTION_FIELD, CAMERA_BOARD, CHINESE
 from .storyboard_preflight import IMAGE_LIMIT
 
 
@@ -87,8 +87,11 @@ def image_prompt(project, kind, target, mode, base_image=None) -> str:
             first = last = ordinal
             board_scope = f"只修改已批准板页的第 {ordinal:02d} 镜选区。保持页格、编号和其他镜头。"
         lines.insert(0, f"{project.group}，{board_scope}")
+        if mode != EDIT:
+            lines.append(CAMERA_BOARD[project.rules])
         for index, shot in enumerate(project.shots[first - 1:last], first):
-            fields = ("景别", "机位/角度", "人物站位", "动作起止", "情绪/表演", "连续性")
+            fields = ("景别", "机位/角度", "机位空间", "可见范围", "人物站位", "动作起止",
+                      "情绪/表演", "连续性", CAMERA_ACTION_FIELD)
             details = "；".join(f"{key} {shot.fields[key]}" for key in fields if shot.fields.get(key))
             lines.append(f"{project.group}-{index:02d} {shot.anchor}。{details}")
     if kind == "场景" and project.rules == CHINESE:

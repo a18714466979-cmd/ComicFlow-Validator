@@ -288,6 +288,8 @@ class ImageProductionDialog:
         ]
         if request_url:
             lines.append(translate(self.window, "本地预览，尚未发送。提交生图时再填写 API 密钥。"))
+            if job["kind"] == "故事板" and job["mode"] != EDIT and (findings := self.production.camera_notes()):
+                lines.append(findings)
         else:
             request_id = job.get("last_request_id") or job.get("request_id") or "无"
             lines.extend((f"状态 {STATUS.get(job['status'], '待核对')}",
@@ -335,6 +337,10 @@ class ImageProductionDialog:
         details = translate(self.window, "发送提示词和 {count} 张已选参考图到 {host}？\n模型 {model}").format(
             count=len(job["references"]), host=destination, model=settings.model,
         )
+        if job["kind"] == "故事板" and job["mode"] != EDIT and (findings := self.production.camera_notes()):
+            details += "\n\n" + findings + "\n\n" + translate(
+                self.window, "请先核对或调整分镜，确认后再提交生图。",
+            )
         mode, kind = (translate(self.window, job[key]) for key in ("mode", "kind"))
         usage = translate(self.window, "调用使用该服务的额度。")
         if not messagebox.askyesno(translate(self.window, "提交生图"), f"{mode} · {kind}\n{details}\n{usage}",

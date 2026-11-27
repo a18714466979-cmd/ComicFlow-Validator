@@ -606,10 +606,25 @@ def run_inside_launcher():
                 fields["声源位置"] = "画外同期"
                 example.shots.append(Shot(source=source.id, anchor=f"镜头 {index + 1}", fields=fields))
             example.shots[0].dialogue = [("D001", 0, len(first))]
+            example.shots[0].fields.update({"景别": "中近景", "机位/角度": "平视",
+                                            "动作阶段与机位变化": "从门右侧移到左侧看灯"})
+            example.shots[1].fields.update({"景别": "近中景", "机位/角度": "俯拍"})
             path = project_path.with_name("中文对白制片.cfproject")
             example.save(path)
             filedialog.askopenfilename = lambda **_kwargs: str(path)
             click(dialog, "打开单组项目")
+            tabs.select(1)
+
+            def inspect_camera_warning():
+                preflight = next(walk(dialog, tk.Toplevel))
+                assert preflight.title() == "景别与角度预检"
+                content = next(walk(preflight, tk.Text)).get("1.0", "end-1c")
+                assert "SB01-01 → SB01-02" in content and "分镜记录景别相同" in content
+                preflight.destroy()
+
+            self.after(75, inspect_camera_warning)
+            click(dialog, "景别与角度预检")
+            print("Verified repeated Chinese shot scales are flagged before generation", flush=True)
 
             def adopt():
                 drafting = next(walk(dialog, tk.Toplevel))
@@ -637,6 +652,7 @@ def run_inside_launcher():
             prompt = (export / "SD2_prompt.txt").read_text(encoding="utf-8-sig")
             approved_line = f"对白：值班员：“{first}”"
             assert "总发声字数：100" in record and approved_line in record and approved_line in prompt
+            assert "动作阶段与机位变化：从门右侧移到左侧看灯" in record and "动作阶段与机位变化" not in prompt
             assert "走！" in (export / "待制作分镜.txt").read_text(encoding="utf-8-sig")
             print("Verified Chinese 100/101 dialogue preview and TXT export through Tk", flush=True)
 

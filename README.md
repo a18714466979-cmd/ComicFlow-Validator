@@ -1,9 +1,11 @@
 
 # ComicFlow Validator
 
-**A Local-First Desktop Tool for AI Comic Production**
+**A production and review workbench for AI comics using Seedance 2.0**
 
-一款面向 AI 漫剧创作者的本地素材验收工具。
+面向字节跳动 Seedance 2.0 的漫剧制片工作台，贯通剧本、分镜、资产、故事板、提示词和 ZIP 交付。
+
+[Windows 试用版构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [安装和试用说明](WINDOWS-TRYOUT.md)
 
 [English](#english) | [简体中文](#简体中文)
 
@@ -13,7 +15,9 @@
 
 ### Overview
 
-ComicFlow Validator is an open-source desktop tool designed to help AI comic creators validate production assets and delivery packages.
+ComicFlow helps AI comic creators prepare and review a complete delivery for ByteDance Seedance 2.0. Its three workspaces cover storyboard production, inspection and validation, and API connections. Work through script, shots and assets in one project, or start a stage with a local file.
+
+Approved sources, dialogue spans, shot order, camera references and the nine-image budget can be checked before submission. Reviewing adjacent panels and repairing the affected region helps avoid repeated generations and full-group rework caused by preventable input problems.
 
 English Film Production and Chinese Film Production are designed for delivery to ByteDance Seedance 2.0. Both prepare PNG references, an SD2 prompt and a validated delivery ZIP. Other video models may be a weaker fit and can require changes to reference limits, prompt structure and shot continuity. The workbench prepares the package for submission through a separate Seedance 2.0 service. [Seedance 2.0 overview](https://seed.bytedance.com/en/seedance2_0) · [Video generation API](https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh)
 
@@ -25,20 +29,11 @@ English Film Production and Chinese Film Production are designed for delivery to
 - Directory and ZIP delivery reports with optional JSON rules for required files, directories, and extensions
 - Complete storyboard package validation through the installed workflow's validator
 
-### Design Principles
+### Workflow and visual review
 
-- Local-first: Files remain on the user's computer.
-- Read-only: Original production assets are not modified.
-- Transparent: Every validation result should have a clear reason.
-- Accessible: Designed for independent creators and small teams.
-
-### Current Status
-
-Version: 0.1.0
-
-**Early development.**
-
-Storyboard validation is available from the command line and a Windows launcher.
+- Use English Film Production v14.10.3 or Chinese Film Production v14.8.8. Both keep project assets and validation local. Optional model calls send the selected material to the configured provider after confirmation.
+- Shot drafting and board image prompts include the camera guidance for the active workflow. A local preflight flags repeated recorded framing, with additional guidance for three same-size, same-angle shots in a group marked as a fight.
+- For camera geometry, composition, identity and action continuity, compare the actual panels and clean plates. The text checks flag review points. Final Seedance 2.0 output needs a separate viewing pass.
 
 ### Run from Source
 
@@ -89,9 +84,11 @@ In 「返修打包」, enter a shot ID to see related files in the most recently
 
 ### 项目介绍
 
-ComicFlow Validator 是一款面向 AI 漫剧创作者的开源桌面工具。
+ComicFlow Validator 是面向 Seedance 2.0 的 Windows 漫剧制片工作台。新建项目可接着做剧本、拆分镜、分析资产、做故事板和提示词，再逐格复核并导出交付 ZIP。已经有原稿、项目或素材时，也能从对应工序开始。
 
-项目旨在减少素材交付过程中重复的人工检查工作，提高漫剧制作流程的可靠性。
+### 怎么减少 Seedance 2.0 抽卡
+
+先核对批准对白、镜头顺序、角色与道具、机位净板和九图预算，再把确认过的素材与提示词提交给 Seedance 2.0。逐格对照找出跳切、素材不一致和状态漂移，再定位到对应图、文字或局部返修，减少可以提前发现的问题导致的反复试生成和整组重做。
 
 ### 当前可用检查
 
@@ -107,14 +104,6 @@ ComicFlow Validator 是一款面向 AI 漫剧创作者的开源桌面工具。
 - 只读检查：不修改原始制作素材。
 - 结果透明：每个检查结果都有明确依据。
 - 易于使用：面向独立创作者和小型制作团队。
-
-### 当前开发状态
-
-版本：0.1.0
-
-**项目处于早期开发阶段。**
-
-故事板验收支持命令行和 Windows 启动器。
 
 ### 本地运行
 

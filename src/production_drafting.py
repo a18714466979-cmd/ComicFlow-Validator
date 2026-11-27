@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 
 from .production_project import SHOT_FIELDS, ApprovedSource, ProductionProject, Shot, identifier
+from .production_rules import CAMERA_ACTION_FIELD, CAMERA_DRAFTING, CHINESE, ENGLISH
 from .storyboard_preflight import IMAGE_LIMIT
 from .text_api import TextReply
 
@@ -28,10 +29,12 @@ RULES = (
 )
 
 
-def instructions_for(task: str) -> str:
+def instructions_for(task: str, rules: str = ENGLISH) -> str:
     if task == SHOT_TASK:
-        example = {"shots": [{"line_start": 1, "line_end": 2, "fields": dict.fromkeys(DRAFT_SHOT_FIELDS, "")}]}
-        direction = "镜头按叙事顺序，每次最多 12 镜。line_start/line_end 填剧本绝对行号（含首尾）。未明确的字段可省略。"
+        fields = tuple(key for key in DRAFT_SHOT_FIELDS if rules == CHINESE or key != CAMERA_ACTION_FIELD)
+        example = {"shots": [{"line_start": 1, "line_end": 2, "fields": dict.fromkeys(fields, "")}]}
+        direction = ("镜头按叙事顺序，每次最多 12 镜。line_start/line_end 填剧本绝对行号（含首尾）。"
+                     "未明确的字段可省略。" + CAMERA_DRAFTING[rules])
     elif task == SD2_TASK:
         example = {"prompt": dict.fromkeys(SD2_FIELDS, "")}
         direction = "只建议所选镜头的成片动作和声效，不写生产审计、净板加工、角色数量、设备状态变更或对白。"

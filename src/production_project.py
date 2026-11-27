@@ -13,7 +13,7 @@ from uuid import uuid4
 from PIL import Image
 
 from .asset_registry import Asset, sha256_file
-from .production_rules import CHINESE, ENGLISH
+from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH
 
 
 RULE_VERSION = ENGLISH
@@ -39,9 +39,9 @@ PROMPT_FIELDS = ("场景/总体状态", "公共限制")
 SHOT_FIELDS = (
     "景别", "机位/角度", "机位空间", "可见范围", "运镜", "画面/事件", "人物站位", "动作起止",
     "唯一角色数量锁定", "本格新增叙事功能", "情绪/表演", "环境威胁/视觉副线", "声音", "声源位置",
-    "连续性", "视频模型约束", "成片动作", "场景/环境", "成片声音",
+    "连续性", "视频模型约束", "成片动作", "场景/环境", "成片声音", CAMERA_ACTION_FIELD,
 )
-OPTIONAL_SHOT_FIELDS = {"成片动作", "成片声音"}
+OPTIONAL_SHOT_FIELDS = {"成片动作", "成片声音", CAMERA_ACTION_FIELD}
 ACTIONS = ("直接复用", "必要规范排版", "局部补缺/修复", "新生成")
 
 

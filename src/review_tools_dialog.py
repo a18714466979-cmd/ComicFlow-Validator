@@ -11,6 +11,8 @@ from zipfile import BadZipFile
 
 from PIL import Image, ImageTk
 
+from .camera_preflight import camera_cuts, camera_findings_text
+from .production_rules import ENGLISH
 from .shot_review import ShotReview, load_shots
 from .shot_review_dialog import ImagePane
 from .storyboard_review import PREVIEW_LIMIT, ReviewResult
@@ -26,6 +28,7 @@ FIELD_LABELS = (
     ("运镜", "Camera movement"),
     ("动作起止", "Action start and end"),
     ("连续性", "Continuity"),
+    ("动作阶段与机位变化", "Action phase and camera changes"),
 )
 
 
@@ -170,7 +173,7 @@ def nonconsecutive_groups(first: ShotReview, second: ShotReview):
     return bool(first_number and second_number and int(second_number[1]) - int(first_number[1]) != 1)
 
 
-def open_cut_review(parent, result: ReviewResult | None):
+def open_cut_review(parent, result: ReviewResult | None, rules=ENGLISH):
     title = label(parent, "景别与镜头衔接复核", "Shot framing & continuity")
     if result is None or not result.members:
         messagebox.showinfo(title, label(parent, "先打开交付 ZIP 并运行验收。", "Open a delivery ZIP and run validation first."),
@@ -272,6 +275,12 @@ def open_cut_review(parent, result: ReviewResult | None):
                 "包内组号不连续。只能对照包内这两镜，实际前后衔接需核对中间组。",
                 "Group numbers do not follow each other. Compare the included shots here and check the missing groups separately.",
             )
+        else:
+            pair_fields = ((first.shot, shot_fields(first)), (second.shot, shot_fields(second)))
+            warnings = camera_findings_text(camera_cuts(pair_fields, rules),
+                                            english=getattr(window._root(), "ui_language", "zh") == "en")
+            if warnings:
+                guidance = warnings + "\n" + guidance
         summary.configure(text=f"{kind_labels[types[position]]} · {guidance}")
         for view, shot in zip(views, (first, second)):
             render(view, shot)

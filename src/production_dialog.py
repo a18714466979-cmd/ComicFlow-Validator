@@ -12,6 +12,7 @@ from PIL import Image, ImageTk
 
 from .ui_language import translate
 from .asset_registry import AssetRegistry, sha256_file
+from .camera_preflight import camera_findings_text, project_camera_cuts
 from .production_drafting import SD2_TASK, SHOT_TASK
 from .production_export import (
     chinese_text_records, preview_chinese_layout, preview_project, project_registry, publish_project,
@@ -173,6 +174,7 @@ class ProductionDialog:
         flow = ttk.Frame(page)
         flow.pack(fill="x", pady=(0, 8))
         self.buttons(flow, ("AI 拆分镜", lambda: self.open_drafting(task=SHOT_TASK)),
+                     ("景别与角度预检", self.show_camera_review),
                      ("下一步：分析资产", self.open_assets_for_shots))
         self.shot_source = tk.StringVar(page)
         ttk.Label(page, textvariable=self.shot_source, wraplength=740).pack(anchor="w", pady=(0, 6))
@@ -424,6 +426,17 @@ class ProductionDialog:
 
         self.save()
         self.wait(DraftingDialog(self, self.text_session, start_task=task).window)
+
+    def camera_notes(self):
+        self.update_group()
+        return camera_findings_text(project_camera_cuts(self.project),
+                                    english=getattr(self.window._root(), "ui_language", "zh") == "en")
+
+    def show_camera_review(self):
+        title = translate(self.window, "景别与角度预检")
+        result = self.camera_notes() or translate(self.window, "已填的景别和角度没有匹配到重复项。")
+        footer = translate(self.window, "此检查依据镜头文字。请对照实际板格、机位、轴线和动作承接。")
+        self.show_text(title, result + "\n\n" + footer)
 
     def open_assets_for_shots(self, *, owner=None, preferred_source=""):
         from .storyboard_planning_dialog import open_storyboard_planning
@@ -774,7 +787,12 @@ class ProductionDialog:
         self.update_group()
         if self.previewed != self.project.fingerprint():
             raise ValueError("请先打开当前版本的逐格复核预览。")
-        if messagebox.askyesno(translate(self.window, "确认本版画面"), translate(self.window, "是否已核对故事板格序、净板局部和镜头文字？"), parent=self.window):
+        details = translate(self.window, "是否已核对故事板格序、净板局部和镜头文字？")
+        if findings := self.camera_notes():
+            details += "\n\n" + findings + "\n\n" + translate(
+                self.window, "请核对实际画面。只有规则允许且已确认的衔接才能保留。",
+            )
+        if messagebox.askyesno(translate(self.window, "确认本版画面"), details, parent=self.window):
             self.project.structure_review = self.previewed
             self.save()
 

@@ -447,7 +447,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     def inspect_cuts():
         from .review_tools_dialog import open_cut_review
 
-        open_cut_review(window, result)
+        open_cut_review(window, result, active_rules)
 
     callbacks = {
         "new": lambda: produce(action="new"),

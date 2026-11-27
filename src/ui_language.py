@@ -115,6 +115,13 @@ ENGLISH = {
     "正在验收 {archive}…": "Validating {archive}…",
     "请选择有效的{label}。": "Select a valid {label}.",
     "无法预览 {path}": "Unable to preview {path}",
+    "景别与角度预检": "Check shot size and angle",
+    "已填的景别和角度没有匹配到重复项。": "No repeated framing matched the recorded fields.",
+    "此检查依据镜头文字。请对照实际板格、机位、轴线和动作承接。":
+        "This check uses the shot text. Compare the actual panels, camera positions, axis and action.",
+    "请先核对或调整分镜，确认后再提交生图。": "Review or revise the shot list before submitting the image job.",
+    "请核对实际画面。只有规则允许且已确认的衔接才能保留。":
+        "Review the actual visuals. Keep a cut only when the rules allow it and it has been approved.",
     # Stage handoff
     "剧本 → 分镜 → 资产可接续制作，也可以从本地文件单独开始。":
         "Continue from script to shots to assets, or start any step with a local file.",

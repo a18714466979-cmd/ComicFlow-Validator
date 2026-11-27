@@ -9,6 +9,7 @@ from zipfile import ZipFile
 from PIL import Image, ImageTk
 
 from .ui_language import translate
+from .camera_preflight import camera_cuts, camera_findings_text
 from .image_production_dialog import display_picture, select_image_region
 from .production_dialog import PROJECT_FILES, fields_text, write_text
 from .production_export import project_registry, publish_batch
@@ -310,6 +311,12 @@ class LayoutDialog:
         groups = self.projects()
         right = groups[1][0]
         summary, issues = boundary_report(self.project, right, self.planner())
+        pair = ((f"{self.project.group}-{len(self.project.shots):02d}", self.project.shots[-1].fields),
+                (f"{right.group}-01", right.shots[0].fields))
+        findings = camera_findings_text(camera_cuts(pair, self.project.rules),
+                                       english=getattr(self.window._root(), "ui_language", "zh") == "en")
+        if findings:
+            summary += "\n\n" + findings
         self.report_text(summary)
         dialog = tk.Toplevel(self.window)
         dialog.title(translate(dialog, "对照前组末镜与后组首镜"))

@@ -286,7 +286,7 @@ class DraftingDialog:
         task = TASKS[self.task_picker.current()]
         context, payload = build_context(self.project, self.sources[self.source.current()], task, start, end,
                                          shot, self.previous_context)
-        return task, context, instructions_for(task), payload
+        return task, context, instructions_for(task, self.project.rules), payload
 
     def preview_payload(self):
         _, _, instructions, payload = self.payload()

@@ -15,7 +15,7 @@ from .production_project import (
     CHINESE_CHARACTER_FIELDS, CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
     PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
 )
-from .production_rules import CHINESE
+from .production_rules import CAMERA_ACTION_FIELD, CHINESE
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import CHINESE_SPEECH_LIMIT, IMAGE_LIMIT, chinese_speech_length, plan_dialogue
 
@@ -120,7 +120,7 @@ def shot_records(shot, name, dialogue, sources):
     except ValueError as exc:
         raise ValueError(f"{name} {exc}") from exc
     ids, cues, spoken = dialogue
-    notes_text = format_fields(fields, PRODUCTION_SHOT_FIELDS)
+    notes_text = format_fields(fields, (*PRODUCTION_SHOT_FIELDS, CAMERA_ACTION_FIELD), (CAMERA_ACTION_FIELD,))
     production = (f"分镜 {name}\n源镜ID：{shot.id}\n源段：{shot.anchor}\n时间码：待剪辑\n"
                   f"{notes_text}\n对白编号：{ids}\n对白衔接：{cues}\n对白：{spoken}")
     prompt = {"景别": fields["景别"], "机位/角度": f"{fields['机位/角度']}；{fields['机位空间']}",
