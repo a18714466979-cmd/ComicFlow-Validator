@@ -75,6 +75,8 @@ For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图
 
 Use 「生图前预检」 to count planned files against the nine-image upload limit. For dialogue, import or paste the approved sentence JSON and choose 「预排完整句」. This runs `plan_english_dialogue.py` beside the selected workflow validator and shows candidate groups, word counts, and original dialogue IDs and spans. Candidate groups still need review against shot continuity before production. Both checks run locally.
 
+After checking a complete ZIP, use 「逐格复核」 to select a shot and compare its storyboard sheet, referenced clean plate and slot, production record, and SD2 prompt. The window shows neighboring storyboard thumbnails and action summaries and can step between groups. Drag over either image to zoom into the selected pane. Manual regions are kept per shot until the review window closes. Review is read-only and local.
+
 ---
 
 ## 简体中文
@@ -141,6 +143,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 2. 双击 `ComicFlow-Windows.bat` 选择 ZIP，或在资源管理器把 ZIP 拖到该文件上。
 3. 选择可信的故事板校验脚本，点击「开始验收」。可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填脚本路径。
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
+5. 点「逐格复核」，按镜号查看故事板整图、对应的彩色净板和局部号，以及同镜的生产记录与 SD2 提示词。下方显示前后镜的缩略图和动作摘要，可点「上一镜／下一镜」跨组切换。拖动框选图片中的格子可放大对照。前后镜有框选时显示所选格，否则标为整板。框选范围按镜号保留到本次复核窗口关闭。复核不会改写交付包。
 
 常规长对白组确有获批的超六格例外时，直验 ZIP 可加 `--panel-exception 文件.json`，也可在启动器选择该 JSON。填写 `zip_sha256`（最终 ZIP 的小写 SHA-256）、`group`（如 `SB05`）、`panels`（批准的格数，7–12）和 `reason`（单行批准理由）。例外只适用于该 ZIP，该组及该条六格规则。
 

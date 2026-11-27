@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk
 
 from .preflight_dialog import open_preflight_dialog
+from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
 from .vision_dialog import open_vision_dialog
@@ -92,6 +93,15 @@ def open_workbench(initial_zip: str) -> int:
 
     analyze = ttk.Button(file_row, text="AI 辅助看图", command=analyze_selected_image, state="disabled")
     analyze.pack(side="right", padx=(8, 0))
+
+    def inspect_shots() -> None:
+        if result is not None:
+            group = selected_issue.group if selected_issue else file_selector.get().partition("/")[0]
+            shot = selected_issue.shot if selected_issue else ""
+            open_shot_review(window, result, group, shot)
+
+    inspect = ttk.Button(file_row, text="逐格复核", command=inspect_shots, state="disabled")
+    inspect.pack(side="right", padx=(8, 0))
 
     def set_text(widget: scrolledtext.ScrolledText, value: str) -> None:
         widget.configure(state="normal")
@@ -178,6 +188,7 @@ def open_workbench(initial_zip: str) -> int:
             tabs.select(report_tab)
             return
         result = completed
+        inspect.configure(state="normal" if result.members else "disabled")
         exit_code = result.exit_code
         verdicts = {0: "自动检查通过", 1: "验收失败", 2: "配置错误", 3: "复用未验证"}
         verdict = verdicts.get(result.exit_code, "验收未完成")
@@ -224,6 +235,7 @@ def open_workbench(initial_zip: str) -> int:
         directory = Path(workspace.name)
         busy = True
         result = selected_issue = None
+        inspect.configure(state="disabled")
         table.delete(*table.get_children())
         file_selector.configure(values=())
         file_selector.set("")
