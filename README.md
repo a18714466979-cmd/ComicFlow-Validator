@@ -73,6 +73,8 @@ For an approved extra-panel exception to the six-panel dialogue rule, pass `--pa
 
 For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图」. The menu offers 12 provider presets and custom OpenAI-compatible Chat Completions. Enter the vision model ID and API key. The HTTPS base address is configurable. The selected image and a review prompt are sent after confirmation. Images over 6 MiB are prepared as a compressed local copy before sending. Credentials stay in memory for the current session. AI suggestions stay separate from the local validation result.
 
+Use 「生图前预检」 to count planned files against the nine-image upload limit. For dialogue, import or paste the approved sentence JSON and choose 「预排完整句」. This runs `plan_english_dialogue.py` beside the selected workflow validator and shows candidate groups, word counts, and original dialogue IDs and spans. Candidate groups still need review against shot continuity before production. Both checks run locally.
+
 ---
 
 ## 简体中文
@@ -141,6 +143,12 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 
 常规长对白组确有获批的超六格例外时，直验 ZIP 可加 `--panel-exception 文件.json`，也可在启动器选择该 JSON。填写 `zip_sha256`（最终 ZIP 的小写 SHA-256）、`group`（如 `SB05`）、`panels`（批准的格数，7–12）和 `reason`（单行批准理由）。例外只适用于该 ZIP，该组及该条六格规则。
+
+### 生图前预检
+
+点「生图前预检」，按单组填写主角、配角、道具/HUD、场景的计划图片张数。故事板固定计 1 张，窗口显示九图预算的剩余量或超量。
+
+英文对白可导入 JSON 或直接粘贴。选好工作流的校验脚本后，点「预排完整句」，程序调用同目录的 `plan_english_dialogue.py`，显示候选组词数、说话人、源对白 ID 和原文区间。每条是一个批准的完整发声句，格式如 `[{"id":"D001","speaker":"角色甲","text":"Hold the door."}]`。跨镜或跨组续说时可使用原有 `start` 和 `end` 字段。候选分组需结合动作承接和镜头内容确认。两项预检均在本机完成。
 
 ### 可选 AI 辅助看图
 

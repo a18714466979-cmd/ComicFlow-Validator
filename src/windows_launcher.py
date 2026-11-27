@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
 
+from .preflight_dialog import open_preflight_dialog
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
 from .vision_dialog import open_vision_dialog
@@ -258,7 +259,10 @@ def open_workbench(initial_zip: str) -> int:
     )
     start_button = ttk.Button(options, text="开始验收", command=start)
     start_button.grid(row=3, column=2, pady=6)
-    ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=3, sticky="w", padx=12)
+    ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=2, sticky="w", padx=12)
+    ttk.Button(options, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).grid(
+        row=4, column=2, sticky="e", pady=(0, 2),
+    )
     tabs.pack(expand=True, fill="both", padx=12, pady=(0, 12))
     window.protocol("WM_DELETE_WINDOW", close)
     try:
