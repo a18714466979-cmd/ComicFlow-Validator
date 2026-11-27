@@ -15,7 +15,7 @@
 
 ComicFlow Validator is an open-source desktop tool designed to help AI comic creators validate production assets and delivery packages.
 
-The goal is to reduce repetitive manual checks and improve the reliability of production workflows.
+English Film Production and Chinese Film Production are designed for delivery to ByteDance Seedance 2.0. Both prepare PNG references, an SD2 prompt and a validated delivery ZIP. Other video models may be a weaker fit and can require changes to reference limits, prompt structure and shot continuity. The workbench prepares the package for submission through a separate Seedance 2.0 service. [Seedance 2.0 overview](https://seed.bytedance.com/en/seedance2_0) · [Video generation API](https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=zh)
 
 ### Current Checks
 
@@ -71,9 +71,11 @@ On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher pref
 
 For an approved extra-panel exception to the six-panel dialogue rule, pass `--panel-exception file.json` when validating a ZIP directly, or select the JSON in the launcher. The entry is tied to one ZIP SHA-256, one group such as `SB05`, its approved `panels` count (7–12), and a one-line `reason`. Only the matching six-panel-rule diagnostic is treated as an approved exception.
 
-For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图」. The menu offers 12 provider presets and custom OpenAI-compatible Chat Completions. Enter the vision model ID and API key. The HTTPS base address is configurable. The selected image and a review prompt are sent after confirmation. Images over 6 MiB are prepared as a compressed local copy before sending. Credentials stay in memory for the current session. AI suggestions stay separate from the local validation result.
+Open 「API 设置」 from the top right of the workbench. Configure a provider, HTTPS base URL, model ID and credentials for each task. Settings apply to the current session. A provider key may cover more than one model if your account grants those permissions. ComicFlow can copy a key between text and vision when the provider and base URL match. Keep the model ID for each use case. A text model can also handle image review only if it accepts image inputs. Image generation requires an image-output model and its supported API. [OpenAI images and vision guide](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat) · [Ark API key permissions](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys)
 
-Use 「生图前预检」 to count planned files against the nine-image upload limit. For dialogue, import or paste the approved sentence JSON and choose 「预排完整句」. This runs `plan_english_dialogue.py` beside the selected workflow validator and shows candidate groups, word counts, and original dialogue IDs and spans. Candidate groups still need review against shot continuity before production. Both checks run locally.
+For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图」. The selected image and a review prompt are sent after confirmation. Images over 6 MiB are prepared as a compressed local copy before sending. AI suggestions stay separate from the local validation result.
+
+Use 「对白与九图预算」 to count planned files against the nine-image upload limit. For dialogue, import or paste the approved sentence JSON and choose 「预排完整句」. This runs `plan_english_dialogue.py` beside the selected workflow validator and shows candidate groups, word counts, and original dialogue IDs and spans. Candidate groups still need review against shot continuity before production. Both checks run locally.
 
 After checking a complete ZIP, use 「逐格复核」 to select a shot and compare its storyboard sheet, referenced clean plate and slot, production record, and SD2 prompt. The window shows neighboring storyboard thumbnails and action summaries and can step between groups. Drag over either image to zoom into the selected pane. Manual regions are kept per shot until the review window closes. Review is read-only and local.
 
@@ -151,7 +153,9 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 开发验收可在 Windows 安装依赖后运行 `python tests/windows_smoke.py`。它用合成包测试双击启动、传入 ZIP 和通过 Windows Shell 打开 `.cfproject`，并实际操作 Tk 窗口。验证资源管理器的鼠标拖放时，可将一个 ZIP 拖到 `ComicFlow-Windows.bat` 上并检查窗口里的路径。
 
-### SD2 单组制片
+### Seedance 2.0 单组制片
+
+「中文影片制作」与「英文影片制作」专为字节跳动 Seedance 2.0 成片交付适配。工作台按该流程准备故事板、PNG 参考素材、SD2 提示词和交付 ZIP。使用其他视频模型时，素材上限、提示词结构和镜头衔接可能需要重新调整，匹配度可能较低。导出的素材和提示词需在 Seedance 2.0 服务中提交。 [字节跳动 Seedance 2.0](https://seed.bytedance.com/seedance2_0) · [火山方舟视频生成说明](https://console.volcengine.com/ark/region%3Acn-beijing/docs/video-generation-tutorial)
 
 在主窗口选择当前工作流的校验脚本，再进入「单组制片」。新建项目后，导入带版本的批准剧本、该组对白和 PNG。按镜头绑定剧本源段、净板文件和对白 ID，填写制片记录与成片要求。镜头移动时，来源 ID 保持稳定，播放镜号与净板局部号按新顺序生成。
 
@@ -159,9 +163,21 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 #### 文本制片
 
-在单组制片点「文本制片」。本地可以预排批准整句和九图预算。对白 JSON 每条保留 `id`、`speaker` 和完整原文 `text`。同一 ID 有多句时，可填 `sentence_ends`，例如对白 `Hold here. Stay clear.` 用 `[11, 22]` 划分两句。终点为零起点、不包含终点的字符位置，空格可放在相邻两段任一侧。选择本组使用的候选，再在镜头中分配实际发声区间。跨组续说可载入上一组项目核对退出状态。首组仍有同一 ID 的余文时，预览和 ZIP 中也会生成 `待制作分镜.txt`。
+在单组制片点「对白与分镜起草」。本地可以预排批准整句和九图预算。对白 JSON 每条保留 `id`、`speaker` 和完整原文 `text`。同一 ID 有多句时，可填 `sentence_ends`，例如对白 `Hold here. Stay clear.` 用 `[11, 22]` 划分两句。终点为零起点、不包含终点的字符位置，空格可放在相邻两段任一侧。选择本组使用的候选，再在镜头中分配实际发声区间。跨组续说可载入上一组项目核对退出状态。首组仍有同一 ID 的余文时，预览和 ZIP 中也会生成 `待制作分镜.txt`。
 
 「文本模型与历史」可选择已有服务预设或自定义 OpenAI 兼容接口。填写支持文本输出的模型 ID 和 API Key，选择批准剧本行段后查看即将发送的内容。确认后调用该服务。三种任务提供分镜、状态交接和 SD2 动作与声音建议。分镜建议采纳后先核对对白、人数、设备状态与净板。SD2 建议只写入镜头的成片动作和声音栏。交接建议由用户确认并录入。候选及编辑版本保存在本地项目，API Key 只在本次软件运行期间使用。
+
+#### API 设置
+
+从首页右上角打开「API 设置」，按用途分别选择服务商、HTTPS 基础地址、模型 ID 和凭证。本次运行内可在对应工具中直接使用这些设置，只有确认提交时才会向服务商发送任务。
+
+| 用途 | 模型能力 | 从哪里发起 |
+| --- | --- | --- |
+| 文本创作 | 接收文本并输出文本。当前工具基于批准剧本起草分镜、SD2 提示词和交接建议。 | 项目中的「对白与分镜起草」或「写提示词」 |
+| AI 审图 | 接收选定图片并输出文字审核建议。 | ZIP 文件预览中的「AI 辅助看图」，建议供人工复核 |
+| 图像生成 | 输出图像。参考图、局部编辑和张数限制由所选预设和模型决定。 | 项目中的「图像制片」 |
+
+同一个 API Key 能否覆盖多个模型，取决于服务商、账号和权限。文本创作与 AI 审图的服务商和 HTTPS 基础地址相同时，可在设置中主动复制 Key，各用途仍分别填写模型 ID。文本模型支持图片输入时，才可同时用于 AI 审图。图像生成使用其对应的图像模型与接口；账号许可复用 Key 时，可以在该分类手动填写。凭证只在本次软件运行期间保留。 [火山方舟 API Key 权限](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys) · [OpenAI 图像理解与生成](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat)
 
 #### 图像制片
 
@@ -193,9 +209,9 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 常规长对白组确有获批的超六格例外时，直验 ZIP 可加 `--panel-exception 文件.json`，也可在启动器选择该 JSON。填写 `zip_sha256`（最终 ZIP 的小写 SHA-256）、`group`（如 `SB05`）、`panels`（批准的格数，7–12）和 `reason`（单行批准理由）。例外只适用于该 ZIP，该组及该条六格规则。
 
-### 生图前预检
+### 对白与九图预算
 
-点「生图前预检」，按单组填写主角、配角、道具/HUD、场景的计划图片张数。故事板固定计 1 张，窗口显示九图预算的剩余量或超量。
+点「对白与九图预算」，按单组填写主角、配角、道具/HUD、场景的计划图片张数，再按实际排版确认故事板页数。窗口显示九图预算的剩余量或超量。
 
 英文对白可导入 JSON 或直接粘贴。选好工作流的校验脚本后，点「预排完整句」，程序调用同目录的 `plan_english_dialogue.py`，显示候选组词数、说话人、源对白 ID 和原文区间。每条是一个批准的完整发声句，格式如 `[{"id":"D001","speaker":"角色甲","text":"Hold the door."}]`。跨镜或跨组续说时可使用原有 `start` 和 `end` 字段。候选分组需结合动作承接和镜头内容确认。两项预检均在本机完成。
 

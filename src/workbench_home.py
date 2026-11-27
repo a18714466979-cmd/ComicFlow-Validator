@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from .production_rules import RULE_LABELS
+from .production_rules import DELIVERY_TARGET, OTHER_VIDEO_MODELS, RULE_LABELS
 
 
 BACKGROUND = "#edf2f7"
@@ -33,9 +33,12 @@ def build_home(window, label_text, change_language, selected_rules, switch_rules
     header.columnconfigure(0, weight=1)
     label(header, "ComicFlow 漫剧制片工作台", bg=NAVY, fg="white", font=("TkDefaultFont", 17, "bold")).grid(
         row=0, column=0, sticky="w")
-    label(header, "从剧本到 SD2 交付", bg=NAVY, fg="#c6d9e5").grid(row=1, column=0, sticky="w", pady=(3, 0))
+    label(header, DELIVERY_TARGET, bg=NAVY, fg="#e3eef5").grid(row=1, column=0, sticky="w", pady=(3, 0))
+    label(header, OTHER_VIDEO_MODELS, bg=NAVY, fg="#c6d9e5", anchor="w", justify="left",
+          wraplength=820).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(3, 0))
     language = tk.Frame(header, bg=NAVY)
     language.grid(row=0, column=1, rowspan=2, sticky="e")
+    button(language, "API 设置", callbacks["api"], primary=True).pack(side="left", padx=(0, 12))
     label(language, "界面语言", bg=NAVY, fg="#c6d9e5").pack(side="left", padx=(0, 6))
     ttk.Button(language, text="中文 / English", command=change_language, style="Workbench.TButton").pack(side="left")
 

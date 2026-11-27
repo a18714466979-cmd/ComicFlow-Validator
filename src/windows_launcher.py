@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
 
+from .api_settings_dialog import open_api_settings
 from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
@@ -410,6 +411,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             show_preview()
 
     callbacks = {
+        "api": lambda: open_api_settings(window, text_session, vision_session, image_session),
         "new": lambda: produce(action="new"),
         "open": lambda: produce(action="open"),
         "group": produce,

@@ -17,7 +17,7 @@ from .production_export import (
     render_dialogue, write_chinese_layout, write_chinese_texts,
 )
 from .production_project import ACTIONS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
-from .production_rules import CHINESE, ENGLISH, RULE_LABELS
+from .production_rules import CHINESE, DELIVERY_TARGET, ENGLISH, RULE_LABELS
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import ReviewResult, index_members
 from .storyboard_preflight import IMAGE_LIMIT
@@ -93,6 +93,7 @@ class ProductionDialog:
             ("写提示词", lambda: self.open_drafting(prompts=True)),
             ("复核与打包", lambda: self.tabs.select(3)),
         )
+        ttk.Label(self.window, text=translate(self.window, DELIVERY_TARGET), padding=(10, 0, 10, 5)).pack(anchor="w")
         self.status = tk.StringVar(self.window, translate(self.window, "新建或打开项目后开始。"))
         info = ttk.Frame(self.window, padding=(10, 0, 10, 6))
         info.pack(fill="x")

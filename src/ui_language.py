@@ -39,11 +39,14 @@ def translate(widget, text):
 ENGLISH = {
     # Home and package review
     "ComicFlow 漫剧制片工作台": "ComicFlow Storyboard Workbench",
-    "从剧本到 SD2 交付": "From script to SD2 delivery",
+    "制作规则专为字节跳动 Seedance 2.0 成片交付适配":
+        "Production rules tailored to ByteDance Seedance 2.0 delivery",
+    "换用其他视频模型时，素材和提示词匹配度可能较低，需要按目标模型调整。":
+        "Assets and prompts may work less well with other video models. Adapt them to the target model.",
     "界面语言": "Interface",
     "制作规则": "Production rules",
-    "英文制作": "English production",
-    "中文制作": "Chinese production",
+    "英文影片制作": "English film production",
+    "中文影片制作": "Chinese film production",
     "新建项目": "New project",
     "打开项目": "Open project",
     "剧本与分镜": "Script & shots",
@@ -112,6 +115,42 @@ ENGLISH = {
     "正在验收 {archive}…": "Validating {archive}…",
     "请选择有效的{label}。": "Select a valid {label}.",
     "无法预览 {path}": "Unable to preview {path}",
+    # API settings
+    "API 设置": "API settings",
+    "ComicFlow API 设置": "ComicFlow API Settings",
+    "文本创作": "Text drafting",
+    "AI 审图": "AI image review",
+    "图像生成": "Image generation",
+    "按用途配置模型。设置和密钥只在本次软件运行期间使用。":
+        "Choose a model for each purpose. Settings and credentials last for this session.",
+    "选择支持文本输出和 JSON 的模型，用于分镜、状态交接和 SD2 提示词。剧本写作也可使用具备相应能力的文本模型。":
+        "Choose a model that outputs text and JSON for shots, handoff and SD2 prompts. A suitable text model can also write scripts.",
+    "选择支持图片输入的视觉模型，用于已选图片的 AI 审图。逐格人工复核和 ZIP 规则验收在本机运行。":
+        "Choose a vision model that accepts images. Manual panel review and ZIP validation run locally.",
+    "选择能输出图片的图像模型，用于生成资产候选、参考图生图或局部编辑。可用模式取决于服务商和模型。":
+        "Choose a model that generates images for asset candidates, reference generation or local edits. Modes depend on the provider and model.",
+    "文本与审图可以显式复用同一服务商、同一基础地址的 Key。请为每个用途选择合适的模型 ID。":
+        "You can copy a key between text and review for the same provider and base URL. Choose a suitable model ID for each purpose.",
+    "预设模式 {modes} · 最多 {count} 张参考图": "Preset modes {modes} · Up to {count} reference image(s)",
+    "如果同一服务商的 Key 具备生图权限，可在这里手动填写。":
+        "You can enter a key from the same provider if the key has image generation access.",
+    "混元生图使用 SecretId 和 SecretKey，单独配置。": "Hunyuan image generation uses its own SecretId and SecretKey.",
+    "混元生图请同时填写 SecretId 和 SecretKey。": "Enter both the SecretId and SecretKey for Hunyuan image generation.",
+    "关闭": "Close",
+    "保存本次设置": "Save for this session",
+    "带入另一用途的 Key": "Copy key from other purpose",
+    "已带入 Key。请检查模型 ID，然后保存本次设置。": "Key copied. Check the model ID, then save.",
+    "另一用途须先保存同服务商、同基础地址的 Key。": "First save a key for the same provider and base URL in the other tab.",
+    "请填写模型 ID。": "Enter a model ID.",
+    "请输入有效的 API Key 或 SecretKey。": "Enter a valid API key or SecretKey.",
+    "请输入有效的 HTTPS API 基础地址。": "Enter a valid HTTPS API base URL.",
+    "请输入有效的 HTTPS 基础地址。": "Enter a valid HTTPS base URL.",
+    "请填写 API 基础地址，无需加上 messages 或 chat/completions。":
+        "Enter the API base URL without messages or chat/completions.",
+    "请使用腾讯云混元官方基础地址。": "Use the official Tencent Hunyuan base URL.",
+    "已保存本次设置。调用资格需以服务商返回为准。":
+        "Saved for this session. The provider determines account and model access when you submit a request.",
+    "已保存接口和模型。提交任务前请填写密钥。": "Endpoint and model saved. Enter a key before submitting a job.",
     # Project navigation, editing and delivery
     "ComicFlow 单组制片": "ComicFlow Group Production",
     "ComicFlow 单组项目": "ComicFlow group project",

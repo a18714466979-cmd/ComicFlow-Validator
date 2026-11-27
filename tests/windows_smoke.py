@@ -111,14 +111,17 @@ def run_inside_launcher():
                 tabs = next(walk(dialog, ttk.Notebook))
                 assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "text") == "文本与排版"
                 assert any(widget.instate(["selected"]) for widget in walk(self, ttk.Radiobutton)
-                           if widget.cget("text") == "中文制作")
-                assert any("中文制作 · v14.8.8" in self.getvar(variable)
+                           if widget.cget("text") == "中文影片制作")
+                assert any("中文影片制作 · v14.8.8" in self.getvar(variable)
                            for label in walk(dialog, ttk.Label) if (variable := label.cget("textvariable")))
                 self.destroy()
                 marker.write_text("COMICFLOW_GUI_OK", encoding="utf-8")
                 return
             field, validator, *_ = walk(self, ttk.Entry)
             assert field.get() == ("" if mode == "empty" else archive), field.get()
+            if mode == "api-settings":
+                self.inspect_api_settings()
+                return
             if mode == "mode-switch":
                 self.inspect_mode_switch(validator)
                 return
@@ -140,13 +143,119 @@ def run_inside_launcher():
             click(self, "开始验收")
             self.after(100, self.inspect_result)
 
+        def inspect_api_settings(self):
+            from src.production_project import ProductionProject
+
+            def input_field(scope, caption):
+                label = next(w for w in walk(scope, ttk.Label) if w.cget("text") == caption)
+                return label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+
+            def enter(scope, caption, value):
+                field = input_field(scope, caption)
+                field.delete(0, "end")
+                field.insert(0, value)
+                return field
+
+            assert any("Seedance 2.0" in widget.cget("text") for widget in walk(self, tk.Label))
+            click(self, "API 设置")
+            settings = next(walk(self, tk.Toplevel))
+            assert settings.title() == "ComicFlow API 设置"
+            tabs = next(walk(settings, ttk.Notebook))
+            assert [tabs.tab(i, "text") for i in range(3)] == ["文本创作", "AI 审图", "图像生成"]
+            text, vision, image = (tabs.nametowidget(tab) for tab in tabs.tabs())
+            key = "synthetic-shared-provider-key"
+            enter(text, "模型 ID", "draft-text-test")
+            assert enter(text, "API Key", key).cget("show") == "*"
+            click(text, "保存本次设置")
+
+            tabs.select(1)
+            base = input_field(vision, "API 基础地址").get()
+            enter(vision, "模型 ID", "image-review-test")
+            enter(vision, "API 基础地址", "https://different.example.test/api/v3")
+            click(vision, "带入另一用途的 Key")
+            assert not input_field(vision, "API Key").get()
+            enter(vision, "API 基础地址", base)
+            click(vision, "带入另一用途的 Key")
+            assert input_field(vision, "API Key").get() == key
+            assert input_field(vision, "模型 ID").get() == "image-review-test"
+            enter(vision, "API 基础地址", "https://different.example.test/api/v3")
+            assert not input_field(vision, "API Key").get()
+            enter(vision, "API 基础地址", base)
+            click(vision, "带入另一用途的 Key")
+            click(vision, "保存本次设置")
+
+            tabs.select(2)
+            assert not input_field(image, "API Key").get()
+            provider = next(walk(image, ttk.Combobox))
+            provider.set("腾讯云混元")
+            provider.event_generate("<<ComboboxSelected>>")
+            assert input_field(image, "腾讯云 SecretId").instate(["!disabled"])
+            assert input_field(image, "腾讯云 SecretKey").cget("show") == "*"
+            provider.current(0)
+            provider.event_generate("<<ComboboxSelected>>")
+            enter(image, "模型 ID", "image-generation-test")
+            enter(image, "API Key", "synthetic-image-key")
+            click(image, "保存本次设置")
+            click(settings, "关闭")
+
+            click(self, "中文 / English")
+            click(self, "API settings")
+            settings = next(walk(self, tk.Toplevel))
+            tabs = next(walk(settings, ttk.Notebook))
+            assert [tabs.tab(i, "text") for i in range(3)] == ["Text drafting", "AI image review", "Image generation"]
+            click(settings, "Close")
+            click(self, "中文 / English")
+
+            ProductionProject("API smoke test", "EP01", "SB01").save(project_path)
+            original_picker = filedialog.askopenfilename
+            filedialog.askopenfilename = lambda **_kwargs: str(project_path)
+            click(self, "打开项目")
+
+            def check_panel(parent, model_caption, expected_model, expected_key):
+                dialog = next(walk(parent, tk.Toplevel))
+                assert input_field(dialog, model_caption).get() == expected_model
+                assert input_field(dialog, "API Key").get() == expected_key
+                dialog.destroy()
+
+            def check_project_tools():
+                filedialog.askopenfilename = original_picker
+                project = next(walk(self, tk.Toplevel))
+                self.after(60, lambda: check_panel(project, "文本模型 ID", "draft-text-test", key))
+                click(project, "对白与分镜起草")
+                self.after(60, lambda: check_panel(project, "图像模型 ID", "image-generation-test", "synthetic-image-key"))
+                click(project, "图像制片")
+                project.destroy()
+                click(self, "开始验收")
+                self.after(100, check_review)
+
+            def check_review():
+                selector = next(walk(self, ttk.Combobox))
+                if not selector["values"]:
+                    self.after(100, check_review)
+                    return
+                selector.set("SB01/storyboard_2panel.png")
+                selector.event_generate("<<ComboboxSelected>>")
+                self.after(60, lambda: check_panel(self, "模型 ID", "image-review-test", key))
+                click(self, "AI 辅助看图")
+                saved = project_path.read_text(encoding="utf-8")
+                assert key not in saved and "synthetic-image-key" not in saved
+                appdata = Path(os.environ["LOCALAPPDATA"]) / "ComicFlow"
+                assert all(key not in path.read_text(encoding="utf-8")
+                           and "synthetic-image-key" not in path.read_text(encoding="utf-8")
+                           for path in appdata.iterdir() if path.is_file())
+                print("Verified all API settings routes, scoped key reuse, and no credential writes", flush=True)
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.destroy()
+
+            self.after(120, check_project_tools)
+
         def inspect_mode_switch(self, validator):
             from src.production_project import ProductionProject
             from src.production_rules import CHINESE
 
             english, chinese = walk(self, ttk.Radiobutton)
-            assert english.cget("text") == "英文制作" and english.instate(["selected"])
-            assert chinese.cget("text") == "中文制作"
+            assert english.cget("text") == "英文影片制作" and english.instate(["selected"])
+            assert chinese.cget("text") == "中文影片制作"
             scripts = Path(archive).with_name("validator.py"), Path(archive).with_name("中文校验.py")
             select_script = next(widget for widget in walk(self, ttk.Button) if widget.cget("text") == "浏览"
                                  and int(widget.grid_info().get("row", -1)) == 1)
@@ -187,7 +296,7 @@ def run_inside_launcher():
 
             click(self, "中文 / English")
             assert self.title() == "ComicFlow Storyboard Workbench"
-            assert chinese.instate(["selected"]) and chinese.cget("text") == "Chinese production"
+            assert chinese.instate(["selected"]) and chinese.cget("text") == "Chinese film production"
             assert Path(validator.get()).resolve() == script.resolve()
             assert next(walk(self, ttk.Entry)).get() == archive
             self.geometry("900x700")
@@ -246,7 +355,7 @@ def run_inside_launcher():
                 click(self, "Assets & repairs")
                 filedialog.askopenfilename = original_picker
                 click(self, "中文 / English")
-                assert chinese.cget("text") == "中文制作" and chinese.instate(["selected"])
+                assert chinese.cget("text") == "中文影片制作" and chinese.instate(["selected"])
                 print("Verified five home routes and bilingual UI independent from production rules", flush=True)
                 click(self, "开始验收")
                 self.after(100, self.inspect_chinese_report)
@@ -400,7 +509,7 @@ def run_inside_launcher():
                 return
             assert "Chinese mode validator" in table.item("0", "values")[-1]
             click(self, "中文 / English")
-            assert "Chinese production" in self.getvar(next(
+            assert "Chinese film production" in self.getvar(next(
                 label.cget("textvariable") for label in walk(self, ttk.Label)
                 if label.cget("textvariable") and "Automated checks passed" in self.getvar(label.cget("textvariable"))
             ))
@@ -713,7 +822,8 @@ def verify_windows_launcher(root=ROOT):
         }
         env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
-                               ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"')):
+                               ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
+                               ("api-settings", f' "{archive}"')):
             env["COMICFLOW_SMOKE_MODE"] = mode
             if mode == "file-only":
                 env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
