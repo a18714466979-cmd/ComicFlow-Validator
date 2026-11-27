@@ -15,6 +15,7 @@ from src.production_export import publish_batch, publish_project
 from src.production_handoff import confirm_boundary
 from src.production_images import approve_candidate
 from src.production_project import ProductionProject
+from src.production_rules import CHINESE, ENGLISH
 from src.shot_review import load_shots
 from src.storyboard_review import ReviewResult, index_members
 
@@ -35,26 +36,36 @@ def check_archive(result, count):
             elif filename.endswith(".txt"):
                 assert archive.read(filename).startswith(b"\xef\xbb\xbf")
     print(f"Reopened {result.output.name}, {count} shots, CRC and SHA-256 verified.")
+    return rows
 
 
-def fixture_validator(folder):
-    path = folder / "fixture_validator.py"
+def fixture_validator(folder, chinese=False):
+    path = folder / ("fixture_validator_zh.py" if chinese else "fixture_validator_en.py")
     path.write_text(
         'import re, sys\nfrom pathlib import Path\n'
+        f'chinese = {chinese!r}\n'
         'groups = sorted(Path(sys.argv[1]).glob("SB*"))\n'
         'assert 1 <= len(groups) <= 2\n'
         'for group in groups:\n'
         '    production = (group / (group.name + "_shot_details.txt")).read_text(encoding="utf-8-sig")\n'
         '    prompt = (group / "SD2_prompt.txt").read_text(encoding="utf-8-sig")\n'
-        '    assert re.findall(r"^分镜 (SB\\d+-\\d+)", production, re.M) == [f"{group.name}-{n:02d}" for n in range(1, 10)]\n'
-        '    assert re.findall(r"^分镜编号：(SB\\d+-\\d+)", prompt, re.M) == [f"{group.name}-{n:02d}" for n in range(1, 10)]\n'
+        '    count = 10 if chinese and group.name == "SB01" else 9\n'
+        '    expected = [f"{group.name}-{n:02d}" for n in range(1, count+1)]\n'
+        '    assert re.findall(r"^分镜 (SB\\d+-\\d+)", production, re.M) == expected\n'
+        '    assert re.findall(r"^分镜编号：(SB\\d+-\\d+)", prompt, re.M) == expected\n'
+        '    if chinese:\n'
+        '        assert "总发声字数：0" in production and "允许中文" in prompt\n'
+        '        if group.name == "SB01":\n'
+        '            assert len(list(group.glob("storyboard*.png"))) == 2\n'
+        '        else:\n'
+        '            assert "场景资产模式：多场景局部" in production\n'
         'print("RESULT: 0 error(s), 0 warning(s)")\n',
         encoding="utf-8",
     )
     return path
 
 
-def verify(archive_path, validator=None, install=False):
+def verify(archive_path, validator=None, install=False, chinese_validator=None):
     with TemporaryDirectory(prefix="ComicFlow 试用 ") as directory:
         base = Path(directory)
         with ZipFile(archive_path) as archive:
@@ -72,20 +83,29 @@ def verify(archive_path, validator=None, install=False):
             smoke = Path(__file__).resolve().parents[1] / "tests" / "windows_smoke.py"
             subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=150)
         validator = validator or fixture_validator(base)
+        chinese_validator = chinese_validator or fixture_validator(base, chinese=True)
         run_in_kit = (
             "import runpy, sys; from pathlib import Path; "
             "sys.path.insert(0, str(Path.cwd())); "
-            "runpy.run_path(sys.argv[1])['exercise'](Path.cwd(), Path(sys.argv[2]))"
+            "runpy.run_path(sys.argv[1])['exercise'](Path.cwd(), Path(sys.argv[2]), Path(sys.argv[3]))"
         )
-        subprocess.run([python, "-I", "-c", run_in_kit, str(Path(__file__).resolve()), str(validator)],
-                       cwd=folder, check=True, timeout=90)
+        subprocess.run([python, "-I", "-c", run_in_kit, str(Path(__file__).resolve()), str(validator),
+                        str(chinese_validator)], cwd=folder, check=True, timeout=90)
 
 
-def exercise(folder, validator):
+def exercise(folder, validator, chinese_validator):
     base = folder.parent
-    print(f"Validator used for this run: {validator.name}")
-    left_path, right_path = (folder / "Examples" / f"SB{number:02d}.cfproject" for number in (1, 2))
+    exercise_sample(folder / "Examples", base, validator, ENGLISH, (9, 9))
+    exercise_sample(folder / "Examples" / "中文制作", base, chinese_validator, CHINESE, (10, 9))
+
+
+def exercise_sample(samples, base, validator, rules, counts):
+    chinese = rules == CHINESE
+    language = "Chinese" if chinese else "English"
+    print(f"{language} validator used for this run: {validator.name}")
+    left_path, right_path = (samples / f"SB{number:02d}.cfproject" for number in (1, 2))
     left, right = (ProductionProject.open(path) for path in (left_path, right_path))
+    assert left.rules == right.rules == rules
     assert not left.structure_review and not right.structure_review
     baseline = left.shots[0].id
     for project, path in ((left, left_path), (right, right_path)):
@@ -93,11 +113,18 @@ def exercise(folder, validator):
         project.save(path)
     left, right = (ProductionProject.open(path) for path in (left_path, right_path))
     assert left.shots[0].id == baseline
-    single = publish_project(left, left_path, validator, base / "single.zip")
-    check_archive(single, 9)
-    confirm_boundary(left, right, validator.with_name("plan_english_dialogue.py"), "合成试用，门和绿灯在前末后首延续")
-    batch = publish_batch([(left, left_path), (right, right_path)], validator, base / "pair.zip")
-    check_archive(batch, 18)
+    single = publish_project(left, left_path, validator, base / f"{language}-single.zip")
+    rows = check_archive(single, counts[0])
+    if chinese:
+        assert rows[5].storyboard != rows[6].storyboard
+        assert rows[0].plate == rows[3].plate and rows[0].plate_box == rows[3].plate_box
+    planner = None if chinese else validator.with_name("plan_english_dialogue.py")
+    confirm_boundary(left, right, planner, "合成试用，门和绿灯在前末后首延续")
+    batch = publish_batch([(left, left_path), (right, right_path)], validator, base / f"{language}-pair.zip")
+    rows = check_archive(batch, sum(counts))
+    if chinese:
+        assert rows[counts[0]].group == "SB02"
+        assert {item.plate.scene for item in rows[counts[0]:]} == {"值守室", "东走廊"}
 
     job = left.image_jobs[0]
     original = next(asset for asset in left.images if asset.id == job["references"][0]["id"])
@@ -110,16 +137,20 @@ def exercise(folder, validator):
         actual = ImageChops.difference(previous.convert("RGBA"), revised.convert("RGBA")).getbbox(alpha_only=False)
         assert tuple(job["box"]) == actual
     left.structure_review = left.fingerprint()
-    repaired = publish_project(left, left_path, validator, base / "repair.zip", single.output)
-    check_archive(repaired, 9)
+    repaired = publish_project(left, left_path, validator, base / f"{language}-repair.zip", single.output)
+    rows = check_archive(repaired, counts[0])
+    if chinese:
+        assert rows[0].plate == rows[3].plate and rows[0].plate_box == rows[3].plate_box
     assert set(repaired.changed) == {"SB01/SB01_shot_details.txt", f"SB01/{original.filename}"}
-    print("Original SHA-256 and every pixel outside the edit box verified.")
+    print(f"{language} original SHA-256 and every pixel outside the edit box verified.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", type=Path)
     parser.add_argument("--validator", type=Path)
+    parser.add_argument("--chinese-validator", type=Path)
     parser.add_argument("--install", action="store_true")
     args = parser.parse_args()
-    verify(args.archive.resolve(), args.validator.resolve() if args.validator else None, args.install)
+    verify(args.archive.resolve(), args.validator.resolve() if args.validator else None, args.install,
+           args.chinese_validator.resolve() if args.chinese_validator else None)

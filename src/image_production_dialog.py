@@ -160,7 +160,8 @@ class ImageProductionDialog:
 
     def update_scope(self, _event=None):
         self.refs.configure(state="disabled" if self.mode.get() == TEXT else "normal")
-        paged = self.project.rules == CHINESE and len(self.project.shots) == 10 and self.kind.get() == "故事板"
+        paged = (self.project.rules == CHINESE and self.kind.get() == "故事板"
+                 and (len(self.project.shots) == 10 or self.mode.get() == EDIT))
         targeted = (paged or self.kind.get() == "净板") and self.project.shots
         self.shot_picker.configure(state="readonly" if targeted else "disabled")
         self.update_base_choice()
@@ -203,7 +204,10 @@ class ImageProductionDialog:
         return self.project.shots[index].id if index >= 0 else ""
 
     def fill_prompt(self):
-        write_text(self.prompt, image_prompt(self.project, self.kind.get(), self.selected_shot(), self.mode.get()))
+        mode = self.mode.get()
+        refs = self.chosen_refs() if mode == EDIT else []
+        write_text(self.prompt, image_prompt(self.project, self.kind.get(), self.selected_shot(), mode,
+                                             refs[0] if refs else None))
 
     def view_reference(self):
         indices = self.refs.curselection()

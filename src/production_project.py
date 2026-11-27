@@ -32,6 +32,9 @@ CHINESE_TEXT_FOLLOWUP = (
 )
 CHINESE_TEXT_FIELDS = CHINESE_TEXT_REQUIRED + CHINESE_TEXT_FOLLOWUP
 CHINESE_TEXT_OPTIONAL = set(CHINESE_TEXT_FOLLOWUP)
+CHINESE_CHARACTER_FIELDS = (
+    "主角清单", "主角资产映射", "混合人物资产映射", "人物资产核对", "人物资产分表", "其他人物合集",
+)
 PROMPT_FIELDS = ("场景/总体状态", "公共限制")
 SHOT_FIELDS = (
     "景别", "机位/角度", "机位空间", "可见范围", "运镜", "画面/事件", "人物站位", "动作起止",
@@ -155,6 +158,7 @@ class ProductionProject:
     def group_fields(self):
         if self.rules == CHINESE:
             return tuple(dict.fromkeys((*CHINESE_TEXT_FIELDS, "场景资产模式", "场景清单",
+                                        *CHINESE_CHARACTER_FIELDS,
                                         *(key for key in GROUP_FIELDS if key in self.notes))))
         return GROUP_FIELDS
 

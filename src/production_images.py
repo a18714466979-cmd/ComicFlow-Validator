@@ -15,7 +15,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageOps
 from .asset_registry import sha256_file
 from .image_api import EDIT, REFERENCE, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES, IMAGE_PROVIDERS, ImageReply, ImageSettings, build_image_request
 from .production_project import ProductionProject, checked_name, identifier
-from .production_layout import replace_laid_out_asset
+from .production_layout import replace_laid_out_asset, windows_for_shots
 from .production_rules import CHINESE
 from .storyboard_preflight import IMAGE_LIMIT
 
@@ -37,7 +37,14 @@ def shot_input(project, shot_id):
     return next(((index, shot) for index, shot in enumerate(project.shots, 1) if shot.id == shot_id), (0, None))
 
 
-def storyboard_job_page(project, target):
+def storyboard_job_page(project, target, base_image=None):
+    if project.rules == CHINESE and base_image is not None:
+        for sheet in project.layout.get("output", {}).get("sheets", []):
+            if sheet["kind"] == "board" and sheet["asset"] == base_image.id:
+                ordinals = [ordinal for ordinal, shot in enumerate(project.shots, 1) if shot.id in sheet["slots"]]
+                if target not in sheet["slots"] or not ordinals:
+                    raise ValueError("请选择所选正式板页中的目标镜头。")
+                return ordinals[0], ordinals[-1], base_image.filename
     if project.rules == CHINESE and len(project.shots) == 10:
         ordinal, _ = shot_input(project, target)
         if not ordinal:
@@ -47,9 +54,9 @@ def storyboard_job_page(project, target):
     return 1, total, f"storyboard_{total}panel_bw_16x9.png"
 
 
-def shot_signature(project, kind, target) -> str:
+def shot_signature(project, kind, target, base_image=None) -> str:
     if kind == "故事板":
-        first, last, _ = storyboard_job_page(project, target)
+        first, last, _ = storyboard_job_page(project, target, base_image)
         data = [asdict(shot) for shot in project.shots[first - 1:last]]
         for shot in data:
             shot.pop("plate")
@@ -64,15 +71,21 @@ def shot_signature(project, kind, target) -> str:
     return sha256(json.dumps([project.group, data], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def image_prompt(project, kind, target, mode) -> str:
+def image_prompt(project, kind, target, mode, base_image=None) -> str:
     lines = [GUIDANCE[kind], "成图为16:9，保留主体有效细节和完整画幅。"]
     if mode == EDIT:
         lines.append("在原图对应选区内完成以下修改，保持该处透视、光影和边缘一致。")
     if kind == "故事板":
-        first, last, _ = storyboard_job_page(project, target)
+        first, last, _ = storyboard_job_page(project, target, base_image)
         board_scope = f"本页镜号 {first:02d}–{last:02d}，仅将这 {last - first + 1} 镜排一张。"
         if project.rules != CHINESE or len(project.shots) != 10:
             board_scope = f"按已锁定的 {len(project.shots)} 镜排一张。"
+        if project.rules == CHINESE and mode == EDIT and base_image is not None:
+            ordinal, shot = shot_input(project, target)
+            if shot is None:
+                raise ValueError("请先选择批准板页中的返修镜头。")
+            first = last = ordinal
+            board_scope = f"只修改已批准板页的第 {ordinal:02d} 镜选区。保持页格、编号和其他镜头。"
         lines.insert(0, f"{project.group}，{board_scope}")
         for index, shot in enumerate(project.shots[first - 1:last], first):
             fields = ("景别", "机位/角度", "人物站位", "动作起止", "情绪/表演", "连续性")
@@ -85,7 +98,12 @@ def image_prompt(project, kind, target, mode) -> str:
         if shot:
             fields = ("景别", "机位/角度", "机位空间", "可见范围", "场景/环境", "连续性")
             details = "；".join(f"{key} {shot.fields[key]}" for key in fields if shot.fields.get(key))
-            lines.append(f"{project.group}-{ordinal:02d}，局部{ordinal:02d}，地点 {shot.scene}。{details}")
+            slot = f"局部{ordinal:02d}"
+            if base_image is not None and project.rules == CHINESE:
+                slot = next((cell["slot"] for sheet in project.layout.get("output", {}).get("sheets", [])
+                             if sheet["asset"] == base_image.id for cell in sheet.get("cells", [])
+                             if target in cell["shots"]), slot)
+            lines.append(f"{project.group}-{ordinal:02d}，{slot}，地点 {shot.scene}。{details}")
     return "\n".join(lines)
 
 
@@ -111,6 +129,32 @@ def checked_box(box, size):
     return tuple(box)
 
 
+def box_inside(box, outer):
+    return outer[0] <= box[0] < box[2] <= outer[2] and outer[1] <= box[1] < box[3] <= outer[3]
+
+
+def check_chinese_repair_target(project, image, kind, target, box):
+    if project.rules != CHINESE:
+        return
+    output = project.layout.get("output", {})
+    sheet = next((item for item in output.get("sheets", []) if item["asset"] == image.id), None)
+    if sheet is None:
+        formal_scene = image.id in output.get("chinese", {}).get("scene_views", [])
+        if formal_scene and kind != "场景":
+            raise ValueError("正打或反打的局部返修请选场景用途。")
+        return formal_scene
+    shots = windows_for_shots(project)
+    window_kind = {"故事板": "board", "净板": "plate"}.get(kind)
+    if window_kind == sheet["kind"] and target in shots:
+        asset, window = shots[target][window_kind]
+        if asset.id == image.id and box_inside(box, window):
+            return True
+    if kind == "场景" and any(cell["view"] and cell["view"][1] in {"main", "reverse"}
+                            and box_inside(box, cell["box"]) for cell in sheet.get("cells", [])):
+        return True
+    raise ValueError("请选择对应的故事板格、净板或正反打，将返修选区限制在一个已绑定窗口内。")
+
+
 def prepare_job(project, project_path, settings, mode, kind, target, prompt, references, box):
     if kind not in KINDS:
         raise ValueError("请选择候选图的实际用途。")
@@ -128,10 +172,13 @@ def prepare_job(project, project_path, settings, mode, kind, target, prompt, ref
             raise ValueError("请选择已填写地点和实际机位的目标镜头。")
         if mode != REFERENCE or not any("storyboard" in item.filename.lower() for item in sources):
             raise ValueError("生成净板需要选择批准故事板作为机位参考。")
+    base_image = None
     if mode == EDIT:
         if not sources:
             raise ValueError("请先选择要返修的批准原图，参考列表第一张是返修底图。")
-        box = checked_box(box, (sources[0].width, sources[0].height))
+        base_image = sources[0]
+        box = checked_box(box, (base_image.width, base_image.height))
+        check_chinese_repair_target(project, base_image, kind, target, box)
         if kind == "净板":
             _, shot = shot_input(project, target)
             if not shot or shot.plate != sources[0].id:
@@ -139,7 +186,7 @@ def prepare_job(project, project_path, settings, mode, kind, target, prompt, ref
     else:
         box = ()
     prompt = prompt.strip()
-    requirements = image_prompt(project, kind, target, mode)
+    requirements = image_prompt(project, kind, target, mode, base_image)
     if prompt and not prompt.startswith(requirements):
         prompt = requirements + "\n" + prompt
     elif not prompt:
@@ -147,7 +194,8 @@ def prepare_job(project, project_path, settings, mode, kind, target, prompt, ref
     job = {
         "id": identifier(), "time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": "submitting",
         "provider": settings.provider, "base": settings.base.rstrip("/"), "model": settings.model, "mode": mode,
-        "kind": kind, "shot": target if kind in {"净板", "故事板"} else "", "shot_signature": shot_signature(project, kind, target),
+        "kind": kind, "shot": target if kind in {"净板", "故事板"} else "",
+        "shot_signature": shot_signature(project, kind, target, base_image),
         "prompt": prompt, "references": [pin_asset(item) for item in sources], "box": list(box), "outputs": [],
     }
     return job, request_for_job(project, project_path, settings, job)
@@ -248,9 +296,9 @@ def local_patch(project, project_path, job, output, candidate_box=None):
         raise ValueError("此候选不属于局部编辑。")
     base_path = pinned_assets(project, project_path, job)[0][1]
     candidate = candidate_path(project_path, output["sha256"])
-    original, _, _ = picture(base_path.read_bytes())
     generated, _, _ = picture(candidate.read_bytes())
-    original = original.convert("RGBA")
+    with Image.open(base_path) as image:
+        original = image.convert("RGBA")
     generated = generated.convert("RGBA")
     area = checked_box(job["box"], original.size)
     if candidate_box is None:
@@ -269,25 +317,35 @@ def local_patch(project, project_path, job, output, candidate_box=None):
     result.paste(patch, area[:2])
     encoded = png_bytes(result, icc_profile=original.info.get("icc_profile"))
     reopened, _, _ = picture(encoded)
-    differences = ImageChops.difference(original, reopened).getbbox(alpha_only=False)
-    if differences is None:
-        raise ValueError("合成后实际像素无变化，请核对修改目标。")
-    x0, y0, x1, y1 = differences
-    if not (area[0] <= x0 < x1 <= area[2] and area[1] <= y0 < y1 <= area[3]):
-        raise ValueError("局部合成的像素差异超出批准选区。")
+    check_patch_pixels(original, reopened.convert("RGBA"), area)
     output.update(patch_sha=store_candidate(project_path, encoded), patch_source_box=list(candidate_box),
                   aligned=aligned, outside_pixels_equal=True)
+
+
+def check_patch_pixels(original, revised, area):
+    if original.size != revised.size:
+        raise ValueError("局部合成须保留批准底图尺寸。")
+    differences = ImageChops.difference(original, revised).getbbox(alpha_only=False)
+    if differences is None:
+        raise ValueError("合成后实际像素无变化，请核对修改目标。")
+    if not box_inside(differences, area):
+        raise ValueError("局部合成的像素差异超出批准选区。")
 
 
 def approve_candidate(project: ProductionProject, project_path: Path, job: dict, output_index: int,
                       filename: str, version: str, reason: str, inspection: str, *, replace_original=False):
     if job["status"] != "ready" or not 0 <= output_index < len(job["outputs"]):
         raise ValueError("请选择还待批准的候选图片。")
-    if job["shot_signature"] != shot_signature(project, job["kind"], job["shot"]):
-        raise ValueError("镜头或绑定场景已变化，请按当前资料核对后重新起草。")
     sources = pinned_assets(project, project_path, job)
     output = job["outputs"][output_index]
     editing = job["mode"] == EDIT
+    base_image = sources[0][0] if editing else None
+    if editing and project.rules == CHINESE and job["kind"] == "净板":
+        _, shot = shot_input(project, job["shot"])
+        if not shot or shot.plate != base_image.id:
+            raise ValueError("所选镜头的当前净板已变化，请重新选择返修底图。")
+    if job["shot_signature"] != shot_signature(project, job["kind"], job["shot"], base_image):
+        raise ValueError("镜头或绑定场景已变化，请按当前资料核对后重新起草。")
     digest = output.get("patch_sha", "") if editing else output["sha256"]
     if editing and not output.get("outside_pixels_equal"):
         raise ValueError("局部编辑需先生成合成图，并确认选区外像素核对。")
@@ -297,16 +355,22 @@ def approve_candidate(project: ProductionProject, project_path: Path, job: dict,
             raise ValueError(f"候选实际尺寸为 {image.width}×{image.height}。请先核对正式图的 16:9 版式。")
         if image.convert("RGBA").getchannel("A").getextrema()[0] != 255:
             raise ValueError("正式交付要求不透明实底。")
+        if editing:
+            area = checked_box(job["box"], (base_image.width, base_image.height))
+            formal_repair = check_chinese_repair_target(project, base_image, job["kind"], job["shot"], area)
+            if formal_repair and not replace_original:
+                raise ValueError("请用新版本替换同名现行图，保留原图和正式图格绑定。")
+            with Image.open(sources[0][1]) as base:
+                check_patch_pixels(base.convert("RGBA"), image.convert("RGBA"), area)
     filename = checked_name(filename.strip())
     if job["kind"] == "故事板":
-        first, last, name = storyboard_job_page(project, job["shot"])
+        first, last, name = storyboard_job_page(project, job["shot"], base_image)
         if not re.search(rf"storyboard.*(?<!\d){last-first+1}panel", filename, re.I):
             raise ValueError(f"故事板文件名需含实际页格数，例如 {name}。")
     if job["kind"] == "净板" and not any(token in filename.lower() for token in ("_details", "场景合辑", "scene_九图合并_")):
         raise ValueError("净板应使用包含 details 的正式场景文件名。")
     if not reason.strip() or not inspection.strip() or any(x in reason + inspection for x in "|\r\n"):
         raise ValueError("请填写单行处理理由和实际核图结果。")
-    base_image = sources[0][0] if editing else None
     if replace_original and (base_image is None or base_image.reference_only or base_image.filename != filename):
         raise ValueError("替换需选择同名的现行正式资产，并保留批准原图。")
     if replace_original and version.strip() == base_image.version:

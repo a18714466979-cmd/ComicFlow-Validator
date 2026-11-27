@@ -76,7 +76,9 @@ def run_inside_launcher():
             yield from walk(child, kind)
 
     def click(root, title):
-        button = next(widget for widget in walk(root, ttk.Button) if widget.cget("text") == title)
+        root.update_idletasks()
+        matches = [widget for widget in walk(root, ttk.Button) if widget.cget("text") == title]
+        button = next((widget for widget in matches if widget.winfo_ismapped()), matches[0])
         assert button.instate(["!disabled"]), title
         button.invoke()
 
@@ -233,11 +235,18 @@ def run_inside_launcher():
             project = ProductionProject("中文十格", "EP01", "SB01", rules=CHINESE)
             source = project.import_source("批准片段.md", "R1", "灯灭后，转到北侧廊道观察。")
             project.notes.update({"分组状态": "常规", "对白规格": "无对白", "覆盖段落": "合成样例",
-                                  "本组进入状态": "门关着", "本组退出状态": "灯灭", "连续性锁定": "保持门灯位置"})
+                                  "本组进入状态": "门关着", "本组退出状态": "灯灭", "连续性锁定": "保持门灯位置",
+                                  "组间镜头衔接核对": "前段先看门，后段换走廊",
+                                  "景别衔接核对": "先交代门位置，再到各设备",
+                                  "主角判定": "建筑与设施，无人物或角色型实体",
+                                  "武器轴线核对": "无", "镜头节奏核对": "先看门再转走廊",
+                                  "空间合理性核对": "以门框和墙灯为锚点",
+                                  "群像差异化核对": "无群像", "追击节奏核对": "无追击"})
             project.prompt = {"场景/总体状态": "南厅与北廊", "公共限制": "保持两个独立场景"}
             for index in range(10):
-                project.shots.append(Shot(source=source.id, anchor=f"观察 {index+1}",
-                                          fields=dict.fromkeys(SHOT_FIELDS, "本镜环境示意")))
+                fields = dict.fromkeys(SHOT_FIELDS, "本镜环境示意")
+                fields["唯一角色数量锁定"] = "无"
+                project.shots.append(Shot(source=source.id, anchor=f"观察 {index+1}", fields=fields))
             attach_chinese_layout(project, path, folder, distinct=2)
             project.save(path)
             filedialog.askopenfilename = lambda **_kwargs: str(path)
@@ -276,6 +285,33 @@ def run_inside_launcher():
             assert "场景资产模式：多场景局部" in text
             assert "SB01-07 | storyboard_02_4panel" in text and "最终总图数=4" in text
             print("Verified Chinese 6+4 storyboard tabs and multi-scene PNG/TXT export through Tk", flush=True)
+
+            def inspect_delivery():
+                review = next(walk(dialog, tk.Toplevel))
+                shots = next(walk(review, ttk.Combobox))
+                assert shots.get() == "SB01 / SB01-01"
+                shots.current(5)
+                shots.event_generate("<<ComboboxSelected>>")
+                click(review, "下一镜")
+                assert shots.get() == "SB01 / SB01-07"
+                review.destroy()
+
+            self.after(100, inspect_delivery)
+            click(dialog, "正式交付预览")
+            original = messagebox.askyesno
+            try:
+                messagebox.askyesno = lambda *_args, **_kwargs: True
+                click(dialog, "确认本版画面")
+            finally:
+                messagebox.askyesno = original
+            archive = folder / "中文正式交付.zip"
+            filedialog.asksaveasfilename = lambda **_kwargs: str(archive)
+            click(dialog, "验收并导出 ZIP")
+            with ZipFile(archive) as exported:
+                assert exported.testzip() is None
+                assert "README.txt" in exported.namelist()
+                assert "SB01/SD2_prompt.txt" in exported.namelist()
+            print("Verified Chinese strict single ZIP publish through Tk with the fixture validator", flush=True)
 
         def inspect_chinese_report(self):
             table = next(walk(self, ttk.Treeview))

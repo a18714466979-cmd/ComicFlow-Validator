@@ -175,15 +175,17 @@ class ProductionDialog:
     def setup_delivery(self, page):
         forms = ttk.Frame(page)
         forms.pack(fill="x")
+        common = ttk.Frame(forms)
+        common.pack(fill="x")
         self.english_delivery = ttk.Frame(forms)
         self.chinese_delivery = ttk.Frame(forms)
         form = ttk.Frame(self.english_delivery)
         form.pack(fill="x")
         self.baseline, self.exception = (tk.StringVar(self.window) for _ in range(2))
-        for row, (caption, value, pattern) in enumerate((("原包比对（可选）", self.baseline, "*.zip"),
-                                                         ("批准格数例外（可选）", self.exception, "*.json"))):
-            field(form, row, caption, value)
-            ttk.Button(form, text="浏览", command=lambda v=value, p=pattern: self.choose(v, p)).grid(row=row, column=2, padx=5)
+        field(common, 0, "原包比对（可选）", self.baseline)
+        ttk.Button(common, text="浏览", command=lambda: self.choose(self.baseline, "*.zip")).grid(row=0, column=2, padx=5)
+        field(form, 0, "批准格数例外（可选）", self.exception)
+        ttk.Button(form, text="浏览", command=lambda: self.choose(self.exception, "*.json")).grid(row=0, column=2, padx=5)
         bar = ttk.Frame(self.english_delivery)
         bar.pack(fill="x", pady=8)
         self.buttons(bar, ("对白与图数预检", self.preflight), ("生成逐格复核预览", self.preview),
@@ -193,7 +195,11 @@ class ProductionDialog:
         text_bar.pack(fill="x", pady=5)
         self.buttons(text_bar, ("预览两份 TXT", self.preview_chinese_text), ("导出两份 TXT", self.export_chinese_text))
         self.buttons(text_bar, ("逐格复核排版", self.review_chinese_layout), ("导出排版图与 TXT", self.export_chinese_layout))
-        ttk.Label(self.chinese_delivery, text="在「排版与交接」绑定与确认图片，再逐格核对板页、净板和两份 TXT。").pack(anchor="w")
+        delivery_bar = ttk.Frame(self.chinese_delivery)
+        delivery_bar.pack(fill="x", pady=(0, 5))
+        self.buttons(delivery_bar, ("正式交付预览", self.preview), ("确认本版画面", self.confirm),
+                     ("验收并导出 ZIP", self.publish))
+        ttk.Label(self.chinese_delivery, text="先核对正式交付预览，再用中文版校验脚本验收并导出 ZIP。").pack(anchor="w")
         self.report = self.editor(page, 18)
         self.report.pack(fill="both", expand=True, pady=(5, 0))
 
@@ -596,9 +602,6 @@ class ProductionDialog:
         self.refresh()
 
     def show_impacts(self):
-        if self.rules == CHINESE:
-            write_text(self.report, "可预览或导出文字稿。确认排版后可逐格复核并保存图文。")
-            return
         impacts = self.project.impacts()
         write_text(self.report, "当前版本需复核\n" + "\n".join(impacts) if impacts else "已确认本版画面，可发起严格验收。")
 
@@ -677,7 +680,7 @@ class ProductionDialog:
         if not value:
             return
         baseline = self.baseline.get().strip()
-        exception = self.exception.get().strip()
+        exception = self.exception.get().strip() if self.rules == ENGLISH else ""
         self.window.configure(cursor="watch")
         self.status.set("正在严格验收交付包…")
         self.window.update_idletasks()

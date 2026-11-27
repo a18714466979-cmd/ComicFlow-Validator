@@ -95,6 +95,10 @@ def bind_window(project, project_path, shot_id, kind, image_id, region=None):
     if image is None:
         raise ValueError("请选择已批准的原图。")
     name = image.filename.lower()
+    repins = project.layout.get("rebind", {})
+    if region is None and project.rules == CHINESE and kind == "plate" and kind in repins.get(shot_id, []):
+        region = next((sheet["slots"][shot_id] for sheet in project.layout.get("output", {}).get("sheets", [])
+                       if sheet["asset"] == image.id and sheet["kind"] == kind and shot_id in sheet["slots"]), None)
     if kind == "plate" and any(token in name for token in ("storyboard", "_main_", "_reverse_")):
         raise ValueError("逐镜净板须使用批准的同用途净板。")
     if kind == "plate" and "scene_九图合并_" in name:
@@ -121,7 +125,6 @@ def bind_window(project, project_path, shot_id, kind, image_id, region=None):
     box = (x, y, x + 16 * units, y + 9 * units)
     row = project.layout.setdefault("inputs", {}).setdefault(shot_id, {})
     row[kind] = {"image": image.id, "sha256": image.digest, "box": list(box)}
-    repins = project.layout.get("rebind", {})
     if kind in repins.get(shot_id, []):
         repins[shot_id].remove(kind)
         if not repins[shot_id]:
@@ -580,7 +583,13 @@ def overlap(first, second):
 
 
 def replace_laid_out_asset(project, original, revised, edited_box):
-    for sheet in project.layout.get("output", {}).get("sheets", []):
+    output = project.layout.get("output", {})
+    chinese = output.get("chinese", {})
+    if original.id in chinese.get("scene_views", []):
+        if (original.width, original.height) != (revised.width, revised.height):
+            raise ValueError("局部返修后的场景图须保留原画布大小。")
+        chinese["scene_views"] = [revised.id if asset == original.id else asset for asset in chinese["scene_views"]]
+    for sheet in output.get("sheets", []):
         if sheet["asset"] != original.id:
             continue
         if (original.width, original.height) != (revised.width, revised.height):

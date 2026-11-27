@@ -65,6 +65,8 @@ class LayoutDialog:
                     "常规场景从已批准的 scene_地点_main_16x9 和 scene_地点_reverse_16x9 读取完整画面。"
                     if self.chinese else
                     "选择镜头，再绑定已批准的黑白板格和同机位彩色净板。可用整图或已有同用途图内的实际窗口。")
+        if self.chinese and any("plate" in kinds for kinds in self.project.layout.get("rebind", {}).values()):
+            guidance += " 如需重排已返修的净板，请选该正式净板，在受影响的镜头上按「绑定整图」恢复原窗口。"
         ttk.Label(page, text=guidance,
                   wraplength=960).pack(anchor="w")
         self.rows = self.production.table(page, ("镜头", "来源", "黑白板格", "彩色净板", "箭头"), (105, 185, 260, 260, 65))
@@ -114,9 +116,7 @@ class LayoutDialog:
         files = ttk.Frame(page)
         files.pack(fill="x")
         self.buttons(files, ("载入下一组", self.load_next), ("对照前末后首", self.compare_boundary),
-                     ("确认本处交接", self.approve_boundary))
-        if not self.chinese:
-            self.buttons(files, ("导出相邻组 ZIP", self.batch))
+                     ("确认本处交接", self.approve_boundary), ("导出相邻组 ZIP", self.batch))
         work = ttk.Frame(page)
         work.pack(fill="x", pady=8)
         self.buttons(work, ("暂存所选及后续镜头", self.defer), ("恢复本组待制作", self.restore),
@@ -351,8 +351,7 @@ class LayoutDialog:
             return
         confirm_boundary(self.project, right, self.planner(), review)
         self.save()
-        self.report_text("跨组交接已记录。\n\n" + review if self.chinese else
-                         "跨组交接已确认。两组分别确认正式画面后，可导出相邻组 ZIP。\n\n" + review)
+        self.report_text("跨组交接已确认。两组分别确认正式画面后，可导出相邻组 ZIP。\n\n" + review)
 
     def batch(self):
         groups = self.projects()

@@ -8,14 +8,14 @@ from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
 from .production_dialogue import handoff_rows
-from .production_handoff import active_scope, adjacent, pending_record, reviewed_boundary
+from .production_handoff import active_scope, adjacent, boundary_report, pending_record, reviewed_boundary
 from .production_images import provenance_rows
 from .production_layout import exact_box, mark_ledger, overlap, valid_box, windows_for_shots
 from .production_project import (
-    CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
+    CHINESE_CHARACTER_FIELDS, CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
     PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
 )
-from .production_rules import CHINESE, ENGLISH
+from .production_rules import CHINESE
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import CHINESE_SPEECH_LIMIT, IMAGE_LIMIT, chinese_speech_length, plan_dialogue
 
@@ -25,6 +25,10 @@ LANGUAGE = "成片中的画面文字、字幕、标牌和 HUD 禁止中文，仅
 CHINESE_LANGUAGE = "成片字幕、标牌、UI/HUD、系统提示和拟声字允许中文，按本剧已批准文案呈现。参考标签仅用于制作定位。"
 MARKS = "故事板的彩色辅助线、箭头、序号和图例仅作动作参考，不得出现在成片中。"
 PRODUCTION_SHOT_FIELDS = tuple(key for key in SHOT_FIELDS if key not in OPTIONAL_SHOT_FIELDS)
+CHINESE_REQUIRED_REVIEWS = (
+    "组间镜头衔接核对", "景别衔接核对", "主角判定", "武器轴线核对",
+    "镜头节奏核对", "空间合理性核对", "群像差异化核对", "追击节奏核对",
+)
 
 
 def format_fields(values: dict[str, str], fields: tuple[str, ...], optional=()) -> str:
@@ -207,7 +211,7 @@ def chinese_layout_fields(project):
     return values
 
 
-def chinese_text_records(project: ProductionProject) -> dict[str, str]:
+def chinese_text_records(project: ProductionProject, *, layout_fields=None) -> dict[str, str]:
     """Prepare the standalone text files before image layout and package review."""
     project.check_identity()
     if project.rules != CHINESE or not project.sources:
@@ -233,7 +237,8 @@ def chinese_text_records(project: ProductionProject) -> dict[str, str]:
         record, prompt = shot_records(shot, f"{group}-{ordinal:02d}", dialogue, sources)
         production.append(record)
         sd2.append(prompt)
-    if layout := chinese_layout_fields(project):
+    layout = chinese_layout_fields(project) if layout_fields is None else layout_fields
+    if layout:
         production.append(format_fields(layout, tuple(layout)))
     files = {f"{group}_shot_details.txt": "\n\n".join(production) + "\n",
              "SD2_prompt.txt": "\n\n".join(sd2) + "\n"}
@@ -292,13 +297,115 @@ def preview_chinese_layout(project: ProductionProject, project_path: Path, direc
     return preview
 
 
+def register_project_assets(project, project_path, registry_path):
+    registry = AssetRegistry(registry_path, create=True)
+    references, locations = {}, {}
+    for image in project.images:
+        source = project.checked_image(project_path, image)
+        registered = registry.register(source, image.id, image.version, image.origin)
+        if registered.sha256 != image.digest:
+            raise ValueError(f"{image.filename} 在登记期间发生变化，请重新核对批准原图。")
+        references[image.id] = f"asset:{registered.identifier}@{registered.version}"
+        locations[image.id] = source
+    return references, locations
+
+
+def asset_records(images, references, storyboard_files):
+    reuse, inspections = [], []
+    for image in images:
+        if not image.inspection or any(char in image.inspection for char in "|\r\n"):
+            raise ValueError(f"{image.filename} 请填写实际核图结果。")
+        if image not in storyboard_files:
+            if not image.reason or any(char in image.reason for char in "|\r\n"):
+                raise ValueError(f"{image.filename} 请说明该文件的实际处理理由。")
+            if image.action == "新生成":
+                origin = "无"
+            else:
+                ids = image.originals or [image.id]
+                if not all(identity in references for identity in ids):
+                    raise ValueError(f"{image.filename} 缺少对应的批准来源。")
+                origin = "；".join(references[item] for item in ids)
+            reuse.append(f"- {image.filename} | {image.action} | {origin} | {image.reason}")
+        inspections.append(f"- {image.filename} | {image.width}x{image.height} | {image.inspection}")
+    return reuse, inspections
+
+
+def chinese_character_notes(project, images):
+    notes = project.notes
+    missing = [key for key in CHINESE_REQUIRED_REVIEWS if not notes.get(key, "").strip()]
+    if missing:
+        raise ValueError(f"{project.group} 严格交付前请填写「{'、'.join(missing)}」。")
+    no_characters = all(shot.fields.get("唯一角色数量锁定", "").strip() == "无" for shot in project.shots)
+    no_character_verdict = any(term in notes["主角判定"] for term in ("无角色型实体", "无人物或角色型实体", "纯场景"))
+    if no_characters != no_character_verdict:
+        raise ValueError(f"{project.group} 主角判定与实际逐镜人物数量锁定不一致。")
+    character_fields = {field: notes.get(field, "").strip() for field in CHINESE_CHARACTER_FIELDS}
+    if no_characters:
+        if any(value not in ("", "无") for value in character_fields.values()) or any(
+            re.search(r"protagonist|main_characters?|other_characters|主角|其他人物", image.filename, re.I) for image in images
+        ):
+            raise ValueError(f"{project.group} 纯场景记录与批准人物图不一致。")
+        return dict.fromkeys(CHINESE_CHARACTER_FIELDS, "无")
+    if any(character_fields.get(field) in ("", "无") for field in (
+        "主角清单", "主角资产映射", "人物资产核对", "人物资产分表",
+    )):
+        raise ValueError(f"{project.group} 请填写本组主角清单、映射、人物资产核对和分表。")
+    if not character_fields["其他人物合集"]:
+        raise ValueError(f"{project.group} 请填写实际其他人物合集。没有时填「无」。")
+    character_fields["混合人物资产映射"] = character_fields["混合人物资产映射"] or "无"
+    return character_fields
+
+
+def build_chinese_delivery(project, project_path, folder, registry_path, *, write_root):
+    layout = chinese_layout_fields(project)
+    if not layout:
+        raise ValueError("中文项目的交付模板需要先确认本组故事板和净板排版。")
+    files = chinese_text_records(project, layout_fields=layout)
+    pending = files.pop("待制作分镜.txt", "")
+    images = [image for image in project.images if not image.reference_only]
+    character_notes = chinese_character_notes(project, images)
+    references, locations = register_project_assets(project, project_path, registry_path)
+    storyboards = [image for image in images if "storyboard" in image.filename.lower()]
+    reuse, inspections = asset_records(images, references, storyboards)
+    approved = "；".join(image.filename for image in images if image.action != "新生成") or "无"
+    generated = "；".join(image.filename for image in images if image.action == "新生成") or "无"
+    archive = "；".join(image.filename for image in project.images if image.reference_only) or "无"
+    inventory = f"- 复用及规范排版资产：{approved}\n- 独立新生成资产：{generated}\n- 仅参考资料：{archive}"
+    group = project.group
+    details = f"{group}_shot_details.txt"
+    supplemental = [format_fields(character_notes, tuple(character_notes)), f"资产清单：\n{inventory}",
+                    "资产复用核对：\n" + "\n".join(reuse), "图像验收记录：\n" + "\n".join(inspections)]
+    if jobs := provenance_rows(project, images):
+        supplemental.append("图像生成和返修来源：\n" + "\n".join(jobs))
+    files[details] += "\n" + "\n\n".join(supplemental) + "\n"
+    folder.mkdir(parents=True, exist_ok=True)
+    write_chinese_outputs(folder / group, files, [(image, locations[image.id]) for image in images])
+
+    sources = {source.id: source for source in project.sources}
+    slots = [row.split("|")[2].strip() for row in layout["场景局部对应表"].splitlines()]
+    shot_rows = []
+    for number, (shot, slot) in enumerate(zip(project.shots, slots), 1):
+        source = sources[shot.source]
+        shot_rows.append(f"- {group}-{number:02d} | {shot.id} | {source.name} {source.version} | {shot.anchor} | {slot}")
+    readme = (
+        f"{project.name} · {project.episode}\n制作规则：{project.rules}\n组号：{group}\n"
+        f"镜头数：{len(project.shots)}\n图片数：{len(images)}\n本组进入状态：{project.notes['本组进入状态']}\n"
+        f"本组退出状态：{project.notes['本组退出状态']}\n镜头与来源：\n" + "\n".join(shot_rows) + "\n"
+    )
+    if write_root:
+        write_summary(folder, readme, pending, len(project.pending_shots))
+    return readme, pending
+
+
 def build_delivery(project: ProductionProject, project_path: Path, folder: Path, validator: Path,
                    registry_path: Path, *, write_root=True):
     project.check_identity()
-    if project.rules != ENGLISH:
-        raise ValueError("中文项目的交付模板已开放文字稿，正式图像 ZIP 需完成中文排版后启用。")
     if not project.name.strip() or not project.episode.strip() or not project.sources or not project.shots:
+        if project.rules == CHINESE:
+            raise ValueError("中文项目的交付模板需要完整的项目名、集次、批准剧本和镜头。")
         raise ValueError("完整组需要项目名、集次、批准剧本和镜头。")
+    if project.rules == CHINESE:
+        return build_chinese_delivery(project, project_path, folder, registry_path, write_root=write_root)
     images = [image for image in project.images if not image.reference_only]
     if len(images) > IMAGE_LIMIT:
         raise ValueError(f"本组将交付 {len(images)} 张 PNG，超过九图上限。")
@@ -356,30 +463,12 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
             board_position, plate_position = (",".join(map(str, box)) for box in (board_box, plate_box))
             window_rows.append(f"- {name} | {board.filename} | {board_position} | {plate.filename} | {plate_position}")
 
-    registry = AssetRegistry(registry_path, create=True)
-    references = {}
-    image_locations = {}
-    for image in project.images:
-        path = project.checked_image(project_path, image)
-        registered = registry.register(path, image.id, image.version, image.origin)
-        references[image.id] = f"asset:{registered.identifier}@{registered.version}"
-        image_locations[image.id] = path
+    references, image_locations = register_project_assets(project, project_path, registry_path)
 
     group_folder = folder / group_id
     group_folder.mkdir(parents=True)
-    reuse, inspections = [], []
+    reuse, inspections = asset_records(images, references, storyboard_files)
     for image in images:
-        if not image.inspection or any(char in image.inspection for char in "|\r\n"):
-            raise ValueError(f"{image.filename} 请填写实际核图结果。")
-        if image not in storyboard_files:
-            if not image.reason or any(char in image.reason for char in "|\r\n"):
-                raise ValueError(f"{image.filename} 请说明该文件的实际处理理由。")
-            if image.action == "新生成":
-                origin = "无"
-            else:
-                origin = "；".join(references[item] for item in (image.originals or [image.id]))
-            reuse.append(f"- {image.filename} | {image.action} | {origin} | {image.reason}")
-        inspections.append(f"- {image.filename} | {image.width}x{image.height} | {image.inspection}")
         target = group_folder / image.filename
         copyfile(image_locations[image.id], target)
         if sha256_file(target) != image.digest:
@@ -425,6 +514,8 @@ def preview_project(project: ProductionProject, project_path: Path, validator: P
 
 def publish_project(project: ProductionProject, project_path: Path, validator: Path, output: Path,
                     baseline: Path | None = None, panel_exception: Path | None = None):
+    if project.rules == CHINESE and panel_exception is not None:
+        raise ValueError("中文制作使用自身的篇末格数规则。")
     if project.impacts():
         raise ValueError("请逐格核对当前镜头顺序和图像布局，再确认本版本画面。")
     with TemporaryDirectory(prefix="comicflow-production-") as temporary:
@@ -440,6 +531,12 @@ def build_batch(groups, folder, validator, registry):
         if index:
             previous = groups[index - 1][0]
             adjacent(previous, project)
+            if project.rules == CHINESE:
+                if previous.notes.get("分组状态", "").strip() == "整集尾组":
+                    raise ValueError(f"{previous.group} 后仍有正式组，请核对整集尾组状态。")
+                _, issues = boundary_report(previous, project, None)
+                if issues:
+                    raise ValueError("\n".join(issues))
             if reviewed_boundary(previous, project):
                 boundaries.append(f"{previous.group} → {project.group}\n{previous.handoffs[project.group]['review']}")
         summary, pending = build_delivery(project, path, folder, validator, registry, write_root=False)
