@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageOps, ImageTk
 
 from .ui_language import translate
-from .image_api import EDIT, IMAGE_PROVIDERS, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
+from .image_api import EDIT, IMAGE_PROVIDERS, REFERENCE, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
 from .production_dialog import field, write_text
 from .production_images import (
     KINDS, STATUS, approve_candidate, candidate_path, image_prompt, job_request_prompt, local_patch, pinned_assets,
@@ -21,10 +21,12 @@ from .shot_review import pixel_selection
 
 
 class ImageProductionDialog:
-    def __init__(self, production, session):
+    def __init__(self, production, session, *, kind="角色", reference_id="", reference_kind=""):
         self.production, self.session = production, session
         self.project, self.path = production.project, production.path
         self.busy = False
+        self.reference_id = reference_id
+        self.reference_kind = reference_kind
         self.window = tk.Toplevel(production.window)
         self.window.title(translate(self.window, "ComicFlow 图像制片"))
         self.window.geometry("1060x790")
@@ -38,8 +40,10 @@ class ImageProductionDialog:
         form, history = (ttk.Frame(self.tabs, padding=9) for _ in range(2))
         self.tabs.add(form, text=translate(self.tabs, "新建生图任务"))
         self.tabs.add(history, text=translate(self.tabs, "候选与任务"))
-        self.setup_form(form)
+        self.setup_form(form, kind)
         self.setup_history(history)
+        if reference_id:
+            self.select_imported_reference()
 
     def close(self):
         if self.busy:
@@ -57,7 +61,7 @@ class ImageProductionDialog:
         for title, action in entries:
             ttk.Button(bar, text=translate(bar, title), command=lambda run=action: self.run(run)).pack(side="left", padx=(0, 6))
 
-    def setup_form(self, page):
+    def setup_form(self, page, kind):
         config = ttk.Frame(page)
         config.pack(fill="x")
         self.provider = tk.StringVar(self.window, next(reversed(self.session), next(iter(IMAGE_PROVIDERS))))
@@ -77,7 +81,7 @@ class ImageProductionDialog:
         self.mode_picker.bind("<<ComboboxSelected>>", self.update_scope)
         self.kind_picker = field(config, 6, "候选用途", tk.StringVar(self.window),
                                  tuple(translate(config, kind) for kind in KINDS))
-        self.kind_picker.current(0)
+        self.kind_picker.current(KINDS.index(kind))
         self.kind_picker.bind("<<ComboboxSelected>>", self.update_scope)
         target_label = "目标镜头／故事板页" if self.project.rules == CHINESE else "净板目标镜头"
         self.shot_picker = field(config, 7, target_label, self.target, ())
@@ -116,6 +120,20 @@ class ImageProductionDialog:
         self.refresh_refs()
         self.pick_provider()
         self.fill_prompt()
+
+    def select_imported_reference(self):
+        if REFERENCE not in self.modes:
+            alternatives = dict.fromkeys((*reversed(self.session), *IMAGE_PROVIDERS))
+            provider = next(name for name in alternatives if REFERENCE in IMAGE_PROVIDERS[name].modes)
+            self.provider.set(provider)
+            self.pick_provider()
+        self.mode_picker.current(self.modes.index(REFERENCE))
+        self.update_scope()
+        index = next(index for index, item in enumerate(self.ref_images) if item.id == self.reference_id)
+        self.refs.selection_set(index)
+        self.refs.see(index)
+        self.fill_prompt()
+        self.status.set(translate(self.window, "已带入设计参考。可在预览中检查参考图和提示词。"))
 
     def setup_history(self, page):
         top = ttk.Frame(page)
@@ -206,9 +224,12 @@ class ImageProductionDialog:
         if self.mode() == TEXT:
             return []
         selected = [self.ref_images[index] for index in self.refs.curselection()]
-        index = self.base_reference.current()
-        if self.mode() == EDIT and index >= 0:
-            selected.insert(0, selected.pop(index))
+        if self.mode() == EDIT:
+            index = self.base_reference.current()
+            if index >= 0:
+                selected.insert(0, selected.pop(index))
+        elif self.reference_id:
+            selected.sort(key=lambda item: item.id != self.reference_id)
         return selected
 
     def selected_shot(self):
@@ -244,9 +265,15 @@ class ImageProductionDialog:
 
     def prepare(self, references, *, preview=False):
         settings = self.settings()
+        prompt = self.prompt.get("1.0", "end-1c")
+        if self.mode() == REFERENCE and references and references[0].id == self.reference_id:
+            note = ("第一张参考图仅指定服装的版型、层次、颜色和面料，保留目标角色身份。"
+                    if self.reference_kind == "costume" else
+                    "第一张参考图仅指定人物动作、重心、朝向和机位，按目标角色的正式资产生成。")
+            prompt += "\n" + note
         job, request = prepare_job(self.project, self.path, settings, self.mode(), self.kind(),
-                                   self.selected_shot(), self.prompt.get("1.0", "end-1c"),
-                                   [item.id for item in references], self.region or (), preview=preview)
+                                   self.selected_shot(), prompt, [item.id for item in references],
+                                   self.region or (), preview=preview)
         return settings, job, request
 
     def summary(self, job, *, request_url="", request_prompt=""):

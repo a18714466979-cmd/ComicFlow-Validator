@@ -83,6 +83,12 @@ def run_inside_launcher():
         assert button.instate(["!disabled"]), title
         button.invoke()
 
+    def show_page(root, index):
+        navigation = next(walk(root, ttk.Notebook))
+        navigation.select(index)
+        root.update_idletasks()
+        return navigation.nametowidget(navigation.select())
+
     def fail(reason):
         print(reason, file=sys.stderr, flush=True)
         faulthandler.dump_traceback()
@@ -122,6 +128,9 @@ def run_inside_launcher():
             if mode == "api-settings":
                 self.inspect_api_settings()
                 return
+            if mode == "new-tools":
+                self.inspect_new_tools()
+                return
             if mode == "mode-switch":
                 self.inspect_mode_switch(validator)
                 return
@@ -138,6 +147,7 @@ def run_inside_launcher():
                 self.after(100, self.inspect_file_only)
                 return
             if mode == "empty":
+                show_page(self, 1)
                 click(self, "浏览")
                 assert field.get() == archive
             click(self, "开始验收")
@@ -157,10 +167,9 @@ def run_inside_launcher():
                 return field
 
             assert any("Seedance 2.0" in widget.cget("text") for widget in walk(self, tk.Label))
-            click(self, "API 设置")
-            settings = next(walk(self, tk.Toplevel))
-            assert settings.title() == "ComicFlow API 设置"
-            tabs = next(walk(settings, ttk.Notebook))
+            navigation = next(walk(self, ttk.Notebook))
+            assert [navigation.tab(i, "text") for i in range(3)] == ["故事板制作", "检查验收", "API 接入"]
+            tabs = next(walk(show_page(self, 2), ttk.Notebook))
             assert [tabs.tab(i, "text") for i in range(3)] == ["文本创作", "AI 审图", "图像生成"]
             text, vision, image = (tabs.nametowidget(tab) for tab in tabs.tabs())
             key = "synthetic-shared-provider-key"
@@ -196,15 +205,15 @@ def run_inside_launcher():
             enter(image, "模型 ID", "image-generation-test")
             enter(image, "API Key", "synthetic-image-key")
             click(image, "保存本次设置")
-            click(settings, "关闭")
 
             click(self, "中文 / English")
-            click(self, "API settings")
-            settings = next(walk(self, tk.Toplevel))
-            tabs = next(walk(settings, ttk.Notebook))
+            assert [navigation.tab(i, "text") for i in range(3)] == [
+                "Storyboard production", "Inspection & validation", "API connections",
+            ]
             assert [tabs.tab(i, "text") for i in range(3)] == ["Text drafting", "AI image review", "Image generation"]
-            click(settings, "Close")
+            assert input_field(image, "Model ID").get() == "image-generation-test"
             click(self, "中文 / English")
+            show_page(self, 0)
 
             ProductionProject("API smoke test", "EP01", "SB01").save(project_path)
             original_picker = filedialog.askopenfilename
@@ -225,6 +234,7 @@ def run_inside_launcher():
                 self.after(60, lambda: check_panel(project, "图像模型 ID", "image-generation-test", "synthetic-image-key"))
                 click(project, "图像制片")
                 project.destroy()
+                show_page(self, 1)
                 click(self, "开始验收")
                 self.after(100, check_review)
 
@@ -249,6 +259,104 @@ def run_inside_launcher():
 
             self.after(120, check_project_tools)
 
+        def inspect_new_tools(self):
+            from src.production_project import ProductionProject
+
+            parent = project_path.parent
+            draft = parent / "本地剧本草稿.md"
+            reference_png = parent / "动作参考.png"
+            Image.new("RGB", (640, 360), "tan").save(reference_png)
+            show_page(self, 0)
+            click(self, "剧本创作")
+            script = next(walk(self, tk.Toplevel))
+            assert script.title() == "剧本创作"
+            next(walk(script, tk.Text)).insert("1.0", "场景一：灯亮了。")
+            filedialog.asksaveasfilename = lambda **_kwargs: str(draft)
+            click(script, "另存左侧稿件")
+            assert draft.read_text(encoding="utf-8") == "场景一：灯亮了。"
+            click(script, "关闭")
+            click(self, "资产分析")
+            analysis = next(walk(self, tk.Toplevel))
+            assert analysis.title() == "资产分析"
+            filedialog.askopenfilename = lambda **_kwargs: str(draft)
+            click(analysis, "导入 TXT / Markdown")
+            assert next(walk(analysis, tk.Text)).get("1.0", "end-1c").strip() == "场景一：灯亮了。"
+            click(analysis, "关闭")
+            print("Verified offline script drafting and the asset analysis entry", flush=True)
+
+            ProductionProject("服装动作试用", "EP01", "SB01").save(project_path)
+            def open_reference(button):
+                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
+                click(self, button)
+                self.after(150, lambda: use_reference(button))
+
+            def use_reference(button):
+                project = next(walk(self, tk.Toplevel))
+                chooser = next(walk(project, tk.Toplevel))
+                costume = button == "角色服装设计"
+                assert chooser.title() == button
+                if costume:
+                    gallery = next(walk(chooser, tk.Listbox))
+                    assert gallery.size() == 5
+                else:
+                    filedialog.askopenfilename = lambda **_kwargs: str(reference_png)
+                    click(chooser, "导入本地参考图")
+                self.after(80, lambda: check_image_job(project, costume))
+                click(chooser, "使用参考图进入生图")
+                project.destroy()
+                if costume:
+                    open_reference("角色动作设计")
+                else:
+                    verify_reference_files()
+
+            def check_image_job(project, costume):
+                image_job = next(walk(project, tk.Toplevel))
+                assert image_job.title() == "ComicFlow 图像制片"
+                assert any(widget.get() == "参考图生图" for widget in walk(image_job, ttk.Combobox))
+                refs = next(walk(image_job, tk.Listbox))
+                assert len(refs.curselection()) == 1
+                def preview():
+                    window = next(walk(image_job, tk.Toplevel))
+                    payload = next(walk(window, tk.Text)).get("1.0", "end-1c")
+                    assert ("仅指定服装" if costume else "仅指定人物动作") in payload
+                    window.destroy()
+
+                self.after(80, preview)
+                click(image_job, "预览本次发送")
+                image_job.destroy()
+
+            def verify_reference_files():
+                saved = ProductionProject.open(project_path)
+                assert len(saved.images) == 2 and all(image.reference_only for image in saved.images)
+                assert saved.checked_image(project_path, saved.images[-1]).read_bytes() == reference_png.read_bytes()
+                assert not saved.image_jobs
+                show_page(self, 1)
+                filedialog.askopenfilename = lambda **_kwargs: str(reference_png)
+                click(self, "图片大小与比例")
+                check = next(walk(self, tk.Toplevel))
+                click(check, "选择本地图片")
+                assert any("640 × 360 px · 16:9" in self.getvar(variable) for widget in walk(check, ttk.Label)
+                           if (variable := widget.cget("textvariable")))
+                check.destroy()
+                click(self, "开始验收")
+                self.after(150, verify_cut)
+
+            def verify_cut():
+                selector = next(walk(self, ttk.Combobox))
+                if not selector["values"]:
+                    self.after(100, verify_cut)
+                    return
+                click(self, "景别机位与格间衔接")
+                review = next(walk(self, tk.Toplevel))
+                pair = next(walk(review, ttk.Combobox))
+                assert "SB01-01 → SB01-02" in pair.get()
+                review.destroy()
+                print("Verified costume and 3D reference handoff, picture facts and adjacent-cut review", flush=True)
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.destroy()
+
+            open_reference("角色服装设计")
+
         def inspect_mode_switch(self, validator):
             from src.production_project import ProductionProject
             from src.production_rules import CHINESE
@@ -270,6 +378,7 @@ def run_inside_launcher():
             chinese.invoke()
             assert Path(validator.get()).resolve() == scripts[1].resolve()
 
+            show_page(self, 0)
             click(self, "单组制片")
             dialog = next(walk(self, tk.Toplevel))
             filedialog.asksaveasfilename = lambda **_kwargs: str(project_path)
@@ -301,8 +410,9 @@ def run_inside_launcher():
             assert next(walk(self, ttk.Entry)).get() == archive
             self.geometry("900x700")
             self.update_idletasks()
-            home_actions = ("Plan shots", "Prepare assets", "Arrange storyboard", "Write prompts",
-                            "Review & export", "Assets & repairs", "Validate ZIP")
+            home_actions = ("Script writing", "Shot planning", "Asset analysis", "Asset image generation",
+                            "Storyboard generation", "Prompt drafting", "Costume design", "Character pose design",
+                            "Package storyboard group")
             for name in home_actions:
                 button = next(w for w in walk(self, ttk.Button) if w.cget("text") == name)
                 assert button.winfo_viewable() and button.winfo_rooty() + button.winfo_height() <= self.winfo_rooty() + 700
@@ -310,11 +420,13 @@ def run_inside_launcher():
             original_picker = filedialog.askopenfilename
             filedialog.askopenfilename = lambda **_kwargs: str(project_path)
             routes = iter((
-                ("Plan shots", "Shot list", "", ""),
-                ("Prepare assets", "Approved images", "", ""),
-                ("Arrange storyboard", "Approved images", "ComicFlow Layout & Handoff", "16:9 layout"),
-                ("Write prompts", "Shot list", "ComicFlow Text Production", "Text model & history"),
-                ("Review & export", "Text, layout & delivery", "", ""),
+                ("Shot planning", "Shot list", "", ""),
+                ("Approved images", "Approved images", "", ""),
+                ("Layout & handoff", "Approved images", "ComicFlow Layout & Handoff", "16:9 layout"),
+                ("Prompt drafting", "Shot list", "ComicFlow Text Production", "Text model & history"),
+                ("Asset image generation", "Approved images", "ComicFlow Image Production", "New image job"),
+                ("Storyboard generation", "Approved images", "ComicFlow Image Production", "New image job"),
+                ("Package storyboard group", "Text, layout & delivery", "", ""),
             ))
 
             def next_route():
@@ -335,8 +447,10 @@ def run_inside_launcher():
                     tool = next(walk(panel, tk.Toplevel))
                     tool_tabs = next(walk(tool, ttk.Notebook))
                     assert tool.title() == modal_name and tool_tabs.tab(tool_tabs.select(), "text") == modal_tab
-                    if shortcut == "Write prompts":
+                    if shortcut == "Prompt drafting":
                         assert any(w.get() == "SD2 prompts" for w in walk(tool, ttk.Combobox))
+                    if shortcut == "Storyboard generation":
+                        assert any(w.get() == "Storyboard" for w in walk(tool, ttk.Combobox))
                     tool.destroy()
                 self.after(30, lambda: close_route(panel))
 
@@ -351,12 +465,13 @@ def run_inside_launcher():
 
             def finish():
                 assert ProductionProject.open(project_path).rules == CHINESE
+                show_page(self, 1)
                 self.after(80, verify_repair)
                 click(self, "Assets & repairs")
                 filedialog.askopenfilename = original_picker
                 click(self, "中文 / English")
                 assert chinese.cget("text") == "中文影片制作" and chinese.instate(["selected"])
-                print("Verified five home routes and bilingual UI independent from production rules", flush=True)
+                print("Verified seven production routes and the bilingual three-page workbench", flush=True)
                 click(self, "开始验收")
                 self.after(100, self.inspect_chinese_report)
 
@@ -544,10 +659,11 @@ def run_inside_launcher():
             assert any(widget.cget("image") for widget in walk(self, ttk.Label))
             self.after(50, self.inspect_shot_dialog)
             click(self, "逐格复核")
-            click(self, "对白与九图预算")
-            next(walk(self, tk.Toplevel)).destroy()
             self.after(50, self.inspect_asset_dialog)
             click(self, "资产与返修")
+            show_page(self, 0)
+            click(self, "对白与九图预算")
+            next(walk(self, tk.Toplevel)).destroy()
             click(self, "单组制片")
             self.inspect_production_dialog()
             print("COMICFLOW_GUI_OK", flush=True)
@@ -823,7 +939,7 @@ def verify_windows_launcher(root=ROOT):
         env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
-                               ("api-settings", f' "{archive}"')):
+                               ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"')):
             env["COMICFLOW_SMOKE_MODE"] = mode
             if mode == "file-only":
                 env.pop("COMICFLOW_STORYBOARD_VALIDATOR")

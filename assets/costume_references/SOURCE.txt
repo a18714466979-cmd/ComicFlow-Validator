@@ -1,0 +1,17 @@
+Historical womenswear reference images
+Source: The Shisei Authors / wquguru
+Repository: https://github.com/wquguru/shisei
+Revision: 8f61ceab10e45f8d3afd254900903733a0ba76ee
+License: CC0 1.0 Universal (LICENSE-images and NOTICE accompany these originals)
+Source path prefix: images/costume/grey/w900/
+
+The five WebP originals are distributed unmodified. These visual references are
+AI-generated and are not presented as historically authoritative reconstructions.
+The application can create a PNG copy when preparing an image-model request.
+
+Costume source and SHA-256
+costume_C003_front.webp c18329961ea22a212b7e901d5cfbceea7b765ea46327f1880ad81047df6b7d8b
+costume_C012_front.webp 36cc1a254debee7ae60e4a85f90c972a667058339ed4af94f66a2b9b5fe3442b
+costume_C021_front.webp 2870f9d8644850933551764682b02b9a99c549a45ef12e92a7951428dc6d8ade
+costume_C032_front.webp 6a80bea4e8693fd5f5350629297e3153bc486daa8e74ea3bad33adb96d736d5d
+costume_C051_front.webp 4a3e587de1c4ac5c999b665b696273507c0e56baf707e4439d2022f46ec1e7a7

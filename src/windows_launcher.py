@@ -14,7 +14,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
 
-from .api_settings_dialog import open_api_settings
+from .api_settings_dialog import build_api_settings
 from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
@@ -26,7 +26,7 @@ from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_pr
 from .vision import VisionSettings
 from .ui_language import load_language, save_language, translate
 from .vision_dialog import open_vision_dialog
-from .workbench_home import build_home
+from .workbench_home import PAGE_CAPTIONS, build_navigation, build_production_page
 
 
 VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
@@ -76,10 +76,17 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         widget.configure(text=tr(caption))
         return widget
 
-    options = ttk.LabelFrame(window, padding=(8, 5))
+    selected_rules = tk.StringVar(window, ENGLISH)
+    navigation, (production_page, review_page, api_page), rule_buttons = build_navigation(
+        window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
+        switch_rules=lambda rules: switch_rules(rules),
+    )
+    if initial_zip and initial_project is None:
+        navigation.select(review_page)
+
+    options = ttk.LabelFrame(review_page, padding=(8, 5))
     label_text(options, "验收已有 ZIP")
     options.columnconfigure(1, weight=1)
-    selected_rules = tk.StringVar(window, ENGLISH)
     active_rules = ENGLISH
     validators = {rules: saved_validator(rules) for rules in RULE_LABELS}
     validator_label = tk.StringVar(window)
@@ -115,7 +122,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     text_session: dict[str, VisionSettings] = {}
     image_session: dict[str, ImageSettings] = {}
 
-    tabs = ttk.Notebook(window)
+    tabs = ttk.Notebook(review_page)
     issues_tab = ttk.Frame(tabs, padding=8)
     report_tab = ttk.Frame(tabs, padding=8)
     tabs.add(issues_tab, text="验收结果")
@@ -332,7 +339,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rules)
 
     def set_running(running: bool) -> None:
-        for widget in (start_button, *workflow_buttons, *rule_buttons):
+        for widget in (start_button, *workflow_buttons, *rule_buttons, *checks.winfo_children()):
             widget.state(["disabled"] if running else ["!disabled"])
 
     def start() -> None:
@@ -401,6 +408,9 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         window.title(tr("ComicFlow 漫剧制片工作台"))
         for widget, caption in labels:
             widget.configure(text=tr(caption))
+        for page, caption in zip((production_page, review_page, api_page), PAGE_CAPTIONS):
+            navigation.tab(page, text=tr(caption))
+        refresh_api_language()
         for column, caption in zip(columns, headings):
             table.heading(column, text=tr(caption))
         tabs.tab(issues_tab, text=tr("验收结果"))
@@ -410,19 +420,49 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         if result is None:
             show_preview()
 
+    def plan_script(task):
+        from .storyboard_planning_dialog import open_storyboard_planning
+
+        open_storyboard_planning(window, text_session, task=task, rules=active_rules)
+
+    def inspect_image():
+        from .review_tools_dialog import open_image_inspection
+
+        open_image_inspection(window)
+
+    def inspect_cuts():
+        from .review_tools_dialog import open_cut_review
+
+        open_cut_review(window, result)
+
     callbacks = {
-        "api": lambda: open_api_settings(window, text_session, vision_session, image_session),
         "new": lambda: produce(action="new"),
         "open": lambda: produce(action="open"),
         "group": produce,
+        "script": lambda: plan_script("script"),
+        "inventory": lambda: plan_script("assets"),
         "preflight": lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules),
-        "repair": lambda: open_asset_repair(window, registry_path, entries[1][1].get().strip(), result),
     }
-    for destination in ("shots", "assets", "layout", "prompts", "deliver"):
+    for destination in ("shots", "assets", "generate_assets", "generate_board", "layout", "prompts",
+                        "costume", "pose", "deliver"):
         callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
-    rule_buttons, workflow_buttons = build_home(
-        window, label_text, change_language, selected_rules, switch_rules, callbacks,
-    )
+    workflow_buttons = build_production_page(production_page, label_text, callbacks)
+    refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
+
+    def sync_selected_page(event):
+        if event.widget is navigation and navigation.select() == str(api_page):
+            sync_api()
+
+    navigation.bind("<<NotebookTabChanged>>", sync_selected_page)
+    checks = ttk.Frame(review_page, padding=(12, 7, 12, 2))
+    checks.pack(fill="x")
+    for caption, action in (
+        ("图片大小与比例", inspect_image),
+        ("景别机位与格间衔接", inspect_cuts),
+        ("资产与返修", lambda: open_asset_repair(window, registry_path, entries[1][1].get().strip(), result)),
+    ):
+        label_text(ttk.Button(checks, command=action, style="Workbench.TButton"), caption).pack(
+            side="left", padx=(0, 7))
     options.pack(fill="x", padx=16, pady=(1, 4))
     for row, (label, value, kind) in enumerate(entries):
         caption = ttk.Label(options, textvariable=validator_label) if row == 1 else label_text(ttk.Label(options), label)

@@ -13,13 +13,12 @@ MUTED = "#435c70"
 ACCENT = "#23617f"
 
 
-def build_home(window, label_text, change_language, selected_rules, switch_rules, callbacks):
+PAGE_CAPTIONS = ("故事板制作", "检查验收", "API 接入")
+
+
+def build_navigation(window, label_text, change_language, selected_rules, switch_rules):
     def label(parent, caption, **options):
         return label_text(tk.Label(parent, **options), caption)
-
-    def button(parent, caption, command, *, primary=False):
-        style = "Primary.Workbench.TButton" if primary else "Workbench.TButton"
-        return label_text(ttk.Button(parent, command=command, style=style), caption)
 
     styles = ttk.Style(window)
     styles.theme_use("clam")
@@ -38,55 +37,74 @@ def build_home(window, label_text, change_language, selected_rules, switch_rules
           wraplength=820).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(3, 0))
     language = tk.Frame(header, bg=NAVY)
     language.grid(row=0, column=1, rowspan=2, sticky="e")
-    button(language, "API 设置", callbacks["api"], primary=True).pack(side="left", padx=(0, 12))
     label(language, "界面语言", bg=NAVY, fg="#c6d9e5").pack(side="left", padx=(0, 6))
     ttk.Button(language, text="中文 / English", command=change_language, style="Workbench.TButton").pack(side="left")
 
-    flow = tk.Frame(window, bg=BACKGROUND, padx=16, pady=9)
-    flow.pack(fill="x")
-    flow.columnconfigure(tuple(range(3)), weight=1, uniform="step")
-    shortcuts = tk.Frame(flow, bg=BACKGROUND)
-    shortcuts.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
-    new_project = button(shortcuts, "新建项目", callbacks["new"], primary=True)
-    open_project = button(shortcuts, "打开项目", callbacks["open"])
-    new_project.pack(side="left")
-    open_project.pack(side="left", padx=6)
-    rule_bar = tk.Frame(shortcuts, bg=BACKGROUND)
-    rule_bar.pack(side="right")
-    label(rule_bar, "制作规则", bg=BACKGROUND, fg=MUTED).pack(side="left", padx=(0, 5))
+    rule_bar = tk.Frame(window, bg=BACKGROUND, padx=16)
+    rule_bar.pack(fill="x", pady=(5, 5))
+    label(rule_bar, "制作规则", bg=BACKGROUND, fg=MUTED).pack(side="left", padx=(0, 7))
     rules_buttons = []
     for rules, caption in RULE_LABELS.items():
         control = label_text(ttk.Radiobutton(rule_bar, variable=selected_rules, value=rules,
                                             command=lambda value=rules: switch_rules(value)), caption)
-        control.pack(side="left", padx=(0, 3))
+        control.pack(side="left", padx=(0, 8))
         rules_buttons.append(control)
+    styles.configure("Navigation.TNotebook.Tab", padding=(20, 8))
+    navigation = ttk.Notebook(window, style="Navigation.TNotebook")
+    navigation.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+    pages = tuple(ttk.Frame(navigation) for _ in PAGE_CAPTIONS)
+    for page in pages:
+        navigation.add(page)
+    navigation.enable_traversal()
+    return navigation, pages, rules_buttons
+
+
+def build_production_page(page, label_text, callbacks):
+    def button(parent, caption, action, *, primary=False):
+        style = "Primary.Workbench.TButton" if primary else "Workbench.TButton"
+        return label_text(ttk.Button(parent, command=callbacks[action], style=style), caption)
+
+    flow = tk.Frame(page, bg=BACKGROUND, padx=7, pady=8)
+    flow.pack(fill="both", expand=True)
+    flow.columnconfigure(tuple(range(3)), weight=1, uniform="stage")
+    for row in (1, 2, 3):
+        flow.rowconfigure(row, weight=1, uniform="stage")
+    shortcuts = tk.Frame(flow, bg=BACKGROUND)
+    shortcuts.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 5))
+    new = button(shortcuts, "新建项目", "new", primary=True)
+    existing = button(shortcuts, "打开项目", "open")
+    new.pack(side="left", padx=(4, 0))
+    existing.pack(side="left", padx=6)
 
     steps = (
-        ("剧本与分镜", "导入批准剧本、安排镜头与对白。", "开始拆分镜", "shots"),
-        ("角色、场景与道具", "导入批准素材，或用图像接口生成候选。", "制作资产图", "assets"),
-        ("故事板与净板", "绑定板格和机位净板，检查 16:9 排版。", "排故事板", "layout"),
-        ("SD2 提示词", "编辑分镜动作和声音，查看文本模型建议。", "写提示词", "prompts"),
-        ("从项目交付", "逐格确认画面，验收并导出 ZIP。", "复核与打包", "deliver"),
-        ("已有素材返修", "登记原图、定位受影响的镜头并重新打包。", "资产与返修", "repair"),
+        ("剧本创作", "从构思写到剧本草稿，可本地编辑或请文本模型协助。", "script"),
+        ("分镜拆分", "导入批准剧本，逐镜安排动作、景别和对白。", "shots"),
+        ("资产分析", "从剧本整理角色、服装状态、场景和道具。", "inventory"),
+        ("资产图生成", "为角色、场景、道具或净板建立生图任务。", "generate_assets"),
+        ("故事板图生成", "按镜头清单生成板页，选择参考图后提交。", "generate_board"),
+        ("提示词生成", "按镜头起草 Seedance 2.0 的成片动作和声音。", "prompts"),
+        ("角色服装设计", "选取服装参考，进入角色生图并带入参考图。", "costume"),
+        ("角色动作设计", "用 3D 导演台摆姿势和机位，导入取景图辅助生图。", "pose"),
+        ("故事板组打包交付", "核对板格、净板和文字后，保存正式交付 ZIP。", "deliver"),
     )
-    controls = [new_project, open_project]
-    for index, (title, description, action, target) in enumerate(steps):
-        card = tk.Frame(flow, bg="white", highlightbackground="#cfdae3", highlightthickness=1, padx=10, pady=6)
-        card.grid(row=index // 3 + 1, column=index % 3, padx=3, pady=3, sticky="nsew")
+    controls = [new, existing]
+    for index, (caption, description, action) in enumerate(steps):
+        card = tk.Frame(flow, bg="white", highlightbackground="#cfdae3", highlightthickness=1, padx=11, pady=8)
+        card.grid(row=index // 3 + 1, column=index % 3, padx=4, pady=4, sticky="nsew")
         card.columnconfigure(0, weight=1)
-        label(card, title, anchor="w", bg="white", fg=INK, font=("TkDefaultFont", 11, "bold")).grid(
-            row=0, column=0, sticky="ew")
-        detail = label(card, description, anchor="w", justify="left", bg="white", fg=MUTED, wraplength=245)
-        detail.grid(row=1, column=0, sticky="ew", pady=(2, 4))
-        card.bind("<Configure>", lambda event, text=detail: text.configure(wraplength=max(100, event.width - 22)))
-        control = button(card, action, callbacks[target])
-        control.grid(row=2, column=0, sticky="w")
+        control = button(card, caption, action, primary=action == "deliver")
+        control.grid(row=0, column=0, sticky="w")
+        detail = label_text(tk.Label(card, anchor="w", justify="left", bg="white", fg=MUTED, wraplength=240),
+                            description)
+        detail.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        card.bind("<Configure>", lambda event, text=detail: text.configure(wraplength=max(100, event.width - 24)))
         controls.append(control)
 
     tools = tk.Frame(flow, bg=BACKGROUND)
-    tools.grid(row=3, column=0, columnspan=3, sticky="w", pady=(3, 0))
-    controls.append(button(tools, "单组制片", callbacks["group"]))
-    controls.append(button(tools, "对白与九图预算", callbacks["preflight"]))
-    for control in controls[-2:]:
-        control.pack(side="left", padx=(3, 5))
-    return rules_buttons, controls
+    tools.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 1))
+    for caption, action in (("单组制片", "group"), ("批准图像", "assets"),
+                            ("排版与交接", "layout"), ("对白与九图预算", "preflight")):
+        control = button(tools, caption, action)
+        control.pack(side="left", padx=(4, 2))
+        controls.append(control)
+    return controls

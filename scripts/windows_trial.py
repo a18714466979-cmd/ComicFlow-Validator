@@ -3,7 +3,7 @@
 import argparse
 from io import BytesIO
 from pathlib import Path
-from shutil import copy2
+from shutil import copy2, copytree
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
@@ -20,6 +20,7 @@ from src.repair_package import write_delivery_zip
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_FILES = ("ComicFlow-Setup.bat", "ComicFlow-Windows.bat", "requirements-runtime.txt", "WINDOWS-TRYOUT.md", "LICENSE")
+COSTUME_REFERENCES = Path("assets/costume_references")
 CONTINUITY = "门保持关闭，右侧绿灯稳定，左侧柜体仍在原位"
 
 
@@ -164,6 +165,7 @@ def build(output, revision):
         (folder / "src").mkdir()
         for path in sorted((ROOT / "src").glob("*.py")):
             copy2(path, folder / "src" / path.name)
+        copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
         (folder / "REVISION.txt").write_text(revision + "\n", encoding="utf-8")
         make_examples(folder / "Examples", scratch / "en", ENGLISH, "预览_信号站_相邻两组.zip")
         make_examples(folder / "Examples" / "中文制作", scratch / "zh", CHINESE, "预览_相邻两组.zip")
@@ -173,7 +175,8 @@ def build(output, revision):
             raise ValueError("The trial archive contains unreadable data.")
         samples = ("Examples/SB01.cfproject", "Examples/SB02.cfproject", "Examples/预览_信号站_相邻两组.zip",
                    "Examples/中文制作/SB01.cfproject", "Examples/中文制作/SB02.cfproject", "Examples/中文制作/预览_相邻两组.zip")
-        for name in (*INSTALL_FILES, *samples):
+        references = tuple(path.relative_to(ROOT).as_posix() for path in (ROOT / COSTUME_REFERENCES).iterdir())
+        for name in (*INSTALL_FILES, *samples, *references):
             archive.getinfo(f"ComicFlow-Windows/{name}")
         if any(".sqlite3" in name for name in archive.namelist()):
             raise ValueError("The portable archive must rebuild machine-local asset paths.")

@@ -311,8 +311,19 @@ class ProductionDialog:
         elif destination == "prompts":
             self.tabs.select(1)
             self.open_drafting(prompts=True)
+        elif destination in {"generate_assets", "generate_board"}:
+            self.tabs.select(2)
+            self.open_image_production(kind="故事板" if destination == "generate_board" else "角色")
+        elif destination in {"costume", "pose"}:
+            self.tabs.select(2)
+            self.open_reference_design(destination)
+        elif destination == "deliver":
+            self.tabs.select(3)
+            script = self.validators[self.rules]
+            if script and Path(script).expanduser().is_file() and not self.project.impacts():
+                self.publish()
         else:
-            self.tabs.select({"group": 0, "shots": 1, "assets": 2, "deliver": 3}[destination])
+            self.tabs.select({"group": 0, "shots": 1, "assets": 2}[destination])
 
     def refresh_sources(self):
         self.source["values"] = tuple(f"{source.name} · {source.version}" for source in self.project.sources)
@@ -399,11 +410,22 @@ class ProductionDialog:
         self.save()
         self.wait(DraftingDialog(self, self.text_session, prompts=prompts).window)
 
-    def open_image_production(self):
+    def open_image_production(self, *, kind="角色", reference_id="", reference_kind=""):
         from .image_production_dialog import ImageProductionDialog
 
         self.save()
-        self.wait(ImageProductionDialog(self, self.image_session).window)
+        self.wait(ImageProductionDialog(self, self.image_session, kind=kind, reference_id=reference_id,
+                                        reference_kind=reference_kind).window)
+
+    def open_reference_design(self, kind):
+        from .reference_tools_dialog import open_reference_tools
+
+        def use_reference(reference_id):
+            self.refresh()
+            self.guarded(lambda: self.open_image_production(reference_id=reference_id, reference_kind=kind))
+
+        self.save()
+        open_reference_tools(self.window, self.project, self.path, kind, use_reference)
 
     def open_layout(self):
         from .layout_dialog import LayoutDialog

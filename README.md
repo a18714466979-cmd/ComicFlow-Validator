@@ -71,7 +71,7 @@ On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher pref
 
 For an approved extra-panel exception to the six-panel dialogue rule, pass `--panel-exception file.json` when validating a ZIP directly, or select the JSON in the launcher. The entry is tied to one ZIP SHA-256, one group such as `SB05`, its approved `panels` count (7–12), and a one-line `reason`. Only the matching six-panel-rule diagnostic is treated as an approved exception.
 
-Open 「API 设置」 from the top right of the workbench. Configure a provider, HTTPS base URL, model ID and credentials for each task. Settings apply to the current session. A provider key may cover more than one model if your account grants those permissions. ComicFlow can copy a key between text and vision when the provider and base URL match. Keep the model ID for each use case. A text model can also handle image review only if it accepts image inputs. Image generation requires an image-output model and its supported API. [OpenAI images and vision guide](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat) · [Ark API key permissions](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys)
+Open the 「API 接入」 page in the workbench. Configure a provider, HTTPS base URL, model ID and credentials for each task. Settings apply to the current session. A provider key may cover more than one model if your account grants those permissions. ComicFlow can copy a key between text and vision when the provider and base URL match. Keep the model ID for each use case. A text model can also handle image review only if it accepts image inputs. Image generation requires an image-output model and its supported API. [OpenAI images and vision guide](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat) · [Ark API key permissions](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys)
 
 For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图」. The selected image and a review prompt are sent after confirmation. Images over 6 MiB are prepared as a compressed local copy before sending. AI suggestions stay separate from the local validation result.
 
@@ -153,6 +153,16 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 开发验收可在 Windows 安装依赖后运行 `python tests/windows_smoke.py`。它用合成包测试双击启动、传入 ZIP 和通过 Windows Shell 打开 `.cfproject`，并实际操作 Tk 窗口。验证资源管理器的鼠标拖放时，可将一个 ZIP 拖到 `ComicFlow-Windows.bat` 上并检查窗口里的路径。
 
+### 漫剧制片工作台
+
+| 一级页面 | 功能 |
+| --- | --- |
+| 故事板制作 | 剧本创作、分镜拆分、资产分析、资产及故事板生图、提示词、服装与动作参考、排版与交接、单组 ZIP 交付。 |
+| 检查验收 | 图片像素、比例和文件大小、ZIP 完整性与规则验收、逐格核图、跨页和跨组镜头对照、资产返修。 |
+| API 接入 | 分用途配置文本、审图和生图。 |
+
+服装设计包含五套 CC0 历代女装，也可导入有权使用的图。动作设计通过在线 3D 导演台摆姿和机位，将取景图导入 ComicFlow。两种入口都会把选定的本地参考带入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
+
 ### Seedance 2.0 单组制片
 
 「中文影片制作」与「英文影片制作」专为字节跳动 Seedance 2.0 成片交付适配。工作台按该流程准备故事板、PNG 参考素材、SD2 提示词和交付 ZIP。使用其他视频模型时，素材上限、提示词结构和镜头衔接可能需要重新调整，匹配度可能较低。导出的素材和提示词需在 Seedance 2.0 服务中提交。 [字节跳动 Seedance 2.0](https://seed.bytedance.com/seedance2_0) · [火山方舟视频生成说明](https://console.volcengine.com/ark/region%3Acn-beijing/docs/video-generation-tutorial)
@@ -169,7 +179,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 #### API 设置
 
-从首页右上角打开「API 设置」，按用途分别选择服务商、HTTPS 基础地址、模型 ID 和凭证。本次运行内可在对应工具中直接使用这些设置，只有确认提交时才会向服务商发送任务。
+打开一级页面「API 接入」，按用途分别选择服务商、HTTPS 基础地址、模型 ID 和凭证。本次运行内可在对应工具中直接使用这些设置，只有确认提交时才会向服务商发送任务。
 
 | 用途 | 模型能力 | 从哪里发起 |
 | --- | --- | --- |
