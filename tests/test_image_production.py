@@ -2,6 +2,7 @@
 
 import base64
 import json
+from dataclasses import replace
 from io import BytesIO
 
 import pytest
@@ -70,6 +71,19 @@ def test_generation_and_reference_contracts(provider):
             assert b'name="mask"; filename="mask.png"' in edited.data and b"mask-sample" in edited.data
         if provider == "阿里云百炼 万相":
             assert json.loads(edited.data)["parameters"]["bbox_list"] == [[[1, 2, 12, 17]]]
+
+
+@pytest.mark.parametrize("provider", IMAGE_PROVIDERS)
+def test_offline_preview_uses_same_provider_payload_without_credentials(provider):
+    config = settings(provider)
+    draft = replace(config, key="", secret_id="")
+    target = "保留原图左侧的蓝色信号灯。"
+    request = build_image_request(draft, TEXT, target, preview=True)
+    authorized = build_image_request(config, TEXT, target)
+    assert request.full_url == authorized.full_url and request.data == authorized.data
+    assert not request.has_header("Authorization") and not request.has_header("X-goog-api-key")
+    with pytest.raises(ValueError, match="API 密钥"):
+        build_image_request(draft, TEXT, target)
 
 
 @pytest.mark.parametrize("provider", [key for key in IMAGE_PROVIDERS if key != "腾讯云混元"])
@@ -206,8 +220,15 @@ def test_reference_plate_and_local_repair_in_one_project(tmp_path):
     ImageDraw.Draw(altered).rectangle((8, 8, 23, 23), fill="yellow")
     buffer = BytesIO()
     altered.save(buffer, format="PNG")
-    patch_job, _ = send(EDIT, "净板", "只更换信号灯颜色", [plate.id], buffer.getvalue(),
-                        box=(8, 8, 24, 24), target=shot.id)
+    preview_job, preview = prepare_job(project, path, replace(config, key=""), EDIT, "净板", shot.id,
+                                       "只更换信号灯颜色", [plate.id], (8, 8, 24, 24), preview=True)
+    assert preview_job["references"][0]["sha256"] == plate.digest
+    assert len(ProductionProject.open(path).image_jobs) == 2
+    patch_job, patch_request = send(EDIT, "净板", "只更换信号灯颜色", [plate.id], buffer.getvalue(),
+                                    box=(8, 8, 24, 24), target=shot.id)
+    assert json.loads(preview.data) == patch_request
+    assert patch_request["prompt"].endswith("输出一张图。\n第一张是批准底图（320×180），"
+                                          "修改范围为原图像素坐标 (8, 8, 24, 24)，请与原图对齐。")
     record = patch_job["outputs"][0]
     with pytest.raises(ValueError, match="合成图"):
         approve_candidate(project, path, patch_job, 0, plate.filename, "R6", "修复信号灯", "试验选区", replace_original=True)

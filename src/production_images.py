@@ -155,7 +155,7 @@ def check_chinese_repair_target(project, image, kind, target, box):
     raise ValueError("请选择对应的故事板格、净板或正反打，将返修选区限制在一个已绑定窗口内。")
 
 
-def prepare_job(project, project_path, settings, mode, kind, target, prompt, references, box):
+def prepare_job(project, project_path, settings, mode, kind, target, prompt, references, box, *, preview=False):
     if kind not in KINDS:
         raise ValueError("请选择候选图的实际用途。")
     if len(set(references)) != len(references):
@@ -198,7 +198,7 @@ def prepare_job(project, project_path, settings, mode, kind, target, prompt, ref
         "shot_signature": shot_signature(project, kind, target, base_image),
         "prompt": prompt, "references": [pin_asset(item) for item in sources], "box": list(box), "outputs": [],
     }
-    return job, request_for_job(project, project_path, settings, job)
+    return job, request_for_job(project, project_path, settings, job, preview=preview)
 
 
 def png_bytes(image: Image.Image, **options) -> bytes:
@@ -207,23 +207,28 @@ def png_bytes(image: Image.Image, **options) -> bytes:
     return stream.getvalue()
 
 
-def request_for_job(project, project_path, settings, job):
+def job_request_prompt(job, original=None):
+    prompt = job["prompt"] + "\n输出一张图。"
+    if job["mode"] == EDIT:
+        prompt += (f"\n第一张是批准底图（{original.width}×{original.height}），"
+                   f"修改范围为原图像素坐标 {tuple(job['box'])}，请与原图对齐。")
+    return prompt
+
+
+def request_for_job(project, project_path, settings, job, *, preview=False):
     sources = pinned_assets(project, project_path, job)
     if sum(path.stat().st_size for _, path in sources) > MAX_UPLOAD_BYTES:
         raise ValueError("参考图合计超过本地请求大小限制。")
     mode, box = job["mode"], tuple(job["box"])
     references = tuple(path.read_bytes() for _, path in sources)
     mask = b""
-    prompt = job["prompt"] + "\n输出一张图。"
-    if mode == EDIT:
-        original = sources[0][0]
-        prompt += (f"\n第一张是批准底图（{original.width}×{original.height}），"
-                   f"修改范围为原图像素坐标 {box}，请与原图对齐。")
-        if IMAGE_PROVIDERS[settings.provider].adapter == "openai":
-            overlay = Image.new("RGBA", (original.width, original.height), (0, 0, 0, 255))
-            ImageDraw.Draw(overlay).rectangle((box[0], box[1], box[2]-1, box[3]-1), fill=(0, 0, 0, 0))
-            mask = png_bytes(overlay)
-    return build_image_request(settings, mode, prompt, references, edit_box=box or None, mask=mask)
+    original = sources[0][0] if mode == EDIT else None
+    if original and IMAGE_PROVIDERS[settings.provider].adapter == "openai":
+        overlay = Image.new("RGBA", (original.width, original.height), (0, 0, 0, 255))
+        ImageDraw.Draw(overlay).rectangle((box[0], box[1], box[2]-1, box[3]-1), fill=(0, 0, 0, 0))
+        mask = png_bytes(overlay)
+    prompt = job_request_prompt(job, original)
+    return build_image_request(settings, mode, prompt, references, edit_box=box or None, mask=mask, preview=preview)
 
 
 def picture(raw):

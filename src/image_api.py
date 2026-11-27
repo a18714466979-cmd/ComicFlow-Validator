@@ -74,9 +74,10 @@ class ImageReply:
 
 
 class ImageRequestError(ValueError):
-    def __init__(self, message: str, *, uncertain: bool = False):
+    def __init__(self, message: str, *, uncertain: bool = False, request_id: str = ""):
         super().__init__(message)
         self.uncertain = uncertain
+        self.request_id = request_id
 
 
 def checked_url(url: str, *, output: bool = False) -> str:
@@ -154,12 +155,16 @@ def multipart_request(url, headers, body, references, mask):
 
 
 def build_image_request(settings: ImageSettings, mode: str, prompt: str, references: tuple[bytes, ...] = (),
-                        *, edit_box: tuple[int, int, int, int] | None = None, mask: bytes = b"") -> Request:
+                        *, edit_box: tuple[int, int, int, int] | None = None, mask: bytes = b"",
+                        preview: bool = False) -> Request:
+    """Build the provider payload, leaving an offline preview unsigned."""
     provider = IMAGE_PROVIDERS[settings.provider]
     adapter = provider.adapter
     base = checked_url(settings.base.rstrip("/"))
-    if not settings.model or not settings.key or not all(33 <= ord(char) <= 126 for char in settings.key):
-        raise ValueError("请填写图像模型和有效的 API 密钥。")
+    if not settings.model:
+        raise ValueError("请填写图像模型 ID。")
+    if not preview and (not settings.key or not all(33 <= ord(char) <= 126 for char in settings.key)):
+        raise ValueError("请填写有效的 API 密钥。")
     if not prompt.strip():
         raise ValueError("请填写本次图片提示词。")
     if mode not in provider.modes:
@@ -170,7 +175,7 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
         raise ValueError("局部编辑需要批准原图、编辑范围，以及可选的后续参考图。")
     if sum(map(len, references)) + len(mask) > MAX_UPLOAD_BYTES:
         raise ValueError("参考图合计超过本地请求大小限制。请选择更少的批准参考图。")
-    headers = {"Authorization": f"Bearer {settings.key}"}
+    headers = {} if preview else {"Authorization": f"Bearer {settings.key}"}
     body = {"model": settings.model, "prompt": prompt}
     path = "/images/generations"
     if adapter == "openai":
@@ -189,7 +194,9 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
                      for item in references)
         body = {"model": settings.model, "input": parts, "store": False,
                 "response_format": {"type": "image", "mime_type": "image/png", "aspect_ratio": "16:9", "image_size": "2K"}}
-        headers = {"x-goog-api-key": settings.key, "Api-Revision": "2026-05-20"}
+        headers = {"Api-Revision": "2026-05-20"}
+        if not preview:
+            headers["x-goog-api-key"] = settings.key
         path = "/interactions"
     elif adapter == "dashscope":
         content = [{"image": data_url(item)} for item in references] + [{"text": prompt}]
@@ -210,12 +217,16 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
             body["image"] = {"url": data_url(references[0]), "type": "image_url"}
             path = "/images/edits"
     elif adapter == "tencent":
+        if base != provider.base:
+            raise ValueError("请使用腾讯云混元官方基础地址。")
         payload = {"Prompt": prompt, "Resolution": "1280:720", "Revise": 0}
         if references:
             encoded = base64.b64encode(references[0]).decode("ascii")
             if len(encoded) >= 8_000_000:
                 raise ValueError("腾讯云混元的单张参考图编码须小于 8 MB。")
             payload["ContentImage"] = {"ImageBase64": encoded}
+        if preview:
+            return json_request(base + "/", payload, {"X-TC-Action": "SubmitHunyuanImageJob"})
         return tencent_request(settings, "SubmitHunyuanImageJob", payload)
     elif adapter == "openrouter":
         body.update(aspect_ratio="16:9", resolution="2K", response_format="b64_json")
@@ -229,19 +240,51 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
     return json_request(base + path, body, headers)
 
 
+def safe_request_id(value, request: Request) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value):
+        return ""
+    credentials = (request.get_header("Authorization", ""), request.get_header("X-goog-api-key", ""))
+    if any(value in credential for credential in credentials):
+        return ""
+    bearer = credentials[0].removeprefix("Bearer ")
+    if any(secret and secret in value for secret in (bearer, credentials[1])):
+        return ""
+    return value
+
+
+def response_request_id(headers, request: Request) -> str:
+    if headers is None:
+        return ""
+    value = headers.get("x-request-id") or headers.get("request-id") or headers.get("x-siliconcloud-trace-id")
+    return safe_request_id(value, request)
+
+
 def read_bytes(request: Request, limit: int) -> tuple[bytes, str]:
+    request_id = ""
     try:
         with build_opener(NoRedirect()).open(request, timeout=150) as response:
+            request_id = response_request_id(response.headers, request)
             raw = response.read(limit + 1)
-            request_id = response.headers.get("x-request-id") or response.headers.get("x-siliconcloud-trace-id") or ""
     except HTTPError as exc:
+        request_id = response_request_id(exc.headers, request)
         exc.close()
         uncertain = exc.code >= 500 or exc.code == 408
-        raise ImageRequestError(f"服务返回 HTTP {exc.code}。请核对接口、模型和账户权限。", uncertain=uncertain) from None
+        guidance = {
+            401: "请核对 API Key 是否有效及所属服务。",
+            403: "请核对当前账户的模型或接入点调用权限。",
+            404: "请核对接口地址、模型 ID 或接入点是否已开通。",
+            413: "请求内容过大，请检查参考图的大小和数量。",
+            429: "请检查服务商的调用频率、配额和服务状态，再决定何时重试。",
+        }
+        hint = ("请先在服务商后台核对受理状态，再决定是否重试。" if uncertain
+                else guidance.get(exc.code, "请核对接口、模型和请求参数。"))
+        raise ImageRequestError(f"服务返回 HTTP {exc.code}。{hint}", uncertain=uncertain,
+                                request_id=request_id) from None
     except (URLError, TimeoutError, OSError):
-        raise ImageRequestError("连接失败或超时，请先在服务商后台核对请求。", uncertain=True) from None
+        raise ImageRequestError("连接失败或超时，请先在服务商后台核对请求。",
+                                uncertain=True, request_id=request_id) from None
     if len(raw) > limit:
-        raise ImageRequestError("服务返回的数据超过本地大小限制。", uncertain=True)
+        raise ImageRequestError("服务返回的数据超过本地大小限制。", uncertain=True, request_id=request_id)
     return raw, request_id
 
 
@@ -274,12 +317,13 @@ def response_images(adapter: str, reply: dict):
 
 def successful_reply(request: Request, adapter: str, *, task_id: str = "") -> ImageReply:
     raw, header_id = read_bytes(request, MAX_REPLY_BYTES)
+    identity = header_id
     try:
         reply = json.loads(raw)
-        identity = header_id or reply.get("request_id") or reply.get("id") or ""
+        identity = header_id or safe_request_id(reply.get("request_id") or reply.get("id"), request)
         if adapter == "tencent":
             value = reply["Response"]
-            identity = value.get("RequestId", "")
+            identity = safe_request_id(value.get("RequestId"), request) or header_id
             if "Error" in value or str(value.get("JobStatusCode")) == "4":
                 return ImageReply(task_id=task_id, request_id=identity, status="failed")
             if not task_id:
@@ -289,14 +333,15 @@ def successful_reply(request: Request, adapter: str, *, task_id: str = "") -> Im
             urls = value["ResultImage"]
         elif reply.get("error") or (adapter in {"dashscope", "baidu", "silicon"}
                                     and reply.get("code") not in {None, "", 0, "0", 200, "200"}):
-            return ImageReply(request_id=str(identity)[:256], status="failed")
+            return ImageReply(request_id=identity, status="failed")
         else:
             urls = response_images(adapter, reply)
         if not urls or len(urls) > 4:
             raise ValueError("服务返回的图片数量不可用。")
-        return ImageReply(tuple(load_result(value) for value in urls), task_id, str(identity)[:256])
+        return ImageReply(tuple(load_result(value) for value in urls), task_id, identity)
     except (ValueError, KeyError, TypeError, AttributeError, OSError):
-        raise ImageRequestError("服务已响应，但图片或任务结果无法读取。请先核对服务端记录。", uncertain=True) from None
+        raise ImageRequestError("服务已响应，但图片或任务结果无法读取。请先核对服务端记录。",
+                                uncertain=True, request_id=identity) from None
 
 
 def submit_image(settings: ImageSettings, request: Request) -> ImageReply:

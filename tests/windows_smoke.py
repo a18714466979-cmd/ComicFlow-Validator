@@ -394,7 +394,7 @@ def run_inside_launcher():
 
         def inspect_production_dialog(self):
             from src import drafting_dialog, image_production_dialog
-            from src.image_api import ImageReply
+            from src.image_api import ImageReply, ImageRequestError
             from src.production_project import ProductionProject
             from src.text_api import TextReply
 
@@ -436,12 +436,17 @@ def run_inside_launcher():
                 assert saved.shots[0].fields["画面/事件"] == "信号灯亮起"
                 picture = BytesIO()
                 Image.new("RGB", (320, 180), "steelblue").save(picture, format="PNG")
-                image_production_dialog.submit_image = lambda *_args: ImageReply((picture.getvalue(),), request_id="smoke-image")
+                def submit_synthetic(_settings, request):
+                    if request.get_header("Authorization") == "Bearer first-try":
+                        raise ImageRequestError("服务返回 HTTP 401。请核对 API Key。", request_id="smoke-error-401")
+                    return ImageReply((picture.getvalue(),), request_id="smoke-image")
+
+                image_production_dialog.submit_image = submit_synthetic
                 self.after(50, lambda: self.inspect_image_dialog(dialog))
                 click(dialog, "图像制片")
                 saved = ProductionProject.open(project_path)
-                assert len(saved.image_jobs) == len(saved.images) == 1
-                assert saved.image_jobs[0]["status"] == "approved"
+                assert len(saved.image_jobs) == 2 and len(saved.images) == 1
+                assert saved.image_jobs[-1]["status"] == "approved"
                 self.after(50, lambda: self.inspect_layout_dialog(dialog))
                 click(dialog, "排版与交接")
                 restored = ProductionProject.open(project_path)
@@ -478,11 +483,14 @@ def run_inside_launcher():
             dialog.destroy()
 
         def inspect_image_dialog(self, production):
+            from src.production_project import ProductionProject
+
             dialog = next(walk(production, tk.Toplevel))
             tabs = next(walk(dialog, ttk.Notebook))
             assert [tabs.tab(index, "text") for index in range(2)] == ["新建生图任务", "候选与任务"]
             label = next(widget for widget in walk(dialog, ttk.Label) if widget.cget("text") == "API Key")
-            label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0].insert(0, "synthetic")
+            key = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+            assert not key.get()
             label = next(widget for widget in walk(dialog, ttk.Label) if widget.cget("text") == "API 基础地址")
             base = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
             original_base, showerror = base.get(), messagebox.showerror
@@ -493,10 +501,44 @@ def run_inside_launcher():
                 messagebox.showerror = lambda _title, message, **_kwargs: errors.append(message)
                 click(dialog, "预览本次发送")
                 assert len(errors) == 1 and "HTTPS" in errors[0], errors
-            finally:
                 base.delete(0, "end")
                 base.insert(0, original_base)
+                click(dialog, "确认并提交生图")
+                assert len(errors) == 2 and "API 密钥" in errors[1], errors
+            finally:
                 messagebox.showerror = showerror
+
+            def inspect_preview():
+                report = next(walk(dialog, tk.Toplevel))
+                content = next(walk(report, tk.Text)).get("1.0", "end-1c")
+                report.destroy()
+                assert "本地预览，尚未发送" in content
+                assert "https://ark.cn-beijing.volces.com/api/v3/images/generations" in content
+                assert "输出一张图。" in content
+
+            self.after(50, inspect_preview)
+            click(dialog, "预览本次发送")
+            assert not ProductionProject.open(project_path).image_jobs
+            print("Verified offline image preview and required API key for submission through Tk", flush=True)
+            key.insert(0, "first-try")
+            click(dialog, "确认并提交生图")
+            self.after(100, lambda: self.inspect_image_error(dialog, tabs, key))
+
+        def inspect_image_error(self, dialog, tabs, key):
+            from src.production_project import ProductionProject
+
+            saved = ProductionProject.open(project_path)
+            if saved.image_jobs[0]["status"] == "submitting":
+                self.after(100, lambda: self.inspect_image_error(dialog, tabs, key))
+                return
+            error = saved.image_jobs[0]
+            assert error["status"] == "failed" and error["request_id"] == "smoke-error-401"
+            assert "first-try" not in project_path.read_text(encoding="utf-8")
+            assert any("请求号 smoke-error-401" in widget.get("1.0", "end-1c") for widget in walk(dialog, tk.Text))
+            print("Verified failed image submission preserves guidance and request ID through Tk", flush=True)
+            tabs.select(0)
+            key.delete(0, "end")
+            key.insert(0, "synthetic")
             click(dialog, "确认并提交生图")
             self.after(100, lambda: self.inspect_candidate(dialog))
 
@@ -519,7 +561,7 @@ def run_inside_launcher():
             from src.production_project import ProductionProject
 
             saved = ProductionProject.open(project_path)
-            if not saved.image_jobs or saved.image_jobs[0]["status"] != "ready":
+            if len(saved.image_jobs) < 2 or saved.image_jobs[-1]["status"] != "ready":
                 self.after(100, lambda: self.inspect_candidate(dialog))
                 return
             assert not saved.images

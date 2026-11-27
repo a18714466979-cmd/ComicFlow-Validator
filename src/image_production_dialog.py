@@ -12,7 +12,7 @@ from PIL import Image, ImageOps, ImageTk
 from .image_api import EDIT, IMAGE_PROVIDERS, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
 from .production_dialog import field, write_text
 from .production_images import (
-    KINDS, STATUS, approve_candidate, candidate_path, image_prompt, local_patch, pinned_assets,
+    KINDS, STATUS, approve_candidate, candidate_path, image_prompt, job_request_prompt, local_patch, pinned_assets,
     prepare_job, shot_input, storyboard_job_page, store_reply,
 )
 from .production_rules import CHINESE
@@ -230,34 +230,42 @@ class ImageProductionDialog:
         return ImageSettings(self.provider.get(), self.base.get().strip(), self.model.get().strip(),
                              self.key.get().strip(), self.secret_id.get().strip())
 
-    def prepare(self):
+    def prepare(self, references, *, preview=False):
         settings = self.settings()
         job, request = prepare_job(self.project, self.path, settings, self.mode.get(), self.kind.get(),
                                    self.selected_shot(), self.prompt.get("1.0", "end-1c"),
-                                   [item.id for item in self.chosen_refs()], self.region or ())
+                                   [item.id for item in references], self.region or (), preview=preview)
         return settings, job, request
 
-    def summary(self, job):
+    def summary(self, job, *, request_url="", request_prompt=""):
         refs = "\n".join(f"  {n}. {item['filename']} · {item['version']} · {item['sha256']}"
                          for n, item in enumerate(job["references"], 1)) or "  无"
         _, shot = shot_input(self.project, job["shot"])
         target = f" · {shot.anchor}" if shot else ""
         lines = [
             f"{job['provider']} · {job['model']} · {job['mode']} · {job['kind']}{target}",
-            f"接收地址 {urlsplit(job['base']).netloc}", f"状态 {STATUS.get(job['status'], '待核对')}",
-            f"任务号 {job.get('task_id') or '无'} · 请求号 {job.get('request_id') or '无'}",
-            f"批准参考图\n{refs}",
+            f"接收地址 {request_url or urlsplit(job['base']).netloc}",
         ]
+        if request_url:
+            lines.append("本地预览，尚未发送。提交生图时再填写 API 密钥。")
+        else:
+            request_id = job.get("last_request_id") or job.get("request_id") or "无"
+            lines.extend((f"状态 {STATUS.get(job['status'], '待核对')}",
+                          f"任务号 {job.get('task_id') or '无'} · 请求号 {request_id}"))
+        lines.append(f"批准参考图\n{refs}")
         if job["box"]:
             lines.append(f"批准原图选区 {job['box']}")
         if job.get("message"):
             lines.append(job["message"])
-        lines.append(f"本次提示词\n{job['prompt']}")
+        lines.append(f"本次提示词\n{request_prompt or job['prompt']}")
         return "\n\n".join(lines)
 
     def preview_request(self):
-        _, job, _ = self.prepare()
-        self.show_report("本次发送清单", self.summary(job))
+        references = self.chosen_refs()
+        _, job, request = self.prepare(references, preview=True)
+        original = references[0] if job["mode"] == EDIT else None
+        self.show_report("本次发送清单", self.summary(job, request_url=request.full_url,
+                                                    request_prompt=job_request_prompt(job, original)))
 
     def show_report(self, title, content):
         dialog = tk.Toplevel(self.window)
@@ -278,7 +286,7 @@ class ImageProductionDialog:
     def send(self):
         if self.busy:
             return
-        settings, job, request = self.prepare()
+        settings, job, request = self.prepare(self.chosen_refs())
         settings_fields = ("provider", "base", "model", "mode", "kind", "shot", "prompt", "references", "box")
         if any(previous["status"] in {"submitting", "queued", "unknown"}
                and all(previous[key] == job[key] for key in settings_fields) for previous in self.project.image_jobs):
@@ -388,6 +396,9 @@ class ImageProductionDialog:
                 self.status.set(STATUS[job["status"]])
             except ImageRequestError as exc:
                 job.update(status="unknown" if exc.uncertain or job.get("task_id") else "failed", message=str(exc))
+                if exc.request_id:
+                    job.setdefault("request_id", exc.request_id)
+                    job["last_request_id"] = exc.request_id
                 self.status.set(str(exc))
             except Exception:
                 job.update(status="unknown", message="服务结果或候选文件无法登记，可按任务号继续查询。")
