@@ -10,6 +10,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageTk
 
+from .ui_language import translate
 from .asset_registry import AssetRegistry, sha256_file
 from .production_export import (
     chinese_text_records, preview_chinese_layout, preview_project, project_registry, publish_project,
@@ -52,7 +53,7 @@ def read_fields(widget, fields):
 
 
 def field(parent, row, label, value, choices=None):
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=3)
+    ttk.Label(parent, text=translate(parent, label)).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=3)
     if choices is None:
         widget = ttk.Entry(parent, textvariable=value)
     else:
@@ -74,7 +75,7 @@ class ProductionDialog:
         self.path = None
         self.previewed = None
         self.window = tk.Toplevel(parent)
-        self.window.title("ComicFlow 单组制片")
+        self.window.title(translate(self.window, "ComicFlow 单组制片"))
         self.window.geometry("1050x745")
         self.window.minsize(820, 610)
         self.window.transient(parent)
@@ -83,10 +84,16 @@ class ProductionDialog:
         top = ttk.Frame(self.window, padding=10)
         top.pack(fill="x")
         self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open), ("保存项目", self.save))
-        self.production_tools = self.buttons(top, ("文本制片", self.open_drafting),
-                                             ("图像制片", self.open_image_production),
-                                             ("排版与交接", self.open_layout))
-        self.status = tk.StringVar(self.window, "新建或打开项目后开始。")
+        guides = ttk.Frame(self.window, padding=(10, 0, 10, 8))
+        guides.pack(fill="x")
+        self.production_tools = self.buttons(
+            guides, ("对白与分镜起草", self.open_drafting),
+            ("图像制片", self.open_image_production),
+            ("排版与交接", self.open_layout),
+            ("写提示词", lambda: self.open_drafting(prompts=True)),
+            ("复核与打包", lambda: self.tabs.select(3)),
+        )
+        self.status = tk.StringVar(self.window, translate(self.window, "新建或打开项目后开始。"))
         info = ttk.Frame(self.window, padding=(10, 0, 10, 6))
         info.pack(fill="x")
         self.rule_name = tk.StringVar(self.window)
@@ -106,22 +113,22 @@ class ProductionDialog:
         try:
             task()
         except Exception as exc:
-            messagebox.showerror("单组制片", str(exc), parent=self.window)
+            messagebox.showerror(translate(self.window, "单组制片"), translate(self.window, str(exc)), parent=self.window)
 
     def buttons(self, bar, *buttons):
         built = []
         for title, command in buttons:
-            button = ttk.Button(bar, text=title, command=lambda task=command: self.guarded(task))
+            button = ttk.Button(bar, text=translate(bar, title), command=lambda task=command: self.guarded(task))
             button.pack(side="left", padx=(0, 6))
             built.append(button)
         return built
 
     def show_rules(self, rules):
         self.rules = rules
-        self.rule_name.set(f"{RULE_LABELS[rules]} · v{rules}")
+        self.rule_name.set(f"{translate(self.window, RULE_LABELS[rules])} · v{rules}")
         chinese = rules == CHINESE
         has_project = self.project is not None
-        self.tabs.tab(3, state="normal" if has_project else "disabled", text="文本与排版" if chinese else "复核与交付")
+        self.tabs.tab(3, state="normal" if has_project else "disabled", text=translate(self.tabs, "文本与排版" if chinese else "复核与交付"))
         for button in self.production_tools:
             button.state(["!disabled"] if has_project else ["disabled"])
         self.english_delivery.pack_forget()
@@ -130,7 +137,7 @@ class ProductionDialog:
 
     def tab(self, name):
         page = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(page, text=name)
+        self.tabs.add(page, text=translate(self.tabs, name))
         return page
 
     def editor(self, parent, height=8):
@@ -148,21 +155,21 @@ class ProductionDialog:
                      ("编辑本组批准对白 JSON", self.import_dialogue))
         self.source = ttk.Combobox(bar, state="readonly", width=30)
         self.source.pack(side="left", expand=True, fill="x")
-        ttk.Label(page, text="制片记录 · 必填项按交付规则填写，可用「- 」追加行").pack(anchor="w")
+        ttk.Label(page, text=translate(page, "制片记录 · 必填项按交付规则填写，可用「- 」追加行")).pack(anchor="w")
         self.notes = self.editor(page, 18)
         self.notes.pack(fill="both", expand=True)
-        ttk.Label(page, text="SD2 公共说明 · 填写成片环境与约束").pack(anchor="w", pady=(8, 0))
+        ttk.Label(page, text=translate(page, "SD2 公共说明 · 填写成片环境与约束")).pack(anchor="w", pady=(8, 0))
         self.prompt = self.editor(page, 5)
         self.prompt.pack(fill="both")
 
     def setup_shots(self, page):
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=(0, 8))
-        self.buttons(bar, ("插入镜头", lambda: self.edit_shot(insert=True)), ("编辑镜头", self.edit_shot),
+        self.buttons(bar, ("导入批准剧本", self.import_source), ("插入镜头", lambda: self.edit_shot(insert=True)), ("编辑镜头", self.edit_shot),
                      ("上移", lambda: self.move(-1)), ("下移", lambda: self.move(1)), ("删除镜头", self.remove_shot))
         self.shots = self.table(page, ("镜号", "源段", "净板文件", "对白 ID"), (85, 265, 240, 140))
         self.shots.bind("<Double-1>", lambda _event: self.guarded(self.edit_shot))
-        ttk.Label(page, text="镜号和净板局部号按播放顺序生成。移动或插入后，在复核窗口重新核对故事板格与场景图的局部标签。").pack(anchor="w", pady=(8, 0))
+        ttk.Label(page, text=translate(page, "镜号和净板局部号按播放顺序生成。移动或插入后，在复核窗口重新核对故事板格与场景图的局部标签。")).pack(anchor="w", pady=(8, 0))
 
     def setup_images(self, page):
         bar = ttk.Frame(page)
@@ -183,14 +190,14 @@ class ProductionDialog:
         form.pack(fill="x")
         self.baseline, self.exception = (tk.StringVar(self.window) for _ in range(2))
         field(common, 0, "原包比对（可选）", self.baseline)
-        ttk.Button(common, text="浏览", command=lambda: self.choose(self.baseline, "*.zip")).grid(row=0, column=2, padx=5)
+        ttk.Button(common, text=translate(common, "浏览"), command=lambda: self.choose(self.baseline, "*.zip")).grid(row=0, column=2, padx=5)
         field(form, 0, "批准格数例外（可选）", self.exception)
-        ttk.Button(form, text="浏览", command=lambda: self.choose(self.exception, "*.json")).grid(row=0, column=2, padx=5)
+        ttk.Button(form, text=translate(form, "浏览"), command=lambda: self.choose(self.exception, "*.json")).grid(row=0, column=2, padx=5)
         bar = ttk.Frame(self.english_delivery)
         bar.pack(fill="x", pady=8)
         self.buttons(bar, ("对白与图数预检", self.preflight), ("生成逐格复核预览", self.preview),
                      ("确认本版画面", self.confirm), ("验收并导出 ZIP", self.publish))
-        ttk.Label(self.english_delivery, text="核对故事板格号、净板局部、对白与画面后再确认。报告显示交付包校验结果。").pack(anchor="w")
+        ttk.Label(self.english_delivery, text=translate(self.english_delivery, "核对故事板格号、净板局部、对白与画面后再确认。报告显示交付包校验结果。")).pack(anchor="w")
         text_bar = ttk.Frame(self.chinese_delivery)
         text_bar.pack(fill="x", pady=5)
         self.buttons(text_bar, ("预览两份 TXT", self.preview_chinese_text), ("导出两份 TXT", self.export_chinese_text))
@@ -199,7 +206,7 @@ class ProductionDialog:
         delivery_bar.pack(fill="x", pady=(0, 5))
         self.buttons(delivery_bar, ("正式交付预览", self.preview), ("确认本版画面", self.confirm),
                      ("验收并导出 ZIP", self.publish))
-        ttk.Label(self.chinese_delivery, text="先核对正式交付预览，再用中文版校验脚本验收并导出 ZIP。").pack(anchor="w")
+        ttk.Label(self.chinese_delivery, text=translate(self.chinese_delivery, "先核对正式交付预览，再用中文版校验脚本验收并导出 ZIP。")).pack(anchor="w")
         self.report = self.editor(page, 18)
         self.report.pack(fill="both", expand=True, pady=(5, 0))
 
@@ -210,7 +217,7 @@ class ProductionDialog:
         scroll = ttk.Scrollbar(frame, command=table.yview)
         table.configure(yscrollcommand=scroll.set)
         for title, width in zip(columns, widths):
-            table.heading(title, text=title)
+            table.heading(title, text=translate(table, title))
             table.column(title, width=width)
         scroll.pack(side="right", fill="y")
         table.pack(fill="both", expand=True)
@@ -248,7 +255,7 @@ class ProductionDialog:
                 return True
         except (ValueError, OSError):
             pass
-        result = messagebox.askyesnocancel("尚有项目更改", "离开前保存项目？", parent=self.window)
+        result = messagebox.askyesnocancel(translate(self.window, "尚有项目更改"), translate(self.window, "离开前保存项目？"), parent=self.window)
         if result:
             self.save()
         return result is not None
@@ -259,7 +266,7 @@ class ProductionDialog:
     def create(self):
         if not self.allow_leave():
             return
-        value = filedialog.asksaveasfilename(parent=self.window, filetypes=PROJECT_FILES, defaultextension=".cfproject")
+        value = filedialog.asksaveasfilename(parent=self.window, filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),), defaultextension=".cfproject")
         if value:
             path = Path(value)
             if path.exists():
@@ -271,7 +278,7 @@ class ProductionDialog:
     def open(self):
         if not self.allow_leave():
             return
-        value = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
+        value = filedialog.askopenfilename(parent=self.window, filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),))
         if value:
             path = Path(value)
             self.load(ProductionProject.open(path), path)
@@ -296,6 +303,16 @@ class ProductionDialog:
             self.registry.set(str(project_registry(path)))
         self.status.set(path.name)
 
+    def go_to(self, destination):
+        if destination == "layout":
+            self.tabs.select(2)
+            self.open_layout()
+        elif destination == "prompts":
+            self.tabs.select(1)
+            self.open_drafting(prompts=True)
+        else:
+            self.tabs.select({"group": 0, "shots": 1, "assets": 2, "deliver": 3}[destination])
+
     def refresh_sources(self):
         self.source["values"] = tuple(f"{source.name} · {source.version}" for source in self.project.sources)
         if self.project.sources:
@@ -312,7 +329,7 @@ class ProductionDialog:
     def import_source(self):
         value = filedialog.askopenfilename(parent=self.window, filetypes=(("UTF-8 剧本", "*.txt *.md"),))
         if value:
-            version = simpledialog.askstring("批准剧本版本", "输入版本号，例如 R5", parent=self.window)
+            version = simpledialog.askstring(translate(self.window, "批准剧本版本"), translate(self.window, "输入版本号，例如 R5"), parent=self.window)
             if version is not None:
                 path = Path(value)
                 source = self.project.import_source(path.name, version, path.read_text(encoding="utf-8-sig"))
@@ -338,7 +355,7 @@ class ProductionDialog:
     def import_dialogue(self):
         source = self.current_source()
         panel = tk.Toplevel(self.window)
-        panel.title("导入本组批准对白")
+        panel.title(translate(panel, "导入本组批准对白"))
         panel.transient(self.window)
         boundary = "自然停顿切点" if self.rules == CHINESE else "整句分界"
         ttk.Label(panel, text=f"粘贴或打开批准对白 JSON。可用 sentence_ends 标同一 ID 的{boundary}。").pack(padx=10, pady=6)
@@ -375,11 +392,11 @@ class ProductionDialog:
         self.window.wait_window(dialog)
         self.window.grab_set()
 
-    def open_drafting(self):
+    def open_drafting(self, *, prompts=False):
         from .drafting_dialog import DraftingDialog
 
         self.save()
-        self.wait(DraftingDialog(self, self.text_session).window)
+        self.wait(DraftingDialog(self, self.text_session, prompts=prompts).window)
 
     def open_image_production(self):
         from .image_production_dialog import ImageProductionDialog
@@ -447,11 +464,11 @@ class ProductionDialog:
             plate.current(next(i for i, image in enumerate(plates) if image.id == shot.plate))
         field(form, 3, "地点", variables[3])
         field(form, 4, "净板机位说明", variables[4])
-        ttk.Label(panel, text="对白 · 单填 ID 使用本组已选范围。跨镜续说填写「D001 起始字符位 结束字符位」。").pack(anchor="w", padx=10)
+        ttk.Label(panel, text=translate(panel, "对白 · 单填 ID 使用本组已选范围。跨镜续说填写「D001 起始字符位 结束字符位」。")).pack(anchor="w", padx=10)
         dialogue = self.editor(panel, 3)
         dialogue.pack(fill="x", padx=10)
         write_text(dialogue, "\n".join(f"{identity} {start} {end}" for identity, start, end in shot.dialogue))
-        ttk.Label(panel, text="镜头内容 · 成片动作留空时沿用动作起止。").pack(anchor="w", padx=10, pady=(7, 0))
+        ttk.Label(panel, text=translate(panel, "镜头内容 · 成片动作留空时沿用动作起止。")).pack(anchor="w", padx=10, pady=(7, 0))
         editor = self.editor(panel, 15)
         editor.pack(fill="both", expand=True, padx=10)
         write_text(editor, fields_text(SHOT_FIELDS, shot.fields))
@@ -497,7 +514,7 @@ class ProductionDialog:
 
     def remove_shot(self):
         index = self.index(self.shots, "镜头")
-        if messagebox.askyesno("删除镜头", "从当前组的镜头清单删除此镜？", parent=self.window):
+        if messagebox.askyesno(translate(self.window, "删除镜头"), translate(self.window, "从当前组的镜头清单删除此镜？"), parent=self.window):
             self.project.shots.pop(index)
             self.refresh()
 
@@ -511,7 +528,7 @@ class ProductionDialog:
         if not entries:
             raise ValueError("这个资产登记库没有已批准记录。")
         panel = tk.Toplevel(self.window)
-        panel.title("选择登记的原图")
+        panel.title(translate(panel, "选择登记的原图"))
         panel.transient(self.window)
         form = ttk.Frame(panel, padding=10)
         form.pack(fill="x")
@@ -543,7 +560,7 @@ class ProductionDialog:
                 return
             path = Path(value)
         panel = tk.Toplevel(self.window)
-        panel.title("绑定批准图像")
+        panel.title(translate(panel, "绑定批准图像"))
         panel.transient(self.window)
         form = ttk.Frame(panel, padding=10)
         form.pack(fill="x", expand=True)
@@ -554,7 +571,7 @@ class ProductionDialog:
                                                 ("处理理由", reason), ("实际核图记录", inspection), ("批准原图文件名（用 | 隔开）", originals))):
             field(form, row, label, variable, ACTIONS if variable is action else None)
         reference = tk.BooleanVar(panel, False)
-        ttk.Checkbutton(form, text="仅用于来源比对", variable=reference).grid(row=6, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(form, text=translate(form, "仅用于来源比对"), variable=reference).grid(row=6, column=0, columnspan=2, sticky="w")
         self.show_thumbnail(panel, path)
 
         def accept():
@@ -666,7 +683,7 @@ class ProductionDialog:
         self.update_group()
         if self.previewed != self.project.fingerprint():
             raise ValueError("请先打开当前版本的逐格复核预览。")
-        if messagebox.askyesno("确认本版画面", "是否已核对故事板格序、净板局部和镜头文字？", parent=self.window):
+        if messagebox.askyesno(translate(self.window, "确认本版画面"), translate(self.window, "是否已核对故事板格序、净板局部和镜头文字？"), parent=self.window):
             self.project.structure_review = self.previewed
             self.save()
 
@@ -682,7 +699,7 @@ class ProductionDialog:
         baseline = self.baseline.get().strip()
         exception = self.exception.get().strip() if self.rules == ENGLISH else ""
         self.window.configure(cursor="watch")
-        self.status.set("正在严格验收交付包…")
+        self.status.set(translate(self.window, "正在严格验收交付包…"))
         self.window.update_idletasks()
         try:
             result = publish_project(self.project, self.path, validator, Path(value),
@@ -700,11 +717,24 @@ class ProductionDialog:
                 for label, files in (("修改", result.changed), ("新增", result.added), ("移除", result.removed)):
                     details.append(f"{label}\n" + ("\n".join(files) or "无"))
         write_text(self.report, "\n\n".join(details))
-        self.status.set("已导出并重新核验 ZIP" if result.output else "校验未通过，请查看报告")
+        self.status.set(translate(self.window, "已导出并重新核验 ZIP" if result.output else "校验未通过，请查看报告"))
 
 
 def open_production_dialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed,
-                           initial_project=None):
+                           initial_project=None, *, initial_action=None, destination="group"):
     dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)
-    if initial_project is not None:
-        dialog.guarded(lambda: dialog.load(ProductionProject.open(initial_project), initial_project))
+
+    def open_at_destination():
+        if initial_project is not None:
+            dialog.load(ProductionProject.open(initial_project), initial_project)
+        elif initial_action == "new":
+            dialog.create()
+        elif initial_action == "open":
+            dialog.open()
+        if dialog.project is not None:
+            dialog.go_to(destination)
+        elif initial_action:
+            dialog.window.destroy()
+
+    if initial_project is not None or initial_action:
+        dialog.window.after_idle(lambda: dialog.guarded(open_at_destination))

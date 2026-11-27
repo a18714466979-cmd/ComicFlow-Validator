@@ -8,6 +8,7 @@ from zipfile import BadZipFile
 
 from PIL import Image, ImageTk
 
+from .ui_language import translate
 from .production_layout import valid_box
 from .shot_review import load_shots, pixel_selection, shot_id, shot_summary
 from .storyboard_review import ReviewResult, read_preview
@@ -24,7 +25,7 @@ class ImagePane(ttk.LabelFrame):
     """Preview one source image and retain manually selected regions by shot."""
 
     def __init__(self, parent, title: str, result: ReviewResult):
-        super().__init__(parent, text=title, padding=5)
+        super().__init__(parent, text=translate(parent, title), padding=5)
         self.result = result
         self.image = None
         self.photo = None
@@ -48,7 +49,7 @@ class ImagePane(ttk.LabelFrame):
         tools.pack(fill="x", pady=(4, 0))
         self.mode = ttk.Label(tools, text="")
         self.mode.pack(side="left")
-        self.toggle_button = ttk.Button(tools, text="显示整图", command=self.toggle)
+        self.toggle_button = ttk.Button(tools, text=translate(tools, "显示整图"), command=self.toggle)
         self.toggle_button.pack(side="right")
 
     def show(self, key: tuple[str, str], path: str | None, notice: str, region=None) -> None:
@@ -78,10 +79,10 @@ class ImagePane(ttk.LabelFrame):
         height = max(20, self.canvas.winfo_height())
         region = self.regions.get(self.key) or self.auto_region
         self.toggle_button.configure(state="normal" if region and self.image else "disabled",
-                                     text="显示整图" if self.zoomed else "查看本镜窗口")
+                                     text=translate(self, "显示整图" if self.zoomed else "查看本镜窗口"))
         if self.image is None:
-            self.mode.configure(text="无可预览图像")
-            self.canvas.create_text(width / 2, height / 2, text=self.notice, width=max(15, width - 30), fill="white")
+            self.mode.configure(text=translate(self, "无可预览图像"))
+            self.canvas.create_text(width / 2, height / 2, text=translate(self, self.notice), width=max(15, width - 30), fill="white")
             return
 
         image = self.image.crop(region) if self.zoomed and region else self.image
@@ -92,7 +93,7 @@ class ImagePane(ttk.LabelFrame):
         self.canvas.create_image(left, top, anchor="nw", image=self.photo)
         self.image_bounds = (left, top, *size)
         title = "手动框选 · 局部预览" if self.key in self.regions else "包内坐标 · 本镜窗口"
-        self.mode.configure(text=title if self.zoomed else "整图预览 · 拖动框选核对区域")
+        self.mode.configure(text=translate(self, title if self.zoomed else "整图预览 · 拖动框选核对区域"))
 
     def begin_selection(self, event) -> None:
         if self.image_bounds is None or self.zoomed:
@@ -120,14 +121,14 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
     try:
         shots = load_shots(result)
     except (ValueError, OSError, BadZipFile) as exc:
-        messagebox.showerror("无法打开逐格复核", str(exc), parent=parent)
+        messagebox.showerror(translate(parent, "无法打开逐格复核"), str(exc), parent=parent)
         return
     if not shots:
-        messagebox.showinfo("没有可对照的镜头", "交付包中没有可读取的镜号记录。", parent=parent)
+        messagebox.showinfo(translate(parent, "没有可对照的镜头"), translate(parent, "交付包中没有可读取的镜号记录。"), parent=parent)
         return
 
     window = tk.Toplevel(parent)
-    window.title("ComicFlow 逐格复核")
+    window.title(translate(window, "ComicFlow 逐格复核"))
     window.geometry("1250x850")
     window.minsize(850, 650)
     window.transient(parent)
@@ -154,7 +155,7 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
     pictures.add(plate, weight=1)
     text_panes = []
     for title in ("生产记录 · 本镜", "SD2 提示词 · 本镜"):
-        frame = ttk.LabelFrame(texts, text=title, padding=5)
+        frame = ttk.LabelFrame(texts, text=translate(texts, title), padding=5)
         pane = scrolledtext.ScrolledText(frame, wrap="word", height=7, state="disabled")
         pane.pack(fill="both", expand=True)
         texts.add(frame, weight=1)
@@ -166,7 +167,7 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
     adjacent.columnconfigure(1, weight=1, uniform="neighbors")
     neighbor_labels = []
     for column, title in enumerate(("上一镜", "下一镜")):
-        frame = ttk.LabelFrame(adjacent, text=title, padding=5)
+        frame = ttk.LabelFrame(adjacent, text=translate(adjacent, title), padding=5)
         frame.grid(row=0, column=column, sticky="nsew", padx=2)
         label = ttk.Label(frame, wraplength=240, compound="left")
         label.pack(anchor="w", fill="x")
@@ -188,17 +189,17 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
         selection.current(index)
         row = shots[index]
         key = (row.group, row.shot)
-        notes.configure(text=" · ".join(row.notices) or "按包内镜号和局部对应表显示，画面内容由人工核对。")
+        notes.configure(text=" · ".join(row.notices) or translate(window, "按包内镜号和局部对应表显示，画面内容由人工核对。"))
         reference = row.plate
         plate_path = f"{row.group}/{reference.filename}" if reference else None
         plate_details.configure(text=(f"{reference.slot} · {reference.scene} · {reference.filename} · {reference.description}"
-                                     if reference else "该镜暂无唯一净板对应。"))
+                                     if reference else translate(window, "该镜暂无唯一净板对应。")))
         board.show(key, row.storyboard, "未找到唯一故事板", row.board_box)
         plate.show(key, plate_path, "净板缺失或对应关系不明确", row.plate_box)
         for pane, text in zip(text_panes, (row.production, row.sd2)):
             pane.configure(state="normal")
             pane.delete("1.0", "end")
-            pane.insert("1.0", text or "没有可定位的唯一记录。")
+            pane.insert("1.0", text or translate(window, "没有可定位的唯一记录。"))
             pane.configure(state="disabled")
         for label, neighbor in zip(neighbor_labels, (index - 1, index + 1)):
             if 0 <= neighbor < len(shots):
@@ -213,7 +214,7 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
                 label.configure(text=f"{other.shot}{image_label}\n{summary}", image=thumbnail or "")
                 label.photo = thumbnail
             else:
-                label.configure(text="包内无相邻镜头", image="")
+                label.configure(text=translate(window, "包内无相邻镜头"), image="")
                 label.photo = None
         previous.configure(state="normal" if index else "disabled")
         following.configure(state="normal" if index + 1 < len(shots) else "disabled")
@@ -223,9 +224,9 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
         if 0 <= index < len(shots):
             show(index)
 
-    previous = ttk.Button(navigation, text="上一镜", command=lambda: step(-1))
+    previous = ttk.Button(navigation, text=translate(navigation, "上一镜"), command=lambda: step(-1))
     previous.pack(side="left", padx=6)
-    following = ttk.Button(navigation, text="下一镜", command=lambda: step(1))
+    following = ttk.Button(navigation, text=translate(navigation, "下一镜"), command=lambda: step(1))
     following.pack(side="left")
     selection.bind("<<ComboboxSelected>>", lambda _event: show(selection.current()))
 

@@ -120,6 +120,13 @@ def run_inside_launcher():
             if mode == "mode-switch":
                 self.inspect_mode_switch(validator)
                 return
+            if mode == "ui-language-restore":
+                assert self.title() == "ComicFlow Storyboard Workbench"
+                click(self, "中文 / English")
+                assert self.title() == "ComicFlow 漫剧制片工作台"
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.destroy()
+                return
             if mode == "file-only":
                 assert not validator.get()
                 click(self, "开始验收")
@@ -170,8 +177,64 @@ def run_inside_launcher():
             self.exercise_chinese_text(dialog, tabs)
             self.exercise_chinese_layout(dialog, tabs)
             dialog.destroy()
+            self.inspect_home_workflow(chinese, validator, scripts[1])
             click(self, "开始验收")
             self.after(100, self.inspect_chinese_report)
+
+        def inspect_home_workflow(self, chinese, validator, script):
+            from src.production_project import ProductionProject
+            from src.production_rules import CHINESE
+
+            click(self, "中文 / English")
+            assert self.title() == "ComicFlow Storyboard Workbench"
+            assert chinese.instate(["selected"]) and chinese.cget("text") == "Chinese production"
+            assert Path(validator.get()).resolve() == script.resolve()
+            assert next(walk(self, ttk.Entry)).get() == archive
+            self.geometry("900x700")
+            self.update_idletasks()
+            home_actions = ("Plan shots", "Prepare assets", "Arrange storyboard", "Write prompts",
+                            "Review & export", "Assets & repairs", "Validate ZIP")
+            for name in home_actions:
+                button = next(w for w in walk(self, ttk.Button) if w.cget("text") == name)
+                assert button.winfo_viewable() and button.winfo_rooty() + button.winfo_height() <= self.winfo_rooty() + 700
+            original_picker = filedialog.askopenfilename
+            try:
+                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
+                for shortcut, tab_name, modal_name, modal_tab in (
+                    ("Plan shots", "Shot list", "", ""),
+                    ("Prepare assets", "Approved images", "", ""),
+                    ("Arrange storyboard", "Approved images", "ComicFlow Layout & Handoff", "16:9 layout"),
+                    ("Write prompts", "Shot list", "ComicFlow Text Production", "Text model & history"),
+                    ("Review & export", "Text, layout & delivery", "", ""),
+                ):
+                    def verify_view():
+                        panel = next(walk(self, tk.Toplevel))
+                        tabs = next(walk(panel, ttk.Notebook))
+                        assert tabs.tab(tabs.select(), "text") == tab_name
+                        if modal_name:
+                            tool = next(walk(panel, tk.Toplevel))
+                            tool_tabs = next(walk(tool, ttk.Notebook))
+                            assert tool.title() == modal_name and tool_tabs.tab(tool_tabs.select(), "text") == modal_tab
+                            if shortcut == "Write prompts":
+                                assert any(w.get() == "SD2 prompts" for w in walk(tool, ttk.Combobox))
+                            tool.destroy()
+                            self.after_idle(panel.destroy)
+                        else:
+                            panel.destroy()
+
+                    click(self, shortcut)
+                    self.after(130, verify_view)
+                    self.wait_window(next(walk(self, tk.Toplevel)))
+                assert ProductionProject.open(project_path).rules == CHINESE
+                click(self, "Assets & repairs")
+                panel = next(walk(self, tk.Toplevel))
+                assert panel.title() == "ComicFlow Assets & Repairs"
+                panel.destroy()
+            finally:
+                filedialog.askopenfilename = original_picker
+            click(self, "中文 / English")
+            assert chinese.cget("text") == "中文制作" and chinese.instate(["selected"])
+            print("Verified five home routes and bilingual UI independent from production rules", flush=True)
 
         def exercise_chinese_text(self, dialog, tabs):
             from src.production_project import SHOT_FIELDS, ProductionProject, Shot
@@ -211,7 +274,7 @@ def run_inside_launcher():
                 drafting.destroy()
 
             self.after(50, adopt)
-            click(dialog, "文本制片")
+            click(dialog, "对白与分镜起草")
             assert ProductionProject.open(path).dialogue_scope == {"D001": [0, len(first)]}
             tabs.select(3)
             click(dialog, "预览两份 TXT")
@@ -319,6 +382,11 @@ def run_inside_launcher():
                 self.after(100, self.inspect_chinese_report)
                 return
             assert "Chinese mode validator" in table.item("0", "values")[-1]
+            click(self, "中文 / English")
+            assert "Chinese production" in self.getvar(next(
+                label.cget("textvariable") for label in walk(self, ttk.Label)
+                if label.cget("textvariable") and "Automated checks passed" in self.getvar(label.cget("textvariable"))
+            ))
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
 
@@ -350,7 +418,7 @@ def run_inside_launcher():
             assert any(widget.cget("image") for widget in walk(self, ttk.Label))
             self.after(50, self.inspect_shot_dialog)
             click(self, "逐格复核")
-            click(self, "生图前预检")
+            click(self, "对白与九图预算")
             next(walk(self, tk.Toplevel)).destroy()
             self.after(50, self.inspect_asset_dialog)
             click(self, "资产与返修")
@@ -430,7 +498,7 @@ def run_inside_launcher():
                 drafting_dialog.request_text = lambda *_args: TextReply(mock_output, "smoke")
                 messagebox.askyesno = lambda *_args, **_kwargs: True
                 self.after(50, lambda: self.inspect_drafting_dialog(dialog))
-                click(dialog, "文本制片")
+                click(dialog, "对白与分镜起草")
                 saved = ProductionProject.open(project_path)
                 assert len(saved.text_drafts) == len(saved.shots) == 1
                 assert saved.shots[0].fields["画面/事件"] == "信号灯亮起"
@@ -628,7 +696,7 @@ def verify_windows_launcher(root=ROOT):
         }
         env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
-                               ("mode-switch", f' "{archive}"')):
+                               ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"')):
             env["COMICFLOW_SMOKE_MODE"] = mode
             if mode == "file-only":
                 env.pop("COMICFLOW_STORYBOARD_VALIDATOR")

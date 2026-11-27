@@ -9,6 +9,7 @@ from threading import Thread
 from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlsplit
 
+from .ui_language import translate
 from .production_dialog import PROJECT_FILES, field, fields_text, read_fields, write_text
 from .production_dialogue import group_scope, plan_project_dialogue, save_scope, scope_from_shots, select_scope
 from .production_drafting import (
@@ -23,7 +24,7 @@ from .vision import PROVIDERS, VisionSettings
 
 
 class DraftingDialog:
-    def __init__(self, production, session):
+    def __init__(self, production, session, *, prompts=False):
         self.production = production
         self.project = production.project
         self.session = session
@@ -33,7 +34,7 @@ class DraftingDialog:
         self.candidate = None
         self.busy = False
         self.window = tk.Toplevel(production.window)
-        self.window.title("ComicFlow 文本制片")
+        self.window.title(translate(self.window, "ComicFlow 文本制片"))
         self.window.geometry("1040x774")
         self.window.minsize(820, 665)
         self.window.transient(production.window)
@@ -42,10 +43,14 @@ class DraftingDialog:
         tabs.pack(fill="both", expand=True, padx=10, pady=10)
         capacity = ttk.Frame(tabs, padding=10)
         ai = ttk.Frame(tabs, padding=10)
-        tabs.add(capacity, text="中文对白预排" if self.project.rules == CHINESE else "对白与九图预排")
-        tabs.add(ai, text="文本模型与历史")
+        tabs.add(capacity, text=translate(tabs, "中文对白预排" if self.project.rules == CHINESE else "对白与九图预排"))
+        tabs.add(ai, text=translate(tabs, "文本模型与历史"))
         self.setup_plan(capacity)
         self.setup_ai(ai)
+        if prompts:
+            tabs.select(ai)
+            self.task_picker.current(TASKS.index(SD2_TASK))
+            self.pick_task()
 
     def close(self):
         if self.busy:
@@ -56,7 +61,7 @@ class DraftingDialog:
     def buttons(self, bar, *entries):
         widgets = []
         for title, action in entries:
-            button = ttk.Button(bar, text=title, command=lambda run=action: self.run(run))
+            button = ttk.Button(bar, text=translate(bar, title), command=lambda run=action: self.run(run))
             button.pack(side="left", padx=(0, 6))
             widgets.append(button)
         return widgets
@@ -65,7 +70,7 @@ class DraftingDialog:
         try:
             action()
         except Exception as exc:
-            messagebox.showerror("文本制片", str(exc), parent=self.window)
+            messagebox.showerror(translate(self.window, "文本制片"), translate(self.window, str(exc)), parent=self.window)
 
     def setup_plan(self, page):
         chinese = self.project.rules == CHINESE
@@ -73,14 +78,14 @@ class DraftingDialog:
                     "可用 sentence_ends 指定批准的语义停顿，填写原文零起点的字符右边界。") if chinese else (
                         "按「项目与组」的批准对白顺序预排。对白 JSON 的 sentence_ends 可标同一源 ID 的多句终点，"
                         "数值为零起点的字符右边界。没有终点记录时整条按一句处理。")
-        ttk.Label(page, wraplength=900, text=guidance).pack(anchor="w")
+        ttk.Label(page, wraplength=900, text=translate(page, guidance)).pack(anchor="w")
         if not chinese:
-            budget = ttk.LabelFrame(page, text="计划交付图片", padding=8)
+            budget = ttk.LabelFrame(page, text=translate(page, "计划交付图片"), padding=8)
             budget.pack(fill="x", pady=9)
             self.counts = [tk.StringVar(self.window, "0") for _ in range(4)]
-            ttk.Label(budget, text="故事板 1 张").pack(side="left")
+            ttk.Label(budget, text=translate(budget, "故事板 1 张")).pack(side="left")
             for title, count in zip(("主角", "配角", "道具 / HUD", "场景"), self.counts):
-                ttk.Label(budget, text=title).pack(side="left", padx=(9, 4))
+                ttk.Label(budget, text=translate(budget, title)).pack(side="left", padx=(9, 4))
                 ttk.Entry(budget, textvariable=count, width=4).pack(side="left")
                 count.trace_add("write", self.show_budget)
             self.budget_status = tk.StringVar(self.window)
@@ -93,7 +98,7 @@ class DraftingDialog:
                      ("载入上一组交接", self.load_previous))
         self.group_picker = ttk.Combobox(bar, state="readonly", width=35 if chinese else 22)
         self.group_picker.pack(side="left", padx=(0, 5))
-        ttk.Label(bar, text="上一组").pack(side="left")
+        ttk.Label(bar, text=translate(bar, "上一组")).pack(side="left")
         self.previous_group = tk.StringVar(self.window, self.project.previous_group)
         ttk.Entry(bar, textvariable=self.previous_group, width=8).pack(side="left", padx=5)
         if chinese:
@@ -148,7 +153,7 @@ class DraftingDialog:
         index = self.group_picker.current()
         if index < 0 or self.plan_fingerprint != self.project.fingerprint():
             raise ValueError("请按当前项目重新预排，再选择一个对白候选组。")
-        if not messagebox.askyesno("采用对白候选组", "将所选批准范围设为本组。镜头里的对白按原文区间分配。", parent=self.window):
+        if not messagebox.askyesno(translate(self.window, "采用对白候选组"), translate(self.window, "将所选批准范围设为本组。镜头里的对白按原文区间分配。"), parent=self.window):
             return
         select_scope(self.project, self.plan[index], self.previous_group.get())
         self.production.save()
@@ -187,7 +192,6 @@ class DraftingDialog:
         config.pack(fill="x")
         self.provider = tk.StringVar(self.window, next(reversed(self.session), next(iter(PROVIDERS))))
         self.base_url, self.model, self.key = (tk.StringVar(self.window) for _ in range(3))
-        self.task = tk.StringVar(self.window, TASKS[0])
         selector = field(config, 0, "文本服务商", self.provider, tuple(PROVIDERS))
         selector.bind("<<ComboboxSelected>>", self.pick_provider)
         for row, (label, variable) in enumerate((("API 基础地址", self.base_url), ("文本模型 ID", self.model),
@@ -196,17 +200,20 @@ class DraftingDialog:
             if variable is self.key:
                 entry.configure(show="*")
         self.pick_provider()
-        field(config, 4, "任务", self.task, TASKS).bind("<<ComboboxSelected>>", self.pick_task)
+        self.task_picker = field(config, 4, "任务", tk.StringVar(self.window),
+                                 tuple(translate(self.window, task) for task in TASKS))
+        self.task_picker.current(0)
+        self.task_picker.bind("<<ComboboxSelected>>", self.pick_task)
         self.sources = self.project.sources
         self.source = field(config, 5, "批准剧本", tk.StringVar(self.window),
                             tuple(f"{s.name} · {s.version}" for s in self.sources))
         self.source.bind("<<ComboboxSelected>>", self.pick_source)
         scope = ttk.Frame(config)
         scope.grid(row=6, column=1, sticky="w")
-        ttk.Label(config, text="剧本行段").grid(row=6, column=0, sticky="w")
+        ttk.Label(config, text=translate(config, "剧本行段")).grid(row=6, column=0, sticky="w")
         self.start, self.end = (tk.StringVar(self.window) for _ in range(2))
         ttk.Entry(scope, textvariable=self.start, width=7).pack(side="left")
-        ttk.Label(scope, text=" 至 ").pack(side="left")
+        ttk.Label(scope, text=translate(scope, " 至 ")).pack(side="left")
         ttk.Entry(scope, textvariable=self.end, width=7).pack(side="left")
         self.shot = field(config, 7, "目标镜头（写 SD2 时）", tk.StringVar(self.window), ())
         if self.sources:
@@ -217,11 +224,11 @@ class DraftingDialog:
         buttons = ttk.Frame(page)
         buttons.pack(fill="x", pady=5)
         _, self.send = self.buttons(buttons, ("查看发送内容", self.preview_payload), ("调用模型起草", self.send_request))
-        self.status = tk.StringVar(self.window, "查看发送内容后调用。API Key 只在本次软件运行期间保留。")
+        self.status = tk.StringVar(self.window, translate(self.window, "查看发送内容后调用。API Key 只在本次软件运行期间保留。"))
         ttk.Label(page, textvariable=self.status, wraplength=930).pack(anchor="w")
         history = ttk.Frame(page)
         history.pack(fill="x", pady=(5, 0))
-        ttk.Label(history, text="候选版本").pack(side="left", padx=(0, 8))
+        ttk.Label(history, text=translate(history, "候选版本")).pack(side="left", padx=(0, 8))
         self.history = ttk.Combobox(history, state="readonly")
         self.history.pack(side="left", fill="x", expand=True)
         self.history.bind("<<ComboboxSelected>>", lambda _event: self.show_candidate(self.history.current()))
@@ -256,7 +263,7 @@ class DraftingDialog:
         self.targets = [(i, shot) for i, shot in enumerate(self.project.shots, 1) if shot.source == source_id]
         self.shot["values"] = tuple(f"{self.project.group}-{i:02d} · {shot.anchor}" for i, shot in self.targets)
         self.shot.set("")
-        if self.task.get() == SD2_TASK and self.targets:
+        if TASKS[self.task_picker.current()] == SD2_TASK and self.targets:
             self.shot.configure(state="readonly")
             selected = self.production.shots.selection()
             default = next((i for i, (_, shot) in enumerate(self.targets)
@@ -273,7 +280,7 @@ class DraftingDialog:
         except ValueError:
             raise ValueError("请输入有效的起始和结束行号。") from None
         shot = self.targets[self.shot.current()][1].id if self.shot.current() >= 0 else ""
-        task = self.task.get()
+        task = TASKS[self.task_picker.current()]
         context, payload = build_context(self.project, self.sources[self.source.current()], task, start, end,
                                          shot, self.previous_context)
         return task, context, instructions_for(task), payload
@@ -281,7 +288,7 @@ class DraftingDialog:
     def preview_payload(self):
         _, _, instructions, payload = self.payload()
         panel = tk.Toplevel(self.window)
-        panel.title("本次发送内容")
+        panel.title(translate(panel, "本次发送内容"))
         panel.geometry("845x650")
         panel.transient(self.window)
         preview = self.production.editor(panel)
@@ -297,9 +304,12 @@ class DraftingDialog:
         task, context, instructions, payload = self.payload()
         build_text_request(settings, instructions, payload)
         host = urlsplit(settings.endpoint()).netloc
-        if not messagebox.askyesno("发送文本到模型", f"将所选批准剧本、对白与相关制片状态发往 {host}？\n"
-                                   f"模型 {settings.model}，剧本第 {context['start']}–{context['end']} 行。"
-                                   "\n调用使用该服务的额度。", parent=self.window):
+        details = translate(self.window, "将所选批准剧本、对白与相关制片状态发往 {host}？\n"
+                            "模型 {model}，剧本第 {start}–{end} 行。").format(
+            host=host, model=settings.model, start=context["start"], end=context["end"],
+        )
+        usage = translate(self.window, "调用使用该服务的额度。")
+        if not messagebox.askyesno(translate(self.window, "发送文本到模型"), f"{details}\n{usage}", parent=self.window):
             return
         self.session.pop(settings.provider, None)
         self.session[settings.provider] = settings
@@ -410,7 +420,7 @@ class DraftingDialog:
         action = f"添加已选的 {len(selected)} 镜待核对分镜，之后在镜头清单确认对白、数量、连续性和净板。" if task == SHOT_TASK else (
             "采用当前候选中的成片动作或声音。请确认表演、设备状态和实际可见性与原镜头相符。"
         )
-        if not messagebox.askyesno("采纳文本建议", action, parent=self.window):
+        if not messagebox.askyesno(translate(self.window, "采纳文本建议"), action, parent=self.window):
             return
         apply_candidate(self.project, self.candidate, selected)
         self.production.refresh()

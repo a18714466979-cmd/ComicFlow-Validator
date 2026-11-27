@@ -6,6 +6,7 @@ from queue import Empty, Queue
 from threading import Thread
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
+from .ui_language import translate
 from .asset_registry import AssetRegistry
 from .repair_package import affected_files, pack_repair
 from .storyboard_review import ReviewResult
@@ -15,7 +16,7 @@ def open_asset_repair(
     parent: tk.Tk, registry_path: tk.StringVar, validator: str, baseline: ReviewResult | None,
 ) -> None:
     window = tk.Toplevel(parent)
-    window.title("ComicFlow 资产与返修")
+    window.title(translate(window, "ComicFlow 资产与返修"))
     window.geometry("940x720")
     window.minsize(650, 550)
     window.transient(parent)
@@ -23,8 +24,8 @@ def open_asset_repair(
     tabs = ttk.Notebook(window)
     tabs.pack(fill="both", expand=True, padx=10, pady=10)
     assets, repair = ttk.Frame(tabs, padding=8), ttk.Frame(tabs, padding=8)
-    tabs.add(assets, text="资产登记")
-    tabs.add(repair, text="返修打包")
+    tabs.add(assets, text=translate(tabs, "资产登记"))
+    tabs.add(repair, text=translate(tabs, "返修打包"))
     for tab in (assets, repair):
         tab.columnconfigure(1, weight=1)
         tab.rowconfigure(8, weight=1)
@@ -33,10 +34,10 @@ def open_asset_repair(
     busy = False
 
     def field(tab, row, label, variable, browse=None) -> None:
-        ttk.Label(tab, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
+        ttk.Label(tab, text=translate(tab, label)).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
         ttk.Entry(tab, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=4)
         if browse:
-            control = ttk.Button(tab, text="浏览", command=browse)
+            control = ttk.Button(tab, text=translate(tab, "浏览"), command=browse)
             control.grid(row=row, column=2, padx=6)
             controls.append(control)
 
@@ -57,7 +58,7 @@ def open_asset_repair(
         widget.configure(state="disabled")
 
     def button(tab, row, column, label, command) -> None:
-        control = ttk.Button(tab, text=label, command=command)
+        control = ttk.Button(tab, text=translate(tab, label), command=command)
         control.grid(row=row, column=column, sticky="w", padx=4, pady=5)
         controls.append(control)
 
@@ -158,7 +159,7 @@ def open_asset_repair(
             try:
                 Path(filename).write_text(repair_report.get("1.0", "end-1c"), encoding="utf-8")
             except OSError as exc:
-                messagebox.showerror("报告未保存", str(exc), parent=window)
+                messagebox.showerror(translate(window, "报告未保存"), translate(window, str(exc)), parent=window)
 
     button(repair, 1, 1, "查看关联文件", lambda: run_task(repair_report, locate, shot.get().strip()))
     button(repair, 6, 1, "复验并打包", lambda: run_task(
@@ -169,7 +170,7 @@ def open_asset_repair(
 
     def close() -> None:
         if busy:
-            messagebox.showinfo("正在处理", "请等待当前操作完成。", parent=window)
+            messagebox.showinfo(translate(window, "正在处理"), translate(window, "请等待当前操作完成。"), parent=window)
         else:
             window.destroy()
 

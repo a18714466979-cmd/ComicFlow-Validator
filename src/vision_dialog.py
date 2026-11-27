@@ -6,6 +6,7 @@ from threading import Thread
 from tkinter import messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
+from .ui_language import translate
 from .vision import PROVIDERS, VisionSettings, prepare_review_image, review_image
 
 
@@ -15,11 +16,11 @@ def open_vision_dialog(
     try:
         image, compressed = prepare_review_image(image)
     except (ValueError, OSError) as exc:
-        messagebox.showerror("图片无法分析", str(exc), parent=parent)
+        messagebox.showerror(translate(parent, "图片无法分析"), str(exc), parent=parent)
         return
 
     dialog = tk.Toplevel(parent)
-    dialog.title("AI 辅助看图")
+    dialog.title(translate(dialog, "AI 辅助看图"))
     dialog.transient(parent)
     dialog.grab_set()
     dialog.minsize(580, 395)
@@ -29,12 +30,13 @@ def open_vision_dialog(
     provider = tk.StringVar(value=next(reversed(session), next(iter(PROVIDERS))))
     base_url, model, api_key = tk.StringVar(), tk.StringVar(), tk.StringVar()
     sending = "发送这张图片的压缩副本" if compressed else "发送这张图片"
-    status = tk.StringVar(value=f"{sending}。API Key 只在本次软件运行期间保留。")
+    status = tk.StringVar(value=translate(dialog, sending) + " · "
+                         + translate(dialog, "API Key 只在本次软件运行期间保留。"))
     pending: Queue[str | Exception] = Queue()
     ttk.Label(dialog, text=filename, wraplength=540).grid(column=0, row=0, columnspan=2, sticky="w", padx=12, pady=9)
     fields = [("服务商", provider), ("API 基础地址", base_url), ("模型 ID", model), ("API Key", api_key)]
     for row, (label, value) in enumerate(fields, start=1):
-        ttk.Label(dialog, text=label).grid(row=row, column=0, sticky="w", padx=12, pady=4)
+        ttk.Label(dialog, text=translate(dialog, label)).grid(row=row, column=0, sticky="w", padx=12, pady=4)
         if value is provider:
             selector = ttk.Combobox(dialog, values=tuple(PROVIDERS), textvariable=value, state="readonly")
             selector.grid(row=row, column=1, sticky="ew", padx=(0, 12))
@@ -75,17 +77,18 @@ def open_vision_dialog(
     def confirm_and_send() -> None:
         settings = VisionSettings(provider.get(), base_url.get().strip(), model.get().strip(), api_key.get().strip())
         if not settings.model or not settings.api_key:
-            messagebox.showerror("配置未完成", "请输入视觉模型的 ID 和服务商 API Key。", parent=dialog)
+            messagebox.showerror(translate(dialog, "配置未完成"), translate(dialog, "请输入视觉模型的 ID 和服务商 API Key。"), parent=dialog)
             return
         try:
             endpoint = settings.endpoint()
         except ValueError as exc:
-            messagebox.showerror("地址无效", str(exc), parent=dialog)
+            messagebox.showerror(translate(dialog, "地址无效"), str(exc), parent=dialog)
             return
-        allowed = messagebox.askyesno(
-            "发送所选图片", f"{sending}到 {urlsplit(endpoint).netloc}？\n模型：{settings.model}\n"
-            "本次调用使用该服务的 API 额度。", parent=dialog,
+        detail = translate(dialog, "{action}到 {host}？\n模型：{model}").format(
+            action=translate(dialog, sending), host=urlsplit(endpoint).netloc, model=settings.model,
         )
+        usage = translate(dialog, "调用使用该服务的额度。")
+        allowed = messagebox.askyesno(translate(dialog, "发送所选图片"), f"{detail}\n{usage}", parent=dialog)
         if not allowed:
             return
         session.pop(settings.provider, None)
@@ -104,6 +107,6 @@ def open_vision_dialog(
 
     selector.bind("<<ComboboxSelected>>", choose_provider)
     choose_provider()
-    send = ttk.Button(dialog, text="发送图片并分析", command=confirm_and_send)
+    send = ttk.Button(dialog, text=translate(dialog, "发送图片并分析"), command=confirm_and_send)
     send.grid(row=5, column=1, sticky="e", padx=12, pady=9)
     parent.wait_window(dialog)

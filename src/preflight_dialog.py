@@ -6,22 +6,23 @@ from queue import Empty, Queue
 from threading import Thread
 from tkinter import filedialog, scrolledtext, ttk
 
+from .ui_language import translate
 from .production_rules import CHINESE, ENGLISH
 from .storyboard_preflight import IMAGE_LIMIT, group_capacity, image_budget, plan_dialogue
 
 
 def add_image_budget(window, chinese):
-    budget = ttk.LabelFrame(window, text="单组九图预算", padding=10)
+    budget = ttk.LabelFrame(window, text=translate(window, "单组九图预算"), padding=10)
     budget.pack(fill="x", padx=12, pady=(12, 4))
     labels = ("主角", "配角", "道具 / HUD", "场景")
     counts = [tk.StringVar(value="0") for _ in labels]
     ten_panels = tk.BooleanVar(window)
     if chinese:
-        ttk.Checkbutton(budget, text="10 格，故事板 2 张", variable=ten_panels).grid(row=0, column=0, padx=(0, 10))
+        ttk.Checkbutton(budget, text=translate(budget, "10 格，故事板 2 张"), variable=ten_panels).grid(row=0, column=0, padx=(0, 10))
     else:
-        ttk.Label(budget, text="故事板固定 1 张").grid(row=0, column=0, padx=(0, 10))
+        ttk.Label(budget, text=translate(budget, "故事板固定 1 张")).grid(row=0, column=0, padx=(0, 10))
     for index, (label, count) in enumerate(zip(labels, counts), start=1):
-        ttk.Label(budget, text=label).grid(row=0, column=2 * index - 1, padx=(0, 4))
+        ttk.Label(budget, text=translate(budget, label)).grid(row=0, column=2 * index - 1, padx=(0, 4))
         ttk.Entry(budget, textvariable=count, width=4).grid(row=0, column=2 * index, padx=(0, 8))
     budget_result = ttk.Label(budget, wraplength=620)
     budget_result.grid(row=1, column=0, columnspan=9, sticky="w", pady=(8, 0))
@@ -45,21 +46,21 @@ def add_image_budget(window, chinese):
 def open_preflight_dialog(parent: tk.Tk, validator: str, rules: str = ENGLISH) -> None:
     chinese = rules == CHINESE
     window = tk.Toplevel(parent)
-    window.title("ComicFlow 中文对白预检" if chinese else "ComicFlow 生图前预检")
+    window.title(translate(window, "ComicFlow 中文对白预检" if chinese else "ComicFlow 生图前预检"))
     window.geometry("840x720")
     window.minsize(660, 540)
     add_image_budget(window, chinese)
 
-    section = ttk.LabelFrame(window, text="中文对白容量预排" if chinese else "英文对白容量预排", padding=10)
+    section = ttk.LabelFrame(window, text=translate(window, "中文对白容量预排" if chinese else "英文对白容量预排"), padding=10)
     section.pack(expand=True, fill="both", padx=12, pady=(6, 12))
     instruction = ("导入批准对白 JSON，每组至多 100 字。可用 sentence_ends 标注自然切点。"
                    if chinese else "导入批准对白 JSON，或粘贴到下方。每条记录是一句完整发声。")
-    ttk.Label(section, text=instruction, wraplength=640).pack(anchor="w")
+    ttk.Label(section, text=translate(section, instruction), wraplength=640).pack(anchor="w")
     source = scrolledtext.ScrolledText(section, height=8, wrap="word")
     source.pack(fill="both", expand=True, pady=6)
     controls = ttk.Frame(section)
     controls.pack(fill="x")
-    input_status = tk.StringVar(value="无对白的中文常规组为 9 或 10 格。" if chinese else "没有对白时可只用上方的九图预算。")
+    input_status = tk.StringVar(value=translate(window, "无对白的中文常规组为 9 或 10 格。" if chinese else "没有对白时可只用上方的九图预算。"))
     ttk.Label(section, textvariable=input_status, wraplength=640).pack(anchor="w", pady=6)
     output = scrolledtext.ScrolledText(section, height=12, state="disabled", wrap="word")
     output.pack(expand=True, fill="both")
@@ -122,9 +123,9 @@ def open_preflight_dialog(parent: tk.Tk, validator: str, rules: str = ENGLISH) -
         Thread(target=worker, daemon=True).start()
         window.after(100, receive)
 
-    ttk.Button(controls, text="导入 JSON", command=load_json).pack(side="left")
+    ttk.Button(controls, text=translate(controls, "导入 JSON"), command=load_json).pack(side="left")
     example = ('[\n  {"id": "D001", "speaker": "角色甲", "text": "把门扶住。"}\n]' if chinese
                else '[\n  {"id": "D001", "speaker": "角色甲", "text": "Hold the door."}\n]')
-    ttk.Button(controls, text="填入示例", command=lambda: set_source(example)).pack(side="left", padx=6)
-    start = ttk.Button(controls, text="预排中文对白" if chinese else "预排完整句", command=run_plan)
+    ttk.Button(controls, text=translate(controls, "填入示例"), command=lambda: set_source(example)).pack(side="left", padx=6)
+    start = ttk.Button(controls, text=translate(controls, "预排中文对白" if chinese else "预排完整句"), command=run_plan)
     start.pack(side="right")

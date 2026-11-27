@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from PIL import Image, ImageOps, ImageTk
 
+from .ui_language import translate
 from .image_api import EDIT, IMAGE_PROVIDERS, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
 from .production_dialog import field, write_text
 from .production_images import (
@@ -25,18 +26,18 @@ class ImageProductionDialog:
         self.project, self.path = production.project, production.path
         self.busy = False
         self.window = tk.Toplevel(production.window)
-        self.window.title("ComicFlow 图像制片")
+        self.window.title(translate(self.window, "ComicFlow 图像制片"))
         self.window.geometry("1060x790")
         self.window.minsize(830, 635)
         self.window.transient(production.window)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.tabs = ttk.Notebook(self.window)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(10, 4))
-        self.status = tk.StringVar(self.window, "密钥只在本次软件运行期间使用。")
+        self.status = tk.StringVar(self.window, translate(self.window, "密钥只在本次软件运行期间使用。"))
         ttk.Label(self.window, textvariable=self.status, wraplength=990).pack(anchor="w", padx=10, pady=(0, 8))
         form, history = (ttk.Frame(self.tabs, padding=9) for _ in range(2))
-        self.tabs.add(form, text="新建生图任务")
-        self.tabs.add(history, text="候选与任务")
+        self.tabs.add(form, text=translate(self.tabs, "新建生图任务"))
+        self.tabs.add(history, text=translate(self.tabs, "候选与任务"))
         self.setup_form(form)
         self.setup_history(history)
 
@@ -50,19 +51,19 @@ class ImageProductionDialog:
         try:
             action()
         except Exception as exc:
-            messagebox.showerror("图像制片", str(exc), parent=self.window)
+            messagebox.showerror(translate(self.window, "图像制片"), translate(self.window, str(exc)), parent=self.window)
 
     def buttons(self, bar, *entries):
         for title, action in entries:
-            ttk.Button(bar, text=title, command=lambda run=action: self.run(run)).pack(side="left", padx=(0, 6))
+            ttk.Button(bar, text=translate(bar, title), command=lambda run=action: self.run(run)).pack(side="left", padx=(0, 6))
 
     def setup_form(self, page):
         config = ttk.Frame(page)
         config.pack(fill="x")
         self.provider = tk.StringVar(self.window, next(reversed(self.session), next(iter(IMAGE_PROVIDERS))))
         self.base, self.model, self.key, self.secret_id = (tk.StringVar(self.window) for _ in range(4))
-        self.mode, self.kind, self.target = (tk.StringVar(self.window) for _ in range(3))
-        self.kind.set(KINDS[0])
+        self.modes = (TEXT,)
+        self.target = tk.StringVar(self.window)
         provider = field(config, 0, "图像服务商", self.provider, tuple(IMAGE_PROVIDERS))
         provider.bind("<<ComboboxSelected>>", self.pick_provider)
         field(config, 1, "API 基础地址", self.base)
@@ -71,9 +72,13 @@ class ImageProductionDialog:
         self.key_label.grid(row=3, column=0, sticky="w")
         ttk.Entry(config, textvariable=self.key, show="*").grid(row=3, column=1, sticky="ew")
         self.signing_id = field(config, 4, "腾讯云 SecretId", self.secret_id)
-        self.mode_picker = field(config, 5, "生成模式", self.mode, ())
+        self.mode_picker = field(config, 5, "生成模式", tk.StringVar(self.window), (translate(config, TEXT),))
+        self.mode_picker.current(0)
         self.mode_picker.bind("<<ComboboxSelected>>", self.update_scope)
-        field(config, 6, "候选用途", self.kind, KINDS).bind("<<ComboboxSelected>>", self.update_scope)
+        self.kind_picker = field(config, 6, "候选用途", tk.StringVar(self.window),
+                                 tuple(translate(config, kind) for kind in KINDS))
+        self.kind_picker.current(0)
+        self.kind_picker.bind("<<ComboboxSelected>>", self.update_scope)
         target_label = "目标镜头／故事板页" if self.project.rules == CHINESE else "净板目标镜头"
         self.shot_picker = field(config, 7, target_label, self.target, ())
         self.shot_picker["values"] = tuple(
@@ -85,7 +90,7 @@ class ImageProductionDialog:
         ttk.Label(page, textvariable=self.capability, wraplength=960).pack(anchor="w", pady=5)
         inputs = ttk.Frame(page)
         inputs.pack(fill="both", expand=True)
-        reference = ttk.LabelFrame(inputs, text="批准参考图", padding=6)
+        reference = ttk.LabelFrame(inputs, text=translate(inputs, "批准参考图"), padding=6)
         reference.pack(side="left", fill="both", padx=(0, 8))
         self.refs = tk.Listbox(reference, selectmode="extended", exportselection=False, width=42, height=9)
         self.refs.pack(fill="both", expand=True)
@@ -100,7 +105,7 @@ class ImageProductionDialog:
         self.box_note = tk.StringVar(self.window, "")
         self.region = None
         ttk.Label(reference, textvariable=self.box_note).pack(anchor="w")
-        prompts = ttk.LabelFrame(inputs, text="本次生图提示词", padding=6)
+        prompts = ttk.LabelFrame(inputs, text=translate(inputs, "本次生图提示词"), padding=6)
         prompts.pack(side="left", fill="both", expand=True)
         self.prompt = self.production.editor(prompts, 11)
         self.prompt.pack(fill="both", expand=True)
@@ -115,7 +120,7 @@ class ImageProductionDialog:
     def setup_history(self, page):
         top = ttk.Frame(page)
         top.pack(fill="x")
-        ttk.Label(top, text="图像任务").pack(side="left", padx=(0, 8))
+        ttk.Label(top, text=translate(top, "图像任务")).pack(side="left", padx=(0, 8))
         self.jobs = ttk.Combobox(top, state="readonly")
         self.jobs.pack(side="left", fill="x", expand=True)
         self.jobs.bind("<<ComboboxSelected>>", self.show_job)
@@ -128,7 +133,7 @@ class ImageProductionDialog:
         self.details.configure(state="disabled")
         output = ttk.Frame(page)
         output.pack(fill="x", pady=6)
-        ttk.Label(output, text="候选输出").pack(side="left", padx=(0, 8))
+        ttk.Label(output, text=translate(output, "候选输出")).pack(side="left", padx=(0, 8))
         self.outputs = ttk.Combobox(output, state="readonly")
         self.outputs.pack(side="left", fill="x", expand=True)
         review = ttk.Frame(page)
@@ -148,9 +153,10 @@ class ImageProductionDialog:
         self.signing_id.configure(state="normal" if preset.asynchronous else "disabled")
         self.model_field.configure(state="readonly" if preset.asynchronous else "normal")
         self.key_label.configure(text="腾讯云 SecretKey" if preset.asynchronous else "API Key")
-        self.mode_picker["values"] = preset.modes
-        if self.mode.get() not in preset.modes:
-            self.mode.set(TEXT)
+        previous_mode = self.mode()
+        self.modes = preset.modes
+        self.mode_picker["values"] = tuple(translate(self.window, mode) for mode in self.modes)
+        self.mode_picker.current(self.modes.index(previous_mode) if previous_mode in self.modes else 0)
         queue = "异步，可凭任务号查询" if preset.asynchronous else "同步返回"
         self.capability.set(f"默认模型的接入能力 · {queue} · 批准参考图最多 {preset.references} 张。"
                             "自填模型时，以所选模型支持的模式为准。")
@@ -158,11 +164,17 @@ class ImageProductionDialog:
             self.capability.set(self.capability.get() + " 请填百炼控制台提供的区域工作空间地址，末尾到 /api/v1。")
         self.update_scope()
 
+    def mode(self):
+        return self.modes[self.mode_picker.current()]
+
+    def kind(self):
+        return KINDS[self.kind_picker.current()]
+
     def update_scope(self, _event=None):
-        self.refs.configure(state="disabled" if self.mode.get() == TEXT else "normal")
-        paged = (self.project.rules == CHINESE and self.kind.get() == "故事板"
-                 and (len(self.project.shots) == 10 or self.mode.get() == EDIT))
-        targeted = (paged or self.kind.get() == "净板") and self.project.shots
+        self.refs.configure(state="disabled" if self.mode() == TEXT else "normal")
+        paged = (self.project.rules == CHINESE and self.kind() == "故事板"
+                 and (len(self.project.shots) == 10 or self.mode() == EDIT))
+        targeted = (paged or self.kind() == "净板") and self.project.shots
         self.shot_picker.configure(state="readonly" if targeted else "disabled")
         self.update_base_choice()
 
@@ -179,7 +191,7 @@ class ImageProductionDialog:
         choices = tuple(self.refs.get(index) for index in selected)
         old = self.base_reference.get()
         self.base_reference["values"] = choices
-        editing = self.mode.get() == EDIT and bool(choices)
+        editing = self.mode() == EDIT and bool(choices)
         self.base_reference.configure(state="readonly" if editing else "disabled")
         value = old if editing and old in choices else choices[0] if editing else ""
         self.base_reference.set(value)
@@ -188,14 +200,14 @@ class ImageProductionDialog:
 
     def clear_box(self, _event=None):
         self.region = None
-        self.box_note.set("先选批准图，再指定返修底图。" if self.mode.get() == EDIT else "")
+        self.box_note.set("先选批准图，再指定返修底图。" if self.mode() == EDIT else "")
 
     def chosen_refs(self):
-        if self.mode.get() == TEXT:
+        if self.mode() == TEXT:
             return []
         selected = [self.ref_images[index] for index in self.refs.curselection()]
         index = self.base_reference.current()
-        if self.mode.get() == EDIT and index >= 0:
+        if self.mode() == EDIT and index >= 0:
             selected.insert(0, selected.pop(index))
         return selected
 
@@ -204,9 +216,9 @@ class ImageProductionDialog:
         return self.project.shots[index].id if index >= 0 else ""
 
     def fill_prompt(self):
-        mode = self.mode.get()
+        mode = self.mode()
         refs = self.chosen_refs() if mode == EDIT else []
-        write_text(self.prompt, image_prompt(self.project, self.kind.get(), self.selected_shot(), mode,
+        write_text(self.prompt, image_prompt(self.project, self.kind(), self.selected_shot(), mode,
                                              refs[0] if refs else None))
 
     def view_reference(self):
@@ -218,7 +230,7 @@ class ImageProductionDialog:
 
     def pick_box(self):
         selected = self.chosen_refs()
-        if self.mode.get() != EDIT or not selected:
+        if self.mode() != EDIT or not selected:
             raise ValueError("请切换局部编辑，选择批准参考图和返修底图。")
         original = self.project.checked_image(self.path, selected[0])
         box = self.select_rectangle(original, "在批准原图上标出修改范围")
@@ -232,7 +244,7 @@ class ImageProductionDialog:
 
     def prepare(self, references, *, preview=False):
         settings = self.settings()
-        job, request = prepare_job(self.project, self.path, settings, self.mode.get(), self.kind.get(),
+        job, request = prepare_job(self.project, self.path, settings, self.mode(), self.kind(),
                                    self.selected_shot(), self.prompt.get("1.0", "end-1c"),
                                    [item.id for item in references], self.region or (), preview=preview)
         return settings, job, request
@@ -243,21 +255,22 @@ class ImageProductionDialog:
         _, shot = shot_input(self.project, job["shot"])
         target = f" · {shot.anchor}" if shot else ""
         lines = [
-            f"{job['provider']} · {job['model']} · {job['mode']} · {job['kind']}{target}",
-            f"接收地址 {request_url or urlsplit(job['base']).netloc}",
+            f"{job['provider']} · {job['model']} · {translate(self.window, job['mode'])} · "
+            f"{translate(self.window, job['kind'])}{target}",
+            f"{translate(self.window, '接收地址')} {request_url or urlsplit(job['base']).netloc}",
         ]
         if request_url:
-            lines.append("本地预览，尚未发送。提交生图时再填写 API 密钥。")
+            lines.append(translate(self.window, "本地预览，尚未发送。提交生图时再填写 API 密钥。"))
         else:
             request_id = job.get("last_request_id") or job.get("request_id") or "无"
             lines.extend((f"状态 {STATUS.get(job['status'], '待核对')}",
                           f"任务号 {job.get('task_id') or '无'} · 请求号 {request_id}"))
-        lines.append(f"批准参考图\n{refs}")
+        lines.append(translate(self.window, "批准参考图") + f"\n{refs}")
         if job["box"]:
             lines.append(f"批准原图选区 {job['box']}")
         if job.get("message"):
             lines.append(job["message"])
-        lines.append(f"本次提示词\n{request_prompt or job['prompt']}")
+        lines.append(translate(self.window, "本次提示词") + f"\n{request_prompt or job['prompt']}")
         return "\n\n".join(lines)
 
     def preview_request(self):
@@ -269,7 +282,7 @@ class ImageProductionDialog:
 
     def show_report(self, title, content):
         dialog = tk.Toplevel(self.window)
-        dialog.title(title)
+        dialog.title(translate(dialog, title))
         dialog.geometry("830x580")
         dialog.transient(self.window)
         editor = self.production.editor(dialog)
@@ -292,8 +305,12 @@ class ImageProductionDialog:
                and all(previous[key] == job[key] for key in settings_fields) for previous in self.project.image_jobs):
             raise ValueError("已有同内容任务待核对。请在「候选与任务」查看结果后再决定是否重试。")
         destination = urlsplit(settings.base).netloc
-        if not messagebox.askyesno("提交生图", f"{job['mode']} · {job['kind']}\n发送提示词和 {len(job['references'])} 张"
-                                   f"已选参考图到 {destination}？\n模型 {settings.model}\n调用使用该服务额度。",
+        details = translate(self.window, "发送提示词和 {count} 张已选参考图到 {host}？\n模型 {model}").format(
+            count=len(job["references"]), host=destination, model=settings.model,
+        )
+        mode, kind = (translate(self.window, job[key]) for key in ("mode", "kind"))
+        usage = translate(self.window, "调用使用该服务的额度。")
+        if not messagebox.askyesno(translate(self.window, "提交生图"), f"{mode} · {kind}\n{details}\n{usage}",
                                    parent=self.window):
             return
         self.session.pop(settings.provider, None)
@@ -366,7 +383,7 @@ class ImageProductionDialog:
         job = self.picked_job()
         if job.get("task_id") or job["status"] not in {"unknown", "submitting"}:
             raise ValueError("这个操作用于没有任务号、结果未确认的记录。")
-        if messagebox.askyesno("登记已核对", "请确认已在服务商后台查看是否受理和扣费，再结束本地等待。", parent=self.window):
+        if messagebox.askyesno(translate(self.window, "登记已核对"), translate(self.window, "请确认已在服务商后台查看是否受理和扣费，再结束本地等待。"), parent=self.window):
             job["status"] = "closed"
             self.project.save(self.path)
             self.refresh_jobs(job)
@@ -448,7 +465,7 @@ class ImageProductionDialog:
             raise ValueError("请选择待批准的候选。")
         self.view_candidate()
         dialog = tk.Toplevel(self.window)
-        dialog.title("批准候选图")
+        dialog.title(translate(dialog, "批准候选图"))
         dialog.geometry("720x270")
         dialog.transient(self.window)
         panel = ttk.Frame(dialog, padding=10)
@@ -462,9 +479,9 @@ class ImageProductionDialog:
             field(panel, row, caption, value)
         replace = tk.BooleanVar(dialog)
         if job["mode"] == EDIT:
-            ttk.Checkbutton(panel, text="替换同名正式图，保留批准原图及来源链", variable=replace).grid(
+            ttk.Checkbutton(panel, text=translate(panel, "替换同名正式图，保留批准原图及来源链"), variable=replace).grid(
                 row=4, column=0, columnspan=2, sticky="w", pady=5)
-        ttk.Label(panel, text="核对目标画面、选区和实际尺寸后再批准。", wraplength=660).grid(row=5, column=0, columnspan=2, sticky="w")
+        ttk.Label(panel, text=translate(panel, "核对目标画面、选区和实际尺寸后再批准。"), wraplength=660).grid(row=5, column=0, columnspan=2, sticky="w")
         bar = ttk.Frame(panel)
         bar.grid(row=6, column=0, columnspan=2, sticky="w", pady=7)
 
@@ -473,7 +490,7 @@ class ImageProductionDialog:
                 asset = approve_candidate(self.project, self.path, job, index, name.get(), version.get(),
                                           reason.get(), inspection.get(), replace_original=replace.get())
             except (ValueError, OSError) as exc:
-                messagebox.showerror("批准候选图", str(exc), parent=dialog)
+                messagebox.showerror(translate(dialog, "批准候选图"), str(exc), parent=dialog)
                 return
             self.production.refresh()
             self.refresh_refs()
@@ -481,8 +498,8 @@ class ImageProductionDialog:
             self.status.set(f"已批准 {asset.filename}。请继续执行逐格复核。")
             dialog.destroy()
 
-        ttk.Button(bar, text="确认批准", command=accept).pack(side="left")
-        ttk.Button(bar, text="取消", command=dialog.destroy).pack(side="left", padx=6)
+        ttk.Button(bar, text=translate(bar, "确认批准"), command=accept).pack(side="left")
+        ttk.Button(bar, text=translate(bar, "取消"), command=dialog.destroy).pack(side="left", padx=6)
         self.wait(dialog)
 
     def default_name(self, job):
@@ -499,14 +516,14 @@ class ImageProductionDialog:
 
     def show_pictures(self, pictures):
         panel = tk.Toplevel(self.window)
-        panel.title("图像核对")
+        panel.title(translate(panel, "图像核对"))
         panel.geometry("1040x710")
         panel.transient(self.window)
         tabs = ttk.Notebook(panel)
         tabs.pack(fill="both", expand=True, padx=8, pady=8)
         for title, path in pictures:
             section = ttk.Frame(tabs)
-            tabs.add(section, text=title)
+            tabs.add(section, text=translate(tabs, title))
             display_picture(section, path)
         self.wait(panel)
 
@@ -524,7 +541,7 @@ def select_image_region(parent, path, title, *, direction=False):
     start = None
     controls = ttk.Frame(panel, padding=7)
     controls.pack(fill="x")
-    status = tk.StringVar(panel, "从起点拖至终点。" if direction else "拖动框选对应的像素范围。")
+    status = tk.StringVar(panel, translate(panel, "从起点拖至终点。" if direction else "拖动框选对应的像素范围。"))
     ttk.Label(controls, textvariable=status).pack(side="left")
 
     def begin(event):
@@ -560,7 +577,7 @@ def select_image_region(parent, path, title, *, direction=False):
 
     for event, action in (("<ButtonPress-1>", begin), ("<B1-Motion>", drag), ("<ButtonRelease-1>", finish)):
         canvas.bind(event, action)
-    ttk.Button(controls, text="确定选区", command=accept).pack(side="right")
+    ttk.Button(controls, text=translate(controls, "确定选区"), command=accept).pack(side="right")
     panel.grab_set()
     parent.wait_window(panel)
     parent.grab_set()
@@ -597,6 +614,6 @@ def display_picture(parent, path, *, zoom=True):
         bar = ttk.Frame(parent, padding=5)
         bar.pack(fill="x")
         ttk.Label(bar, text=f"{image.width}×{image.height}").pack(side="left", padx=8)
-        ttk.Button(bar, text="100% 像素", command=lambda: put(image)).pack(side="left")
-        ttk.Button(bar, text="适合窗口", command=lambda: put(fitted_image)).pack(side="left", padx=6)
+        ttk.Button(bar, text=translate(bar, "100% 像素"), command=lambda: put(image)).pack(side="left")
+        ttk.Button(bar, text=translate(bar, "适合窗口"), command=lambda: put(fitted_image)).pack(side="left", padx=6)
     return canvas, image.size, fitted_image.size, []

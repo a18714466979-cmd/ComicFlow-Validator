@@ -8,6 +8,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageTk
 
+from .ui_language import translate
 from .image_production_dialog import display_picture, select_image_region
 from .production_dialog import PROJECT_FILES, fields_text, write_text
 from .production_export import project_registry, publish_batch
@@ -29,7 +30,7 @@ class LayoutDialog:
         self.next_group = None
         self.boundary_seen = None
         self.window = tk.Toplevel(production.window)
-        self.window.title("ComicFlow 排版与交接")
+        self.window.title(translate(self.window, "ComicFlow 排版与交接"))
         self.window.geometry("1070x755")
         self.window.minsize(830, 650)
         self.window.transient(production.window)
@@ -38,8 +39,8 @@ class LayoutDialog:
         tabs = ttk.Notebook(self.window)
         tabs.pack(fill="both", expand=True, padx=10, pady=10)
         page, handoff = (ttk.Frame(tabs, padding=10) for _ in range(2))
-        tabs.add(page, text="16:9 排版")
-        tabs.add(handoff, text="相邻组交接")
+        tabs.add(page, text=translate(tabs, "16:9 排版"))
+        tabs.add(handoff, text=translate(tabs, "相邻组交接"))
         self.layout_page(page)
         self.handoff_page(handoff)
 
@@ -54,11 +55,11 @@ class LayoutDialog:
         try:
             action()
         except (ValueError, OSError, IndexError, KeyError) as exc:
-            messagebox.showerror("排版与交接", str(exc), parent=self.window)
+            messagebox.showerror(translate(self.window, "排版与交接"), translate(self.window, str(exc)), parent=self.window)
 
     def buttons(self, bar, *items):
         for label, action in items:
-            ttk.Button(bar, text=label, command=lambda run=action: self.protect(run)).pack(side="left", padx=(0, 5))
+            ttk.Button(bar, text=translate(bar, label), command=lambda run=action: self.protect(run)).pack(side="left", padx=(0, 5))
 
     def layout_page(self, page):
         guidance = ("绑定已批准的黑白板格和彩色净板。相同地点、机位和可见范围的镜头可绑定同一净板。"
@@ -67,13 +68,13 @@ class LayoutDialog:
                     "选择镜头，再绑定已批准的黑白板格和同机位彩色净板。可用整图或已有同用途图内的实际窗口。")
         if self.chinese and any("plate" in kinds for kinds in self.project.layout.get("rebind", {}).values()):
             guidance += " 如需重排已返修的净板，请选该正式净板，在受影响的镜头上按「绑定整图」恢复原窗口。"
-        ttk.Label(page, text=guidance,
+        ttk.Label(page, text=translate(page, guidance),
                   wraplength=960).pack(anchor="w")
         self.rows = self.production.table(page, ("镜头", "来源", "黑白板格", "彩色净板", "箭头"), (105, 185, 260, 260, 65))
         self.rows.bind("<<TreeviewSelect>>", self.sync_source)
         bind = ttk.Frame(page)
         bind.pack(fill="x", pady=6)
-        self.purpose = ttk.Combobox(bind, state="readonly", width=10, values=("故事板格", "彩色净板"))
+        self.purpose = ttk.Combobox(bind, state="readonly", width=10, values=tuple(translate(bind, kind) for kind in ("故事板格", "彩色净板")))
         self.purpose.pack(side="left", padx=(0, 5))
         self.purpose.current(0)
         self.purpose.bind("<<ComboboxSelected>>", self.sync_source)
@@ -86,7 +87,7 @@ class LayoutDialog:
         self.color = ttk.Combobox(marks, state="readonly", width=13, values=tuple(COLORS))
         self.color.pack(side="left", padx=(0, 6))
         self.color.current(0)
-        ttk.Label(marks, text="运动对象").pack(side="left", padx=(0, 4))
+        ttk.Label(marks, text=translate(marks, "运动对象")).pack(side="left", padx=(0, 4))
         self.mark_target = ttk.Entry(marks, width=20)
         self.mark_target.pack(side="left", padx=(0, 6))
         self.buttons(marks, ("为选中镜头画箭头", self.mark), ("撤销最近箭头", self.unmark))
@@ -95,7 +96,7 @@ class LayoutDialog:
         controls.pack(fill="x", pady=6)
         previous = self.project.layout.get("output", {}).get("chinese", {})
         self.mixed = tk.BooleanVar(self.window, previous.get("source_mode", self.project.notes.get("场景资产模式")) == "多场景局部")
-        ttk.Checkbutton(controls, text="多场景共用净板合辑", variable=self.mixed).pack(side="left", padx=(0, 7))
+        ttk.Checkbutton(controls, text=translate(controls, "多场景共用净板合辑"), variable=self.mixed).pack(side="left", padx=(0, 7))
         self.buttons(controls, ("生成排版预览", self.preview_layout), ("确认排版并更新正式图", self.use_layout))
         if self.chinese:
             packed_scenes, packed_board, note = previous.get("options", (False, False, ""))
@@ -104,9 +105,9 @@ class LayoutDialog:
             self.budget_note = tk.StringVar(self.window, note)
             budget = ttk.Frame(page)
             budget.pack(fill="x", pady=(0, 5))
-            ttk.Checkbutton(budget, text="九图优化：合并场景", variable=self.pack_scenes).pack(side="left")
-            ttk.Checkbutton(budget, text="仍超限时将 6＋4 合为一页", variable=self.pack_board).pack(side="left", padx=7)
-            ttk.Label(page, text="超限处理记录按「道具：…；配角：…；主角：…；主配：…」填写，合板前补记场景处理。").pack(anchor="w")
+            ttk.Checkbutton(budget, text=translate(budget, "九图优化：合并场景"), variable=self.pack_scenes).pack(side="left")
+            ttk.Checkbutton(budget, text=translate(budget, "仍超限时将 6＋4 合为一页"), variable=self.pack_board).pack(side="left", padx=7)
+            ttk.Label(page, text=translate(page, "超限处理记录按「道具：…；配角：…；主角：…；主配：…」填写，合板前补记场景处理。")).pack(anchor="w")
             ttk.Entry(page, textvariable=self.budget_note).pack(fill="x", pady=(0, 6))
         self.layout_status = tk.StringVar(self.window)
         ttk.Label(page, textvariable=self.layout_status, wraplength=955).pack(anchor="w")
@@ -121,7 +122,7 @@ class LayoutDialog:
         work.pack(fill="x", pady=8)
         self.buttons(work, ("暂存所选及后续镜头", self.defer), ("恢复本组待制作", self.restore),
                      ("接收前组待制作", self.receive_pending), ("导出待制作 TXT", self.export_pending))
-        self.partner = tk.StringVar(self.window, "请选择同一集的下一组项目。")
+        self.partner = tk.StringVar(self.window, translate(self.window, "请选择同一集的下一组项目。"))
         ttk.Label(page, textvariable=self.partner, wraplength=940).pack(anchor="w")
         self.report = self.production.editor(page, 16)
         self.report.pack(fill="both", expand=True, pady=(7, 0))
@@ -184,7 +185,7 @@ class LayoutDialog:
             return
         old = self.project.layout.get("inputs", {}).get(identity, {}).get("marks", [])
         if self.kind() == "board" and old and not messagebox.askyesno(
-            "更新故事板绑定", "换图或换选区需重新确认原有箭头。是否更新本镜绑定？", parent=self.window
+            translate(self.window, "更新故事板绑定"), translate(self.window, "换图或换选区需重新确认原有箭头。是否更新本镜绑定？"), parent=self.window
         ):
             return
         actual = bind_window(self.project, self.path, identity, self.kind(), asset.id, box)
@@ -224,7 +225,7 @@ class LayoutDialog:
         self.draft = render_layout(self.project, self.path, Path(self.workspace.name), self.mixed.get(),
                                    pack_scenes=packed_scenes, pack_board=packed_board, budget_note=note)
         dialog = tk.Toplevel(self.window)
-        dialog.title("排版预览")
+        dialog.title(translate(dialog, "排版预览"))
         dialog.transient(self.window)
         dialog.geometry("1020x700")
         tabs = ttk.Notebook(dialog)
@@ -237,7 +238,7 @@ class LayoutDialog:
                 label = f"故事板 {indices[0]:02d}–{indices[-1]:02d}"
             else:
                 label = "故事板" if sheet.kind == "board" else sheet.path.stem.removeprefix("scene_").removesuffix("_16x9")
-            tabs.add(page, text=label)
+            tabs.add(page, text=translate(tabs, label))
             display_picture(page, sheet.path)
             notes = []
             if sheet.shrunken:
@@ -265,7 +266,7 @@ class LayoutDialog:
             raise ValueError("请先生成并检查当前设置的排版预览。")
         if self.chinese and self.draft.chinese["options"] != self.chinese_options():
             raise ValueError("九图选项或记录已更改，请重新预览。")
-        review = simpledialog.askstring("批准本次排版", "记录实际核对结果，包含板格、净板与可读性。", parent=self.window)
+        review = simpledialog.askstring(translate(self.window, "批准本次排版"), translate(self.window, "记录实际核对结果，包含板格、净板与可读性。"), parent=self.window)
         if review is None:
             return
         apply_layout(self.project, self.path, self.draft, review)
@@ -311,7 +312,7 @@ class LayoutDialog:
         summary, issues = boundary_report(self.project, right, self.planner())
         self.report_text(summary)
         dialog = tk.Toplevel(self.window)
-        dialog.title("对照前组末镜与后组首镜")
+        dialog.title(translate(dialog, "对照前组末镜与后组首镜"))
         dialog.transient(self.window)
         body = ttk.Frame(dialog, padding=8)
         body.pack(fill="both", expand=True)
@@ -330,7 +331,7 @@ class LayoutDialog:
                 with Image.open(project.checked_image(path, asset)) as source:
                     preview = source.crop(coords) if coords else source.copy()
                 preview.thumbnail((410, 231), Image.Resampling.LANCZOS)
-                label = ttk.Label(box, text=title + (" · 本镜窗口" if coords else " · 整图"), compound="top")
+                label = ttk.Label(box, text=translate(box, title + (" · 本镜窗口" if coords else " · 整图")), compound="top")
                 label.photo = ImageTk.PhotoImage(preview, master=label)
                 label.configure(image=label.photo)
                 label.pack(pady=4)
@@ -346,7 +347,7 @@ class LayoutDialog:
         right = self.projects()[1][0]
         if self.boundary_seen != (self.project.fingerprint(), right.fingerprint()):
             raise ValueError("请先打开当前版本的前末后首对照，并处理列出的差异。")
-        review = simpledialog.askstring("确认本处交接", "记录已核对的方位、动作、状态延续或合理变化。", parent=self.window)
+        review = simpledialog.askstring(translate(self.window, "确认本处交接"), translate(self.window, "记录已核对的方位、动作、状态延续或合理变化。"), parent=self.window)
         if review is None:
             return
         confirm_boundary(self.project, right, self.planner(), review)
@@ -379,7 +380,7 @@ class LayoutDialog:
     def defer(self):
         identity = self.chosen()
         index = self.rows.index(identity)
-        if messagebox.askyesno("暂存尾部镜头", f"把第 {index + 1} 镜和后续镜头移入批尾待制作？", parent=self.window):
+        if messagebox.askyesno(translate(self.window, "暂存尾部镜头"), f"把第 {index + 1} 镜和后续镜头移入批尾待制作？", parent=self.window):
             defer_tail(self.project, index)
             self.save()
             self.refresh()

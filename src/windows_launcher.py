@@ -23,7 +23,9 @@ from .image_api import ImageSettings
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
+from .ui_language import load_language, save_language, translate
 from .vision_dialog import open_vision_dialog
+from .workbench_home import build_home
 
 
 VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
@@ -59,16 +61,27 @@ def remember_validator(value: str, rules: str = ENGLISH) -> None:
 
 def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int:
     window = tk.Tk()
-    window.title("ComicFlow 故事板交付验收")
-    window.geometry("1120x770")
-    window.minsize(800, 600)
-    options = ttk.Frame(window, padding=(12, 10))
-    options.pack(fill="x")
+    window.ui_language = load_language()
+    window.geometry("1160x870")
+    window.minsize(900, 700)
+
+    def tr(text):
+        return translate(window, text)
+
+    labels = []
+
+    def label_text(widget, caption):
+        labels.append((widget, caption))
+        widget.configure(text=tr(caption))
+        return widget
+
+    options = ttk.LabelFrame(window, padding=(8, 5))
+    label_text(options, "验收已有 ZIP")
     options.columnconfigure(1, weight=1)
     selected_rules = tk.StringVar(window, ENGLISH)
     active_rules = ENGLISH
     validators = {rules: saved_validator(rules) for rules in RULE_LABELS}
-    validator_label = tk.StringVar(window, "英文校验脚本（严格验收）")
+    validator_label = tk.StringVar(window)
     entries = (
         ("交付 ZIP", tk.StringVar(value=initial_zip), ("ZIP 交付包", "*.zip")),
         ("校验脚本", tk.StringVar(value=validators[ENGLISH]),
@@ -77,7 +90,18 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     )
     review = tk.BooleanVar()
     registry_path = tk.StringVar()
-    status = tk.StringVar(value="选择 ZIP 检查文件完整性。严格验收需选择故事板校验脚本。")
+    status = tk.StringVar(window)
+    status_data = ("选择 ZIP 检查文件完整性。严格验收需选择故事板校验脚本。", {})
+
+    def set_status(caption, **values):
+        nonlocal status_data
+        status_data = (caption, values)
+        status.set(tr(caption).format(**{key: tr(value) if isinstance(value, str) else value
+                                          for key, value in values.items()}))
+
+    def rule_fields():
+        caption = "中文校验脚本（严格验收）" if active_rules == CHINESE else "英文校验脚本（严格验收）"
+        validator_label.set(tr(caption))
     result: ReviewResult | None = None
     workspace: TemporaryDirectory | None = None
     busy = False
@@ -106,7 +130,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     split.add(preview_frame, weight=2)
     columns = ("status", "group", "shot", "filename", "message")
     table = ttk.Treeview(table_frame, columns=columns, show="headings", height=8, selectmode="browse")
-    for column, title, width in zip(columns, ("结果", "组", "镜号", "文件", "详情"), (95, 90, 80, 210, 460)):
+    headings = ("结果", "组", "镜号", "文件", "详情")
+    for column, title, width in zip(columns, headings, (95, 90, 80, 210, 460)):
         table.heading(column, text=title)
         table.column(column, width=width, stretch=column == "message")
     scroll = ttk.Scrollbar(table_frame, command=table.yview)
@@ -132,11 +157,11 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         try:
             image = read_preview(result, path)
         except (OSError, ValueError) as exc:
-            messagebox.showerror("图片无法分析", str(exc), parent=window)
+            messagebox.showerror(tr("图片无法分析"), tr(str(exc)), parent=window)
             return
         open_vision_dialog(window, path, image, vision_session)
 
-    analyze = ttk.Button(file_row, text="AI 辅助看图", command=analyze_selected_image, state="disabled")
+    analyze = label_text(ttk.Button(file_row, command=analyze_selected_image, state="disabled"), "AI 辅助看图")
     analyze.pack(side="right", padx=(8, 0))
 
     def inspect_shots() -> None:
@@ -145,7 +170,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             shot = selected_issue.shot if selected_issue else ""
             open_shot_review(window, result, group, shot)
 
-    inspect = ttk.Button(file_row, text="逐格复核", command=inspect_shots, state="disabled")
+    inspect = label_text(ttk.Button(file_row, command=inspect_shots, state="disabled"), "逐格复核")
     inspect.pack(side="right", padx=(8, 0))
 
     def set_text(widget: scrolledtext.ScrolledText, value: str) -> None:
@@ -163,7 +188,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         preview_text.pack(fill="both", expand=True)
         path = file_selector.get()
         if result is None or path not in result.members:
-            set_text(preview_text, "此文件不在 ZIP 内。" if path else "选择一个包内文件查看内容。")
+            set_text(preview_text, tr("此文件不在 ZIP 内。" if path else "选择一个包内文件查看内容。"))
             return
         try:
             data = read_preview(result, path)
@@ -185,7 +210,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
 
             with Image.open(BytesIO(data)) as image:
                 if image.width * image.height > 32_000_000:
-                    raise ValueError("图片分辨率超过内置预览限制。")
+                    raise ValueError(tr("图片分辨率超过内置预览限制。"))
                 image.thumbnail((max(300, preview_frame.winfo_width() - 25),
                                  max(140, preview_frame.winfo_height() - 95)), Image.Resampling.LANCZOS)
                 image_preview = ImageTk.PhotoImage(image)
@@ -194,7 +219,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             preview_image.pack(expand=True, fill="both")
             analyze.configure(state="normal")
         except Exception as exc:
-            set_text(preview_text, f"无法预览 {path}\n{exc}")
+            set_text(preview_text, tr("无法预览 {path}").format(path=path) + f"\n{exc}")
 
     def select_issue(_event=None) -> None:
         nonlocal selected_issue
@@ -228,7 +253,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         set_running(False)
         if isinstance(completed, Exception):
             exit_code = 1
-            status.set("验收未完成")
+            set_status("验收未完成")
             set_text(report_text, str(completed))
             tabs.select(report_tab)
             return
@@ -239,7 +264,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         verdict = verdicts.get(result.exit_code, "验收未完成")
         if not strict_review and result.exit_code == 0:
             verdict = "文件完整性检查通过 · 工作流未验"
-        status.set(f"{RULE_LABELS[active_rules]} · {verdict} · {len(result.issues)} 条结果")
+        set_status("{rules} · {verdict} · {count} 条结果",
+                   rules=RULE_LABELS[active_rules], verdict=verdict, count=len(result.issues))
         set_text(report_text, result.report)
         for number, issue in enumerate(result.issues):
             table.insert("", "end", iid=str(number), values=(
@@ -256,7 +282,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             tabs.select(issues_tab)
 
     def browse(value: tk.StringVar, kind: tuple[str, str]) -> None:
-        selected = filedialog.askopenfilename(parent=window, filetypes=(kind, ("所有文件", "*")))
+        selected = filedialog.askopenfilename(parent=window, filetypes=((tr(kind[0]), kind[1]), (tr("所有文件"), "*")))
         if selected:
             value.set(selected)
             if value is entries[1][1]:
@@ -271,12 +297,12 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             try:
                 remember_validator(validators[active_rules], active_rules)
             except OSError:
-                messagebox.showinfo("校验脚本", "本次可使用所选脚本，下次启动时需重新选择。", parent=window)
+                messagebox.showinfo(tr("校验脚本"), tr("本次可使用所选脚本，下次启动时需重新选择。"), parent=window)
 
-    def produce(path=None) -> None:
+    def produce(path=None, *, action=None, destination="group") -> None:
         save_validator_choice()
         open_production_dialog(window, validators, registry_path, text_session, image_session,
-                               active_rules, switch_rules, initial_project=path)
+                               active_rules, switch_rules, initial_project=path, initial_action=action, destination=destination)
 
     def clear_review() -> None:
         nonlocal result, selected_issue
@@ -297,17 +323,15 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         active_rules = rules
         selected_rules.set(rules)
         entries[1][1].set(validators[rules])
-        production_language = "中文" if rules == CHINESE else "英文"
-        validator_label.set(f"{production_language}校验脚本（严格验收）")
+        rule_fields()
         for widget in exception_widgets:
             widget.state(["!disabled"] if rules == ENGLISH else ["disabled"])
-        preflight_button.configure(text="中文对白预检" if rules == CHINESE else "生图前预检")
         clear_review()
         exit_code = 0
-        status.set(f"{RULE_LABELS[rules]} · SB 规则 v{rules}")
+        set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rules)
 
     def set_running(running: bool) -> None:
-        for widget in (start_button, production_button, *rule_buttons):
+        for widget in (start_button, *workflow_buttons, *rule_buttons):
             widget.state(["disabled"] if running else ["!disabled"])
 
     def start() -> None:
@@ -320,15 +344,15 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             required += ((validator, ".py", "校验脚本"),)
         for path, suffix, label in required:
             if path.suffix.lower() != suffix or not path.is_file():
-                messagebox.showerror("文件未找到", f"请选择有效的{label}。", parent=window)
+                messagebox.showerror(tr("文件未找到"), tr("请选择有效的{label}。").format(label=tr(label)), parent=window)
                 return
         if exception != Path() and (exception.suffix.lower() != ".json" or not exception.is_file()):
-            messagebox.showerror("文件未找到", "请选择有效的格数例外 JSON。", parent=window)
+            messagebox.showerror(tr("文件未找到"), tr("请选择有效的格数例外 JSON。"), parent=window)
             return
 
         strict_review = validator != Path()
         if exception != Path() and not strict_review:
-            messagebox.showerror("校验脚本", "使用批准格数例外前，请选择现行故事板校验脚本。", parent=window)
+            messagebox.showerror(tr("校验脚本"), tr("使用批准格数例外前，请选择现行故事板校验脚本。"), parent=window)
             return
         arguments = [str(archive.resolve())]
         if strict_review:
@@ -347,7 +371,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         busy = True
         clear_review()
         set_running(True)
-        status.set(f"正在验收 {archive.name}…")
+        set_status("正在验收 {archive}…", archive=archive.name)
 
         def worker() -> None:
             try:
@@ -360,48 +384,61 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
 
     def close() -> None:
         if busy:
-            messagebox.showinfo("验收进行中", "当前正在读取交付包，请等待验收完成。", parent=window)
+            messagebox.showinfo(tr("验收进行中"), tr("当前正在读取交付包，请等待验收完成。"), parent=window)
             return
         window.destroy()
 
+    def change_language():
+        window.ui_language = "en" if window.ui_language == "zh" else "zh"
+        refresh_language()
+        try:
+            save_language(window.ui_language)
+        except OSError:
+            messagebox.showinfo(tr("界面语言"), tr("本次可切换界面语言。下次启动时需重新选择。"), parent=window)
+
+    def refresh_language():
+        window.title(tr("ComicFlow 漫剧制片工作台"))
+        for widget, caption in labels:
+            widget.configure(text=tr(caption))
+        for column, caption in zip(columns, headings):
+            table.heading(column, text=tr(caption))
+        tabs.tab(issues_tab, text=tr("验收结果"))
+        tabs.tab(report_tab, text=tr("完整报告"))
+        rule_fields()
+        set_status(status_data[0], **status_data[1])
+        if result is None:
+            show_preview()
+
+    callbacks = {
+        "new": lambda: produce(action="new"),
+        "open": lambda: produce(action="open"),
+        "group": produce,
+        "preflight": lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules),
+        "repair": lambda: open_asset_repair(window, registry_path, entries[1][1].get().strip(), result),
+    }
+    for destination in ("shots", "assets", "layout", "prompts", "deliver"):
+        callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
+    rule_buttons, workflow_buttons = build_home(
+        window, label_text, change_language, selected_rules, switch_rules, callbacks,
+    )
+    options.pack(fill="x", padx=16, pady=(1, 4))
     for row, (label, value, kind) in enumerate(entries):
-        caption = ttk.Label(options, text=label)
-        if row == 1:
-            caption.configure(textvariable=validator_label)
-        caption.grid(row=row, column=0, sticky="w", padx=12, pady=5)
+        caption = ttk.Label(options, textvariable=validator_label) if row == 1 else label_text(ttk.Label(options), label)
+        caption.grid(row=row, column=0, sticky="w", padx=(2, 8), pady=2)
         field = ttk.Entry(options, textvariable=value, width=58)
         field.grid(row=row, column=1, sticky="ew")
-        picker = ttk.Button(options, text="浏览", command=lambda v=value, k=kind: browse(v, k))
-        picker.grid(row=row, column=2, padx=12)
+        picker = label_text(ttk.Button(options, command=lambda v=value, k=kind: browse(v, k)), "浏览")
+        picker.grid(row=row, column=2, padx=(8, 2), pady=2, sticky="ew")
         if row == 2:
             exception_widgets = (field, picker)
-    ttk.Checkbutton(options, text="将不可访问的复用原图标为未验证", variable=review).grid(
-        row=3, column=1, sticky="w", pady=8,
+    label_text(ttk.Checkbutton(options, variable=review), "将不可访问的复用原图标为未验证").grid(
+        row=3, column=1, sticky="w", pady=2,
     )
-    start_button = ttk.Button(options, text="开始验收", command=start)
-    start_button.grid(row=3, column=2, pady=6)
-    ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=2, sticky="w", padx=12)
-    actions = ttk.Frame(options)
-    actions.grid(row=4, column=2, sticky="e", pady=(0, 2))
-    production_button = ttk.Button(actions, text="单组制片", command=produce)
-    production_button.pack(side="left", padx=(0, 5))
-    preflight_button = ttk.Button(actions, text="生图前预检",
-                                  command=lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules))
-    preflight_button.pack(side="left")
-    ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(
-        window, registry_path, entries[1][1].get().strip(), result,
-    )).pack(side="left", padx=(5, 0))
-    rule_bar = ttk.Frame(options)
-    rule_bar.grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(5, 0))
-    ttk.Label(rule_bar, text="制作规则").pack(side="left", padx=(0, 8))
-    rule_buttons = [
-        ttk.Radiobutton(rule_bar, text=label, variable=selected_rules, value=rules,
-                        command=lambda version=rules: switch_rules(version))
-        for rules, label in RULE_LABELS.items()
-    ]
-    for button in rule_buttons:
-        button.pack(side="left", padx=(0, 7))
-    tabs.pack(expand=True, fill="both", padx=12, pady=(0, 12))
+    start_button = label_text(ttk.Button(options, command=start, style="Primary.Workbench.TButton"), "开始验收")
+    start_button.grid(row=3, column=2, padx=(8, 2), pady=3, sticky="ew")
+    ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=3, sticky="w", padx=2)
+    tabs.pack(expand=True, fill="both", padx=16, pady=(0, 10))
+    refresh_language()
     window.protocol("WM_DELETE_WINDOW", close)
     if initial_project is not None:
         window.after_idle(lambda: produce(initial_project))
