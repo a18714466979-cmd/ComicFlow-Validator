@@ -2,7 +2,8 @@
 
 from dataclasses import replace
 
-from .production_dialogue import handoff_rows, validated_scope
+from .production_dialogue import approved_breaks, handoff_rows, validated_scope
+from .production_rules import CHINESE
 
 
 def defer_tail(project, index):
@@ -41,8 +42,9 @@ def active_scope(project, planner):
         cut = pending.get(identity, (end, end))[0]
         if cut < start:
             raise ValueError(f"待制作对白 {identity} 早于本组批准的区间。")
-        if start < cut < end and cut not in lines[identity].sentence_ends:
-            raise ValueError(f"{identity} 延到下一批时须在批准整句边界交接。")
+        if start < cut < end and cut not in approved_breaks(lines[identity], project.rules):
+            boundary = "自然切点" if project.rules == CHINESE else "整句边界"
+            raise ValueError(f"{identity} 延到下一批时须在批准的{boundary}交接。")
         if cut != start:
             result[identity] = [start, min(cut, end)]
     return result
@@ -55,6 +57,11 @@ def pending_record(project, scope):
     for line in project.lines:
         if line.id in spans and line.id not in seen:
             leftover.append(f"- {line.id} | {line.speaker} | {line.text[spans[line.id][0]:].strip()}")
+            seen.add(line.id)
+    if project.rules == CHINESE and scope:
+        last = max(index for index, line in enumerate(project.lines) if line.id in scope)
+        leftover.extend(f"- {line.id} | {line.speaker} | {line.text}" for line in project.lines[last + 1:]
+                        if line.id not in seen)
     if not leftover and not project.pending_shots:
         return ""
     result = [f"上一正式组 {project.group} 退出状态：{project.notes.get('本组退出状态') or '待核对'}",
@@ -137,6 +144,15 @@ def boundary_report(left, right, planner):
     for identity, (_, end) in a.items():
         if end < len(older[identity].text) and identity not in b:
             issues.append(f"{identity} 仍有批准对白未被后组接续。")
+    if left.rules == CHINESE and a and b:
+        source_order = tuple(older)
+        final_index = max(index for index, identity in enumerate(source_order) if identity in a)
+        final_id = source_order[final_index]
+        if a[final_id][1] == len(older[final_id].text) and final_index + 1 < len(source_order):
+            expected = source_order[final_index + 1]
+            lead = next(identity for identity in newer if identity in b)
+            if lead != expected or (newer[lead].speaker, newer[lead].text) != (older[expected].speaker, older[expected].text):
+                issues.append(f"后组需接续前组留存的批准对白 {expected}。")
     right_ids = {shot.id for shot in right.shots + right.pending_shots}
     if any(shot.id not in right_ids for shot in left.pending_shots):
         issues.append("前组仍有待制作镜头未移交到后组。")

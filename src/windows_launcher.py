@@ -299,8 +299,9 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         entries[1][1].set(validators[rules])
         production_language = "中文" if rules == CHINESE else "英文"
         validator_label.set(f"{production_language}校验脚本（严格验收）")
-        for widget in (*exception_widgets, preflight_button):
+        for widget in exception_widgets:
             widget.state(["!disabled"] if rules == ENGLISH else ["disabled"])
+        preflight_button.configure(text="中文对白预检" if rules == CHINESE else "生图前预检")
         clear_review()
         exit_code = 0
         status.set(f"{RULE_LABELS[rules]} · SB 规则 v{rules}")
@@ -385,7 +386,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     production_button = ttk.Button(actions, text="单组制片", command=produce)
     production_button.pack(side="left", padx=(0, 5))
     preflight_button = ttk.Button(actions, text="生图前预检",
-                                  command=lambda: open_preflight_dialog(window, entries[1][1].get().strip()))
+                                  command=lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules))
     preflight_button.pack(side="left")
     ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(
         window, registry_path, entries[1][1].get().strip(), result,

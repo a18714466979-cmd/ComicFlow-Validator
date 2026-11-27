@@ -10,13 +10,14 @@ from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlsplit
 
 from .production_dialog import PROJECT_FILES, field, fields_text, read_fields, write_text
-from .production_dialogue import group_scope, plan_project_dialogue, select_scope
+from .production_dialogue import group_scope, plan_project_dialogue, save_scope, scope_from_shots, select_scope
 from .production_drafting import (
     DRAFT_SHOT_FIELDS, HANDOFF_FIELDS, HANDOFF_TASK, SD2_FIELDS, SD2_TASK, SHOT_TASK, TASKS,
     apply_candidate, build_context, instructions_for, record_candidate, revise_candidate,
 )
 from .production_project import ProductionProject
-from .storyboard_preflight import IMAGE_LIMIT, image_budget
+from .production_rules import CHINESE, ENGLISH
+from .storyboard_preflight import IMAGE_LIMIT, group_capacity, image_budget
 from .text_api import build_text_request, request_text
 from .vision import PROVIDERS, VisionSettings
 
@@ -41,7 +42,7 @@ class DraftingDialog:
         tabs.pack(fill="both", expand=True, padx=10, pady=10)
         capacity = ttk.Frame(tabs, padding=10)
         ai = ttk.Frame(tabs, padding=10)
-        tabs.add(capacity, text="对白与九图预排")
+        tabs.add(capacity, text="中文对白预排" if self.project.rules == CHINESE else "对白与九图预排")
         tabs.add(ai, text="文本模型与历史")
         self.setup_plan(capacity)
         self.setup_ai(ai)
@@ -67,30 +68,38 @@ class DraftingDialog:
             messagebox.showerror("文本制片", str(exc), parent=self.window)
 
     def setup_plan(self, page):
-        ttk.Label(page, wraplength=900, text=(
-            "按「项目与组」的批准对白顺序预排。对白 JSON 的 sentence_ends 可标同一源 ID 的多句终点，"
-            "数值为零起点的字符右边界。没有终点记录时整条按一句处理。"
-        )).pack(anchor="w")
-        budget = ttk.LabelFrame(page, text="计划交付图片", padding=8)
-        budget.pack(fill="x", pady=9)
-        self.counts = [tk.StringVar(self.window, "0") for _ in range(4)]
-        ttk.Label(budget, text="故事板 1 张").pack(side="left")
-        for title, count in zip(("主角", "配角", "道具 / HUD", "场景"), self.counts):
-            ttk.Label(budget, text=title).pack(side="left", padx=(9, 4))
-            ttk.Entry(budget, textvariable=count, width=4).pack(side="left")
-            count.trace_add("write", self.show_budget)
-        self.budget_status = tk.StringVar(self.window)
-        ttk.Label(page, textvariable=self.budget_status).pack(anchor="w")
-        self.show_budget()
+        chinese = self.project.rules == CHINESE
+        guidance = ("按实际发声预排，每组至多 100 字。默认在句末或分号处顺延。"
+                    "可用 sentence_ends 指定批准的语义停顿，填写原文零起点的字符右边界。") if chinese else (
+                        "按「项目与组」的批准对白顺序预排。对白 JSON 的 sentence_ends 可标同一源 ID 的多句终点，"
+                        "数值为零起点的字符右边界。没有终点记录时整条按一句处理。")
+        ttk.Label(page, wraplength=900, text=guidance).pack(anchor="w")
+        if not chinese:
+            budget = ttk.LabelFrame(page, text="计划交付图片", padding=8)
+            budget.pack(fill="x", pady=9)
+            self.counts = [tk.StringVar(self.window, "0") for _ in range(4)]
+            ttk.Label(budget, text="故事板 1 张").pack(side="left")
+            for title, count in zip(("主角", "配角", "道具 / HUD", "场景"), self.counts):
+                ttk.Label(budget, text=title).pack(side="left", padx=(9, 4))
+                ttk.Entry(budget, textvariable=count, width=4).pack(side="left")
+                count.trace_add("write", self.show_budget)
+            self.budget_status = tk.StringVar(self.window)
+            ttk.Label(page, textvariable=self.budget_status).pack(anchor="w")
+            self.show_budget()
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=8)
-        self.buttons(bar, ("预排批准整句", self.run_plan), ("采用所选对白组", self.choose_group),
+        self.buttons(bar, ("预排中文对白" if chinese else "预排批准整句", self.run_plan),
+                     ("采用所选对白组", self.choose_group),
                      ("载入上一组交接", self.load_previous))
-        self.group_picker = ttk.Combobox(bar, state="readonly", width=22)
+        self.group_picker = ttk.Combobox(bar, state="readonly", width=35 if chinese else 22)
         self.group_picker.pack(side="left", padx=(0, 5))
         ttk.Label(bar, text="上一组").pack(side="left")
         self.previous_group = tk.StringVar(self.window, self.project.previous_group)
         ttk.Entry(bar, textvariable=self.previous_group, width=8).pack(side="left", padx=5)
+        if chinese:
+            custom = ttk.Frame(page)
+            custom.pack(fill="x", pady=(0, 6))
+            self.buttons(custom, ("采用镜头当前对白范围", self.choose_shot_scope))
         self.plan_report = self.production.editor(page, 15)
         self.plan_report.pack(fill="both", expand=True)
         self.plan_report.configure(state="disabled")
@@ -115,12 +124,12 @@ class DraftingDialog:
         self.group_picker.set("")
         self.group_picker["values"] = ()
         self.set_report(self.plan_report, "")
-        planner = self.production.validator_path().with_name("plan_english_dialogue.py")
+        planner = self.production.validator_path().with_name("plan_english_dialogue.py") if self.project.rules == ENGLISH else None
         self.plan = plan_project_dialogue(self.project, planner)
         self.plan_fingerprint = self.project.fingerprint()
         choices, lines = [], []
         for index, group in enumerate(self.plan, 1):
-            name = f"候选 {index:02d} · {group['words']} 词"
+            name = f"候选 {index:02d} · {group_capacity(group, self.project.rules)}"
             choices.append(name)
             lines.append(name)
             for fragment in group["fragments"]:
@@ -132,13 +141,14 @@ class DraftingDialog:
             initial = next((i for i, group in enumerate(self.plan)
                             if group_scope(group) == self.project.dialogue_scope), 0)
             self.group_picker.current(initial)
-        self.set_report(self.plan_report, "\n".join(lines) if lines else "本项目无批准对白。")
+        empty = "本项目无批准对白。中文常规无对白组为 9 或 10 格。" if self.project.rules == CHINESE else "本项目无批准对白。"
+        self.set_report(self.plan_report, "\n".join(lines) if lines else empty)
 
     def choose_group(self):
         index = self.group_picker.current()
         if index < 0 or self.plan_fingerprint != self.project.fingerprint():
             raise ValueError("请按当前项目重新预排，再选择一个对白候选组。")
-        if not messagebox.askyesno("采用对白候选组", "将此整句范围设为本组。镜头里的对白还需按批准区间分配。", parent=self.window):
+        if not messagebox.askyesno("采用对白候选组", "将所选批准范围设为本组。镜头里的对白按原文区间分配。", parent=self.window):
             return
         select_scope(self.project, self.plan[index], self.previous_group.get())
         self.production.save()
@@ -147,15 +157,21 @@ class DraftingDialog:
         self.plan_report.insert("end", f"\n已保存 {self.project.group} 的候选 {index + 1:02d}。")
         self.plan_report.configure(state="disabled")
 
+    def choose_shot_scope(self):
+        save_scope(self.project, scope_from_shots(self.project), self.previous_group.get())
+        self.production.save()
+        self.plan_fingerprint = self.project.fingerprint()
+        self.set_report(self.plan_report, f"已保存 {self.project.group} 的实际对白范围。")
+
     def load_previous(self):
         value = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
         if not value:
             return
         previous = ProductionProject.open(Path(value))
-        if (previous.name, previous.episode) != (self.project.name, self.project.episode) or (
+        if (previous.name, previous.episode, previous.rules) != (self.project.name, self.project.episode, self.project.rules) or (
             int(previous.group[2:]) >= int(self.project.group[2:])
         ):
-            raise ValueError("请选择同项目同集、序号早于当前组的项目文件。")
+            raise ValueError("请选择同项目同集、规则一致且序号早于当前组的文件。")
         state = previous.notes.get("本组退出状态", "")
         if not state.strip():
             raise ValueError("上一组项目没有退出状态记录。")

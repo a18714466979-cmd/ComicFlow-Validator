@@ -11,15 +11,20 @@ from .production_dialogue import handoff_rows
 from .production_handoff import active_scope, adjacent, pending_record, reviewed_boundary
 from .production_images import provenance_rows
 from .production_layout import mark_ledger, windows_for_shots
-from .production_project import GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject
-from .production_rules import ENGLISH
+from .production_project import (
+    CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
+    PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
+)
+from .production_rules import CHINESE, ENGLISH
 from .repair_package import pack_repair, write_delivery_zip
-from .storyboard_preflight import IMAGE_LIMIT, plan_dialogue
+from .storyboard_preflight import CHINESE_SPEECH_LIMIT, IMAGE_LIMIT, chinese_speech_length, plan_dialogue
 
 
 COLOR = "黑白故事板仅作镜头、构图、站位和动作参考；成片按本组实际交付的彩色资产上色，禁止黑白、灰度或线稿成片。"
 LANGUAGE = "成片中的画面文字、字幕、标牌和 HUD 禁止中文，仅允许英文或通用符号。"
+CHINESE_LANGUAGE = "成片字幕、标牌、UI/HUD、系统提示和拟声字允许中文，按本剧已批准文案呈现。参考标签仅用于制作定位。"
 MARKS = "故事板的彩色辅助线、箭头、序号和图例仅作动作参考，不得出现在成片中。"
+PRODUCTION_SHOT_FIELDS = tuple(key for key in SHOT_FIELDS if key not in OPTIONAL_SHOT_FIELDS)
 
 
 def format_fields(values: dict[str, str], fields: tuple[str, ...], optional=()) -> str:
@@ -41,12 +46,14 @@ def format_fields(values: dict[str, str], fields: tuple[str, ...], optional=()) 
     return "\n".join(pairs)
 
 
-def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tuple[list[tuple[str, str, str]], str, int]:
+def render_dialogue(project: ProductionProject, planner: Path | None, scope=None) -> tuple[list[tuple[str, str, str]], str, int]:
     if scope is None:
         scope = active_scope(project, planner)
     lines = {line.id: line for line in project.lines}
     next_offset = {}
     items, output, ledger = [], [], []
+    chinese = project.rules == CHINESE
+    characters = 0
     for number, shot in enumerate(project.shots, 1):
         ids, cues, spoken = [], [], []
         for identity, start, end in shot.dialogue:
@@ -57,15 +64,26 @@ def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tu
             if (not span or identity in ids or start != next_offset.get(identity, span[0])
                     or not span[0] <= start < end <= span[1]):
                 raise ValueError(f"{identity} 的对白区间缺字、重复或顺序不符。")
-            text = original.text[start:end].strip()
-            if not text:
+            text = original.text[start:end]
+            if not chinese:
+                text = text.strip()
+            if not text.strip():
                 raise ValueError(f"{identity} 的片段没有实际发声内容。")
             first_in_group = identity not in next_offset
             next_offset[identity] = end
             ids.append(identity)
             cues.append(f"{identity}={'续说' if start else '首说'}")
-            spoken.append(f"{original.speaker}：“{text}”")
-            items.append({"id": identity, "speaker": original.speaker, "text": original.text, "start": start, "end": end})
+            opening, closing = "“", "”"
+            if chinese:
+                count = chinese_speech_length(text)
+                if not count:
+                    raise ValueError(f"{identity} 的片段没有实际发声内容。")
+                characters += count
+                opening, closing = next(((a, b) for a, b in (("“", "”"), ("「", "」"), ("『", "』"), ('"', '"'))
+                                         if b not in text), (opening, closing))
+            else:
+                items.append({"id": identity, "speaker": original.speaker, "text": original.text, "start": start, "end": end})
+            spoken.append(f"{original.speaker}：{opening}{text}{closing}")
             origin = f" | 跨组续说，上一组 {project.previous_group}" if first_in_group and start else ""
             ledger.append(f"- {identity} → {project.group}-{number:02d} [{start}:{end}]{origin}")
         output.append(tuple("；".join(parts) or "无" for parts in (ids, cues, spoken)))
@@ -77,17 +95,122 @@ def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tu
         raise ValueError("本组已导入的批准对白有遗漏：" + "、".join(sorted(omitted)))
     if list(next_offset) != [line.id for line in project.lines if line.id in scope]:
         raise ValueError("镜头里的对白首说顺序与批准对白清单不一致。")
-    groups = plan_dialogue(json.dumps(items, ensure_ascii=False), planner) if items else []
-    if len(groups) > 1:
-        raise ValueError("本组实际发声超过 60 个英文词，请按完整句重新分组。")
-    return output, "\n" + "\n".join(ledger) if ledger else "无对白", groups[0]["words"] if groups else 0
+    if chinese:
+        if characters > CHINESE_SPEECH_LIMIT:
+            raise ValueError(f"本组实际发声 {characters} 字，超过 100 字。请在批准的自然切点换组。")
+        count = characters
+    else:
+        groups = plan_dialogue(json.dumps(items, ensure_ascii=False), planner) if items else []
+        if len(groups) > 1:
+            raise ValueError("本组实际发声超过 60 个英文词，请按完整句重新分组。")
+        count = groups[0]["words"] if groups else 0
+    return output, "\n" + "\n".join(ledger) if ledger else "无对白", count
+
+
+def shot_records(shot, name, dialogue, sources):
+    if shot.source not in sources or not shot.anchor.strip() or any(char in shot.anchor for char in "|\n\r"):
+        raise ValueError(f"{name} 请绑定批准剧本和源段位置。")
+    fields = shot.fields
+    try:
+        format_fields(fields, SHOT_FIELDS, OPTIONAL_SHOT_FIELDS)
+    except ValueError as exc:
+        raise ValueError(f"{name} {exc}") from exc
+    ids, cues, spoken = dialogue
+    notes_text = format_fields(fields, PRODUCTION_SHOT_FIELDS)
+    production = (f"分镜 {name}\n源镜ID：{shot.id}\n源段：{shot.anchor}\n时间码：待剪辑\n"
+                  f"{notes_text}\n对白编号：{ids}\n对白衔接：{cues}\n对白：{spoken}")
+    prompt = {"景别": fields["景别"], "机位/角度": f"{fields['机位/角度']}；{fields['机位空间']}",
+              "人物数量限制": fields["唯一角色数量锁定"], "人物位置": fields["人物站位"],
+              "动作": fields.get("成片动作", "").strip() or fields["动作起止"], "运镜": fields["运镜"],
+              "场景/环境": fields["场景/环境"], "对白": spoken,
+              "声音/音效": f"{fields['声源位置']}；{fields.get('成片声音', '').strip() or fields['声音']}",
+              "本镜必要限制": fields["视频模型约束"]}
+    return production, f"分镜编号：{name}\n" + format_fields(prompt, tuple(prompt))
+
+
+def check_chinese_panels(project, spoken_ids, pending):
+    spec = project.notes.get("对白规格", "").strip()
+    status = project.notes.get("分组状态", "").strip()
+    if status not in {"常规", "整集尾组"}:
+        raise ValueError("中文分组状态须填「常规」或「整集尾组」。")
+    if spec == "无对白" and spoken_ids == 0:
+        panels = (9, 10)
+    elif spec in {"1-2句短对白", "1—2句短对白", "1–2句短对白"} and 1 <= spoken_ids <= 2:
+        panels = (8,)
+    elif spec in {"三句以上或长对白", "3句以上或长对白"} and spoken_ids:
+        panels = (6,)
+    else:
+        raise ValueError(f"本组实际有 {spoken_ids} 条源对白，核对「对白规格」和表演长度。")
+    if status == "整集尾组":
+        if pending or not project.notes.get("尾组说明", "").strip():
+            raise ValueError("整集尾组需填写实际结尾说明并核完余下镜头与对白。")
+        panels = tuple(range(1, max(panels) + 1))
+    if len(project.shots) not in panels:
+        target = " 或 ".join(map(str, panels)) if status == "常规" else f"1 至 {max(panels)}"
+        raise ValueError(f"{spec}当前有 {len(project.shots)} 格，{status}需要 {target} 格。请重排有效镜头。")
+
+
+def chinese_text_records(project: ProductionProject) -> dict[str, str]:
+    """Prepare the standalone text files before image layout and package review."""
+    project.check_identity()
+    if project.rules != CHINESE or not project.sources:
+        raise ValueError("请选择中文项目，并先导入批准剧本。")
+    scope = active_scope(project, None)
+    dialogues, ledger, count = render_dialogue(project, None, scope)
+    pending = pending_record(project, scope)
+    check_chinese_panels(project, len(scope), pending)
+    cross_rows, _ = handoff_rows(project, scope)
+    group = project.group
+    production = [
+        f"分组：{group}\n格数：{len(project.shots)}\n总发声字数：{count}\n视频任务时长：待剪辑\n画面格式：16:9 彩色视频",
+        format_fields(project.notes, CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL),
+        f"对白保全核对：{ledger}\n视频上色约束：{COLOR}\n视频文字约束：{CHINESE_LANGUAGE}",
+    ]
+    if cross_rows:
+        production.append("跨组对白原文：\n" + "\n".join(cross_rows))
+    common = dict(project.prompt)
+    common["公共限制"] = (common.get("公共限制", "").strip() + " " + MARKS).strip()
+    sd2 = [f"分组：{group}\n视频上色约束：{COLOR}\n视频文字约束：{CHINESE_LANGUAGE}", format_fields(common, PROMPT_FIELDS)]
+    sources = {source.id for source in project.sources}
+    for ordinal, (shot, dialogue) in enumerate(zip(project.shots, dialogues), 1):
+        record, prompt = shot_records(shot, f"{group}-{ordinal:02d}", dialogue, sources)
+        production.append(record)
+        sd2.append(prompt)
+    files = {f"{group}_shot_details.txt": "\n\n".join(production) + "\n",
+             "SD2_prompt.txt": "\n\n".join(sd2) + "\n"}
+    if pending:
+        files["待制作分镜.txt"] = pending
+    return files
+
+
+def write_chinese_texts(project: ProductionProject, directory: Path) -> Path:
+    files = chinese_text_records(project)
+    folder = directory / f"{project.group}_文字稿"
+    try:
+        folder.mkdir()
+    except FileExistsError:
+        raise ValueError(f"此目录已有 {folder.name}，请选择新的保存位置。") from None
+    created = []
+    try:
+        for name, contents in files.items():
+            path = folder / name
+            with path.open("x", encoding="utf-8-sig", newline="\n") as stream:
+                created.append(path)
+                stream.write(contents)
+    except BaseException:
+        for path in created:
+            path.unlink(missing_ok=True)
+        if not any(folder.iterdir()):
+            folder.rmdir()
+        raise
+    return folder
 
 
 def build_delivery(project: ProductionProject, project_path: Path, folder: Path, validator: Path,
                    registry_path: Path, *, write_root=True):
     project.check_identity()
     if project.rules != ENGLISH:
-        raise ValueError("中文项目的交付模板尚未接入。")
+        raise ValueError("中文项目的交付模板已开放文字稿，正式图像 ZIP 需完成中文排版后启用。")
     if not project.name.strip() or not project.episode.strip() or not project.sources or not project.shots:
         raise ValueError("完整组需要项目名、集次、批准剧本和镜头。")
     images = [image for image in project.images if not image.reference_only]
@@ -127,8 +250,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     plate_rows, shot_rows, window_rows = [], [], []
     for number, (shot, dialogue) in enumerate(zip(project.shots, dialogues), 1):
         name = f"{group_id}-{number:02d}"
-        if shot.source not in sources or not shot.anchor.strip() or any(char in shot.anchor for char in "|\n\r"):
-            raise ValueError(f"{name} 请绑定批准剧本和源段位置。")
+        record, model_prompt = shot_records(shot, name, dialogue, sources)
         plate = assets.get(shot.plate)
         if not plate or ("_details" not in plate.filename.lower() and "场景合辑" not in plate.filename):
             raise ValueError(f"{name} 缺少正式净板绑定。")
@@ -137,21 +259,8 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
         ):
             raise ValueError(f"{name} 缺少单行地点和净板机位说明。")
         plate_rows.append(f"- {name} | {plate.filename} | 局部{number:02d} | {shot.scene} | {shot.plate_note}")
-        fields = shot.fields
-        try:
-            format_fields(fields, SHOT_FIELDS, OPTIONAL_SHOT_FIELDS)
-        except ValueError as exc:
-            raise ValueError(f"{name} {exc}") from exc
-        ids, cues, spoken = dialogue
-        notes_text = format_fields(fields, tuple(key for key in SHOT_FIELDS if key not in OPTIONAL_SHOT_FIELDS))
-        production.append(f"分镜 {name}\n源镜ID：{shot.id}\n源段：{shot.anchor}\n时间码：待剪辑\n{notes_text}\n对白编号：{ids}\n对白衔接：{cues}\n对白：{spoken}")
-        prompt = {"景别": fields["景别"], "机位/角度": f"{fields['机位/角度']}；{fields['机位空间']}",
-                  "人物数量限制": fields["唯一角色数量锁定"], "人物位置": fields["人物站位"],
-                  "动作": fields.get("成片动作", "").strip() or fields["动作起止"], "运镜": fields["运镜"],
-                  "场景/环境": fields["场景/环境"], "对白": spoken,
-                  "声音/音效": f"{fields['声源位置']}；{fields.get('成片声音', '').strip() or fields['声音']}",
-                  "本镜必要限制": fields["视频模型约束"]}
-        sd2.append(f"分镜编号：{name}\n" + format_fields(prompt, tuple(prompt)))
+        production.append(record)
+        sd2.append(model_prompt)
         shot_rows.append(f"- {name} | {shot.id} | {sources[shot.source].name} {sources[shot.source].version} | {shot.anchor} | 局部{number:02d}")
         if windows:
             board, board_box = windows[shot.id]["board"]

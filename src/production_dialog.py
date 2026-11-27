@@ -11,9 +11,11 @@ from zipfile import ZipFile
 from PIL import Image, ImageTk
 
 from .asset_registry import AssetRegistry, sha256_file
-from .production_export import preview_project, project_registry, publish_project, render_dialogue
-from .production_project import ACTIONS, GROUP_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
-from .production_rules import ENGLISH, RULE_LABELS
+from .production_export import (
+    chinese_text_records, preview_project, project_registry, publish_project, render_dialogue, write_chinese_texts,
+)
+from .production_project import ACTIONS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
+from .production_rules import CHINESE, ENGLISH, RULE_LABELS
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import ReviewResult, index_members
 from .storyboard_preflight import IMAGE_LIMIT
@@ -116,10 +118,14 @@ class ProductionDialog:
     def show_rules(self, rules):
         self.rules = rules
         self.rule_name.set(f"{RULE_LABELS[rules]} · v{rules}")
-        enabled = self.project is not None and rules == ENGLISH
-        self.tabs.tab(3, state="normal" if enabled else "disabled")
-        for button in self.production_tools:
-            button.state(["!disabled"] if enabled else ["disabled"])
+        chinese = rules == CHINESE
+        has_project = self.project is not None
+        self.tabs.tab(3, state="normal" if has_project else "disabled", text="文本交付" if chinese else "复核与交付")
+        for index, button in enumerate(self.production_tools):
+            button.state(["!disabled"] if has_project and (index == 0 or not chinese) else ["disabled"])
+        self.english_delivery.pack_forget()
+        self.chinese_delivery.pack_forget()
+        (self.chinese_delivery if chinese else self.english_delivery).pack(fill="x")
 
     def tab(self, name):
         page = ttk.Frame(self.tabs, padding=10)
@@ -166,18 +172,26 @@ class ProductionDialog:
         self.images.bind("<Double-1>", lambda _event: self.guarded(self.view_image))
 
     def setup_delivery(self, page):
-        form = ttk.Frame(page)
+        forms = ttk.Frame(page)
+        forms.pack(fill="x")
+        self.english_delivery = ttk.Frame(forms)
+        self.chinese_delivery = ttk.Frame(forms)
+        form = ttk.Frame(self.english_delivery)
         form.pack(fill="x")
         self.baseline, self.exception = (tk.StringVar(self.window) for _ in range(2))
         for row, (caption, value, pattern) in enumerate((("原包比对（可选）", self.baseline, "*.zip"),
                                                          ("批准格数例外（可选）", self.exception, "*.json"))):
             field(form, row, caption, value)
             ttk.Button(form, text="浏览", command=lambda v=value, p=pattern: self.choose(v, p)).grid(row=row, column=2, padx=5)
-        bar = ttk.Frame(page)
+        bar = ttk.Frame(self.english_delivery)
         bar.pack(fill="x", pady=8)
         self.buttons(bar, ("对白与图数预检", self.preflight), ("生成逐格复核预览", self.preview),
                      ("确认本版画面", self.confirm), ("验收并导出 ZIP", self.publish))
-        ttk.Label(page, text="核对故事板格号、净板局部、对白与画面后再确认。报告显示交付包校验结果。").pack(anchor="w")
+        ttk.Label(self.english_delivery, text="核对故事板格号、净板局部、对白与画面后再确认。报告显示交付包校验结果。").pack(anchor="w")
+        text_bar = ttk.Frame(self.chinese_delivery)
+        text_bar.pack(fill="x", pady=5)
+        self.buttons(text_bar, ("预览两份 TXT", self.preview_chinese_text), ("导出两份 TXT", self.export_chinese_text))
+        ttk.Label(self.chinese_delivery, text="先核对本组对白与格数，再导出制作记录和 SD2 提示词。").pack(anchor="w")
         self.report = self.editor(page, 18)
         self.report.pack(fill="both", expand=True, pady=(5, 0))
 
@@ -201,7 +215,7 @@ class ProductionDialog:
 
     def update_group(self):
         if self.project:
-            self.project.notes = read_fields(self.notes, GROUP_FIELDS)
+            self.project.notes = read_fields(self.notes, self.group_form_fields)
             self.project.prompt = read_fields(self.prompt, PROMPT_FIELDS)
             self.project.name, self.project.episode, self.project.group = (
                 item.get().strip() for item in (self.name, self.episode, self.group)
@@ -260,7 +274,8 @@ class ProductionDialog:
         self.on_rules_changed(project.rules)
         for variable, value in zip((self.name, self.episode, self.group), (project.name, project.episode, project.group)):
             variable.set(value)
-        write_text(self.notes, fields_text(GROUP_FIELDS, project.notes))
+        self.group_form_fields = project.group_fields
+        write_text(self.notes, fields_text(self.group_form_fields, project.notes))
         write_text(self.prompt, fields_text(PROMPT_FIELDS, project.prompt))
         self.baseline.set("")
         self.exception.set("")
@@ -271,7 +286,7 @@ class ProductionDialog:
         self.refresh()
         if project_registry(path).is_file():
             self.registry.set(str(project_registry(path)))
-        self.status.set(path.name if project.rules == ENGLISH else f"{path.name} · 中文项目设置")
+        self.status.set(path.name)
 
     def refresh_sources(self):
         self.source["values"] = tuple(f"{source.name} · {source.version}" for source in self.project.sources)
@@ -317,7 +332,8 @@ class ProductionDialog:
         panel = tk.Toplevel(self.window)
         panel.title("导入本组批准对白")
         panel.transient(self.window)
-        ttk.Label(panel, text="粘贴或打开批准对白 JSON。可用 sentence_ends 标同一 ID 的整句分界。").pack(padx=10, pady=6)
+        boundary = "自然停顿切点" if self.rules == CHINESE else "整句分界"
+        ttk.Label(panel, text=f"粘贴或打开批准对白 JSON。可用 sentence_ends 标同一 ID 的{boundary}。").pack(padx=10, pady=6)
         editor = self.editor(panel, 12)
         editor.pack(fill="both", expand=True, padx=10)
         lines = [{"id": line.id, "speaker": line.speaker, "text": line.text}
@@ -327,7 +343,8 @@ class ProductionDialog:
             ends = by_id[row["id"]].sentence_ends
             if ends:
                 row["sentence_ends"] = list(ends)
-        write_text(editor, json.dumps(lines or [{"id": "D001", "speaker": "人物名", "text": "Approved line."}],
+        example = "等一下。" if self.rules == CHINESE else "Approved line."
+        write_text(editor, json.dumps(lines or [{"id": "D001", "speaker": "人物名", "text": example}],
                                       ensure_ascii=False, indent=2))
 
         def load_file():
@@ -576,6 +593,9 @@ class ProductionDialog:
         self.refresh()
 
     def show_impacts(self):
+        if self.rules == CHINESE:
+            write_text(self.report, "可预览或导出当前项目的文字稿。")
+            return
         impacts = self.project.impacts()
         write_text(self.report, "当前版本需复核\n" + "\n".join(impacts) if impacts else "已确认本版画面，可发起严格验收。")
 
@@ -584,6 +604,18 @@ class ProductionDialog:
         if not path.is_file():
             raise ValueError(f"请在主窗口为{RULE_LABELS[self.rules]}选择对应的故事板校验脚本。")
         return path
+
+    def preview_chinese_text(self):
+        self.save()
+        records = chinese_text_records(self.project)
+        write_text(self.report, "\n\n".join(f"── {name} ──\n\n{text}" for name, text in records.items()))
+
+    def export_chinese_text(self):
+        self.save()
+        destination = filedialog.askdirectory(parent=self.window, title="选择文字稿保存目录", initialdir=self.path.parent)
+        if destination:
+            path = write_chinese_texts(self.project, Path(destination))
+            write_text(self.report, f"已导出文字稿\n{path}\n\n" + "\n".join(sorted(item.name for item in path.iterdir())))
 
     def preview(self):
         self.save()

@@ -6,15 +6,11 @@ from queue import Empty, Queue
 from threading import Thread
 from tkinter import filedialog, scrolledtext, ttk
 
-from .storyboard_preflight import IMAGE_LIMIT, image_budget, plan_dialogue
+from .production_rules import CHINESE, ENGLISH
+from .storyboard_preflight import IMAGE_LIMIT, group_capacity, image_budget, plan_dialogue
 
 
-def open_preflight_dialog(parent: tk.Tk, validator: str) -> None:
-    window = tk.Toplevel(parent)
-    window.title("ComicFlow 生图前预检")
-    window.geometry("840x720")
-    window.minsize(660, 540)
-
+def add_image_budget(window):
     budget = ttk.LabelFrame(window, text="单组九图预算", padding=10)
     budget.pack(fill="x", padx=12, pady=(12, 4))
     labels = ("主角", "配角", "道具 / HUD", "场景")
@@ -41,14 +37,26 @@ def open_preflight_dialog(parent: tk.Tk, validator: str) -> None:
         count.trace_add("write", update_budget)
     update_budget()
 
-    section = ttk.LabelFrame(window, text="英文对白容量预排", padding=10)
+
+def open_preflight_dialog(parent: tk.Tk, validator: str, rules: str = ENGLISH) -> None:
+    chinese = rules == CHINESE
+    window = tk.Toplevel(parent)
+    window.title("ComicFlow 中文对白预检" if chinese else "ComicFlow 生图前预检")
+    window.geometry("840x720")
+    window.minsize(660, 540)
+    if not chinese:
+        add_image_budget(window)
+
+    section = ttk.LabelFrame(window, text="中文对白容量预排" if chinese else "英文对白容量预排", padding=10)
     section.pack(expand=True, fill="both", padx=12, pady=(6, 12))
-    ttk.Label(section, text="导入批准对白 JSON，或粘贴到下方。每条记录是一句完整发声。", wraplength=640).pack(anchor="w")
+    instruction = ("导入批准对白 JSON，每组至多 100 字。可用 sentence_ends 标注自然切点。"
+                   if chinese else "导入批准对白 JSON，或粘贴到下方。每条记录是一句完整发声。")
+    ttk.Label(section, text=instruction, wraplength=640).pack(anchor="w")
     source = scrolledtext.ScrolledText(section, height=8, wrap="word")
     source.pack(fill="both", expand=True, pady=6)
     controls = ttk.Frame(section)
     controls.pack(fill="x")
-    input_status = tk.StringVar(value="没有对白时可只用上方的九图预算。")
+    input_status = tk.StringVar(value="无对白的中文常规组为 9 或 10 格。" if chinese else "没有对白时可只用上方的九图预算。")
     ttk.Label(section, textvariable=input_status, wraplength=640).pack(anchor="w", pady=6)
     output = scrolledtext.ScrolledText(section, height=12, state="disabled", wrap="word")
     output.pack(expand=True, fill="both")
@@ -81,12 +89,13 @@ def open_preflight_dialog(parent: tk.Tk, validator: str) -> None:
             input_status.set(f"{len(result)} 个对白容量候选组。请结合镜头内容与动作交接锁定最终分组。")
             lines = []
             for index, group in enumerate(result, start=1):
-                lines.append(f"候选组 {index:02d} · {group['words']} 词")
+                lines.append(f"候选组 {index:02d} · {group_capacity(group, rules)}")
                 for fragment in group["fragments"]:
                     lines.append(f"  {fragment['id']} · {fragment['speaker']} · {fragment['cue']} "
                                  f"[{fragment['start']}:{fragment['end']}]  {fragment['text']}")
                 lines.append("")
-            report = "\n".join(lines) if lines else "没有英文对白。"
+            empty = "无发声对白。常规组为 9 或 10 格。" if chinese else "没有英文对白。"
+            report = "\n".join(lines) if lines else empty
         output.configure(state="normal")
         output.delete("1.0", "end")
         output.insert("1.0", report)
@@ -94,8 +103,8 @@ def open_preflight_dialog(parent: tk.Tk, validator: str) -> None:
 
     def run_plan() -> None:
         approved = source.get("1.0", "end-1c")
-        planner = Path(validator).expanduser().with_name("plan_english_dialogue.py") if validator else None
-        if planner is None:
+        planner = Path(validator).expanduser().with_name("plan_english_dialogue.py") if validator and not chinese else None
+        if not chinese and planner is None:
             input_status.set("请先在验收窗口选择故事板校验脚本。")
             return
         start.configure(state="disabled")
@@ -103,7 +112,7 @@ def open_preflight_dialog(parent: tk.Tk, validator: str) -> None:
 
         def worker() -> None:
             try:
-                results.put(plan_dialogue(approved, planner))
+                results.put(plan_dialogue(approved, planner, rules=rules))
             except Exception as exc:
                 results.put(exc)
 
@@ -111,7 +120,8 @@ def open_preflight_dialog(parent: tk.Tk, validator: str) -> None:
         window.after(100, receive)
 
     ttk.Button(controls, text="导入 JSON", command=load_json).pack(side="left")
-    example = '[\n  {"id": "D001", "speaker": "角色甲", "text": "Hold the door."}\n]'
+    example = ('[\n  {"id": "D001", "speaker": "角色甲", "text": "把门扶住。"}\n]' if chinese
+               else '[\n  {"id": "D001", "speaker": "角色甲", "text": "Hold the door."}\n]')
     ttk.Button(controls, text="填入示例", command=lambda: set_source(example)).pack(side="left", padx=6)
-    start = ttk.Button(controls, text="预排完整句", command=run_plan)
+    start = ttk.Button(controls, text="预排中文对白" if chinese else "预排完整句", command=run_plan)
     start.pack(side="right")

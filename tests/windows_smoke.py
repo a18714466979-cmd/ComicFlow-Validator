@@ -1,5 +1,6 @@
 """Exercise the batch file and real Tk widgets with a synthetic local ZIP."""
 
+import json
 import os
 import subprocess
 import sys
@@ -62,7 +63,7 @@ def run_inside_launcher():
                 name = next(walk(dialog, ttk.Entry))
                 assert name.get() == project_path.stem, name.get()
                 tabs = next(walk(dialog, ttk.Notebook))
-                assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "state") == "disabled"
+                assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "text") == "文本交付"
                 assert any(widget.instate(["selected"]) for widget in walk(self, ttk.Radiobutton)
                            if widget.cget("text") == "中文制作")
                 assert any("中文制作 · v14.8.8" in self.getvar(variable)
@@ -113,18 +114,71 @@ def run_inside_launcher():
             click(dialog, "新建单组项目")
             assert ProductionProject.open(project_path).rules == CHINESE
             tabs = next(walk(dialog, ttk.Notebook))
-            assert tabs.tab(3, "state") == "disabled"
+            assert tabs.tab(3, "text") == "文本交付"
             previous = project_path.with_name("旧英文制片.cfproject")
             ProductionProject("旧英文制片", "EP01", "SB01").save(previous)
-            for path, choice, script, state in ((previous, english, scripts[0], "normal"),
-                                                (project_path, chinese, scripts[1], "disabled")):
+            for path, choice, script, title in ((previous, english, scripts[0], "复核与交付"),
+                                                (project_path, chinese, scripts[1], "文本交付")):
                 filedialog.askopenfilename = lambda **_kwargs: str(path)
                 click(dialog, "打开单组项目")
-                assert choice.instate(["selected"]) and tabs.tab(3, "state") == state
+                assert choice.instate(["selected"]) and tabs.tab(3, "text") == title
                 assert Path(validator.get()).resolve() == script.resolve()
+            self.exercise_chinese_text(dialog, tabs)
             dialog.destroy()
             click(self, "开始验收")
             self.after(100, self.inspect_chinese_report)
+
+        def exercise_chinese_text(self, dialog, tabs):
+            from src.production_project import SHOT_FIELDS, ProductionProject, Shot
+            from src.production_rules import CHINESE
+
+            first = "停" * 98 + " A2。  "
+            text = first + "走！"
+            example = ProductionProject("中文对白试用", "EP01", "SB01", rules=CHINESE)
+            source = example.import_source("批准文本.md", "R1", text)
+            example.import_dialogue(source, json.dumps([{"id": "D001", "speaker": "值班员", "text": text}]))
+            example.notes.update({"分组状态": "常规", "对白规格": "三句以上或长对白", "覆盖段落": "试用片段",
+                                  "本组进入状态": "门关着", "本组退出状态": "灯灭", "连续性锁定": "门保持关闭"})
+            example.prompt = {"场景/总体状态": "空走廊", "公共限制": "保持门灯位置"}
+            for index in range(6):
+                fields = dict.fromkeys(SHOT_FIELDS, "合成镜头")
+                fields["唯一角色数量锁定"] = "无"
+                fields["声源位置"] = "画外同期"
+                example.shots.append(Shot(source=source.id, anchor=f"镜头 {index + 1}", fields=fields))
+            example.shots[0].dialogue = [("D001", 0, len(first))]
+            path = project_path.with_name("中文对白制片.cfproject")
+            example.save(path)
+            filedialog.askopenfilename = lambda **_kwargs: str(path)
+            click(dialog, "打开单组项目")
+
+            def adopt():
+                drafting = next(walk(dialog, tk.Toplevel))
+                assert next(walk(drafting, ttk.Notebook)).tab(0, "text") == "中文对白预排"
+                click(drafting, "预排中文对白")
+                rows = next(walk(drafting, ttk.Combobox)).cget("values")
+                assert len(rows) == 2 and "100 字" in rows[0] and "1 字" in rows[1], rows
+                ask = messagebox.askyesno
+                try:
+                    messagebox.askyesno = lambda *_args, **_kwargs: True
+                    click(drafting, "采用所选对白组")
+                finally:
+                    messagebox.askyesno = ask
+                drafting.destroy()
+
+            self.after(50, adopt)
+            click(dialog, "文本制片")
+            assert ProductionProject.open(path).dialogue_scope == {"D001": [0, len(first)]}
+            tabs.select(3)
+            click(dialog, "预览两份 TXT")
+            filedialog.askdirectory = lambda **_kwargs: str(path.parent)
+            click(dialog, "导出两份 TXT")
+            export = path.parent / "SB01_文字稿"
+            record = (export / "SB01_shot_details.txt").read_text(encoding="utf-8-sig")
+            prompt = (export / "SD2_prompt.txt").read_text(encoding="utf-8-sig")
+            approved_line = f"对白：值班员：“{first}”"
+            assert "总发声字数：100" in record and approved_line in record and approved_line in prompt
+            assert "走！" in (export / "待制作分镜.txt").read_text(encoding="utf-8-sig")
+            print("Verified Chinese 100/101 dialogue preview and TXT export through Tk", flush=True)
 
         def inspect_chinese_report(self):
             table = next(walk(self, ttk.Treeview))

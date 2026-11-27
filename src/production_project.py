@@ -25,6 +25,13 @@ GROUP_FIELDS = (
     "动作辅助标注", "资产清单",
 )
 GROUP_OPTIONAL = {"打斗节奏依据", "补充正打核对", "场景拼接对应表", "尾组说明", "对白容量拆组说明", "图片预算核对", "动作辅助标注", "资产清单"}
+CHINESE_TEXT_REQUIRED = ("分组状态", "覆盖段落", "对白规格", "本组进入状态", "本组退出状态", "连续性锁定")
+CHINESE_TEXT_FOLLOWUP = (
+    "组间镜头衔接核对", "景别衔接核对", "尾组说明", "主角判定", "武器轴线核对",
+    "镜头节奏核对", "空间合理性核对", "群像差异化核对", "追击节奏核对",
+)
+CHINESE_TEXT_FIELDS = CHINESE_TEXT_REQUIRED + CHINESE_TEXT_FOLLOWUP
+CHINESE_TEXT_OPTIONAL = set(CHINESE_TEXT_FOLLOWUP)
 PROMPT_FIELDS = ("场景/总体状态", "公共限制")
 SHOT_FIELDS = (
     "景别", "机位/角度", "机位空间", "可见范围", "运镜", "画面/事件", "人物站位", "动作起止",
@@ -143,6 +150,12 @@ class ProductionProject:
         project = cls(**payload)
         project.check_identity()
         return project
+
+    @property
+    def group_fields(self):
+        if self.rules == CHINESE:
+            return tuple(dict.fromkeys((*CHINESE_TEXT_FIELDS, *(key for key in GROUP_FIELDS if key in self.notes))))
+        return GROUP_FIELDS
 
     def check_identity(self) -> None:
         if self.rules not in (ENGLISH, CHINESE):
