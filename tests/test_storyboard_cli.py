@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -130,3 +131,40 @@ def test_storyboard_source_review(tmp_path, extra_errors, summary_errors, expect
         assert all(error in review.stdout for error in extra_errors)
     else:
         assert review.stdout == strict.stdout
+
+
+@pytest.mark.parametrize(
+    ("extra_errors", "expected_code"),
+    [([], 0), (["ERROR: SB06: SD2_prompt.txt is missing"], 1)],
+)
+def test_panel_exception_is_bound_to_final_zip_and_single_diagnostic(tmp_path, extra_errors, expected_code):
+    archive = tmp_path / "source.zip"
+    with ZipFile(archive, "w") as package:
+        package.writestr("SB05/SB05_shot_details.txt", "格数：7\n")
+    exception = tmp_path / "exception.json"
+    exception.write_text(json.dumps({
+        "zip_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "group": "SB05", "panels": 7, "reason": "批准的独立镜头",
+    }), encoding="utf-8")
+    diagnostic = (
+        "ERROR: SB05/SB05_shot_details.txt: three-or-more/long-dialogue requires 6 panels, "
+        "or 1–5 in a documented 整集尾组/对白容量拆组"
+    )
+    report = "\n".join([diagnostic, *extra_errors, f"RESULT: {1 + len(extra_errors)} error(s), 0 warning(s)"])
+    validator = tmp_path / "validator.py"
+    validator.write_text(f"print({report!r})\nraise SystemExit(1)\n", encoding="utf-8")
+
+    args = (archive, "--storyboard-validator", validator)
+    assert run_delivery(*args).returncode == 1
+    approved = run_delivery(*args, "--panel-exception", exception)
+    assert approved.returncode == expected_code
+    assert "已批准例外: SB05 7 格" in approved.stdout
+    assert diagnostic not in approved.stdout
+    assert all(error in approved.stdout for error in extra_errors)
+
+    with ZipFile(archive, "a") as package:
+        package.comment = b"different archive"
+    mutated = run_delivery(*args, "--panel-exception", exception)
+    assert mutated.returncode == 1
+    assert diagnostic in mutated.stdout
+    assert "已批准例外:" not in mutated.stdout

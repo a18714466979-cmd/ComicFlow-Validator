@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import ntpath
 import os
@@ -542,6 +543,44 @@ def print_report(report: DeliveryReport) -> None:
 # 命令行
 # ============================================================
 
+@dataclass(frozen=True)
+class PanelException:
+    zip_sha256: str
+    group: str
+    panels: int
+    reason: str
+
+    @classmethod
+    def load(cls, path: Path) -> PanelException:
+        with path.expanduser().open(encoding="utf-8-sig") as stream:
+            entry = cls(**json.load(stream))
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", entry.zip_sha256)
+            or not re.fullmatch(r"SB\d+", entry.group)
+            or type(entry.panels) is not int or not 7 <= entry.panels <= 12
+            or not entry.reason.strip() or len(entry.reason.splitlines()) != 1
+        ):
+            raise ValueError("格数例外需填写 ZIP 的 SHA-256、小组编号（如 SB05）、7–12 格及单行批准理由")
+        return entry
+
+    def diagnostic(self, archive: Path, root: Path) -> str | None:
+        with archive.open("rb") as stream:
+            matches = hashlib.file_digest(stream, "sha256").hexdigest() == self.zip_sha256
+        record = root / self.group / f"{self.group}_shot_details.txt"
+        if not matches or not record.is_file():
+            print("格数例外未应用：ZIP 指纹或分组不匹配。", flush=True)
+            return None
+        text = record.read_text(encoding="utf-8-sig")
+        counts = re.findall(r"^格数[：:]\s*(\d+)[ \t]*$", text, re.MULTILINE)
+        if counts != [str(self.panels)]:
+            print("格数例外未应用：生产记录的格数与批准格数不匹配。", flush=True)
+            return None
+        return (
+            f"ERROR: {self.group}/{record.name}: three-or-more/long-dialogue requires 6 panels, "
+            "or 1–5 in a documented 整集尾组/对白容量拆组"
+        )
+
+
 def print_warnings(report: DeliveryReport) -> None:
     for issue in report.issues:
         print(f"[{issue.level}] {issue.path} | {issue.message}", flush=True)
@@ -549,37 +588,43 @@ def print_warnings(report: DeliveryReport) -> None:
 
 def run_storyboard_validator(
     script: Path, source: Path, archive: Path | None, allow_legacy: bool,
-    review_missing_sources: bool,
+    review_missing_sources: bool, panel_exception: PanelException | None = None,
 ) -> int:
     command = [sys.executable, str(script), str(source.resolve())]
     if archive is not None:
         command.extend(("--zip", str(archive)))
     if allow_legacy:
         command.append("--allow-legacy")
-    if not review_missing_sources:
+    approved_error = panel_exception.diagnostic(archive, source) if panel_exception and archive else None
+    if not review_missing_sources and approved_error is None:
         return subprocess.run(command, check=False).returncode
 
     result = subprocess.run(
         command, check=False, capture_output=True, encoding="utf-8", errors="replace",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
-    return print_storyboard_source_review(result)
+    return print_storyboard_review(result, review_missing_sources, panel_exception, approved_error)
 
 
-def print_storyboard_source_review(result: subprocess.CompletedProcess[str]) -> int:
-    """Recognize missing provenance in a complete standard validator report."""
+def print_storyboard_review(
+    result: subprocess.CompletedProcess[str], review_missing_sources: bool,
+    panel_exception: PanelException | None, approved_error: str | None,
+) -> int:
+    """Apply explicit review options to a complete standard validator report."""
     lines = result.stdout.rstrip("\n").splitlines()
     summary = re.fullmatch(r"RESULT: (\d+) error\(s\), (\d+) warning\(s\)", lines[-1]) if lines else None
     errors = [line for line in lines if line.startswith("ERROR: ")]
     warnings = [line for line in lines if line.startswith("WARNING: ")]
     missing = {
         line for line in errors
-        if re.fullmatch(r"ERROR: SB[^:]*: 资产复用核对 approved local source is missing: .+", line)
+        if review_missing_sources
+        and re.fullmatch(r"ERROR: SB[^:]*: 资产复用核对 approved local source is missing: .+", line)
     }
+    approved = panel_exception is not None and errors.count(approved_error) == 1
 
     # Leave the original verdict intact if the validator failed outside its report format.
     if (
-        result.returncode != 1 or result.stderr or not summary or not missing
+        result.returncode != 1 or result.stderr or not summary or not (missing or approved)
         or len(errors) != int(summary[1]) or len(warnings) != int(summary[2])
         or len(lines) != len(errors) + len(warnings) + 1
     ):
@@ -588,14 +633,20 @@ def print_storyboard_source_review(result: subprocess.CompletedProcess[str]) -> 
         return result.returncode
 
     unverified_count = sum(line in missing for line in errors)
-    error_count = len(errors) - unverified_count
+    error_count = len(errors) - unverified_count - int(approved)
     for line in lines[:-1]:
         if line in missing:
             print(line.replace("ERROR: ", "未验证: ", 1).replace(
                 "资产复用核对 approved local source is missing: ", "复用原图不可访问：", 1,
             ))
+        elif approved and line == approved_error:
+            print(f"已批准例外: {panel_exception.group} {panel_exception.panels} 格 | {panel_exception.reason}")
         else:
             print(line)
+    if not error_count and not unverified_count:
+        print(f"RESULT: 0 error(s), {len(warnings)} warning(s)")
+        print("仍须人工复核图像、镜头连续性和成片。")
+        return 0
     verdict = "FAIL" if error_count else "UNVERIFIED"
     print(f"RESULT: {verdict} | {error_count} 错误，{unverified_count} 条复用未验证，{len(warnings)} 警告")
     return 1 if error_count else 3
@@ -639,7 +690,7 @@ def extract_storyboard_root(archive: Path, staging: Path) -> Path:
 
 def validate_storyboard_zip(
     source: Path, script: Path, rules: DeliveryRules, allow_legacy: bool,
-    review_missing_sources: bool,
+    review_missing_sources: bool, panel_exception: PanelException | None,
 ) -> int:
     with TemporaryDirectory(prefix="comicflow-") as temporary:
         workspace = Path(temporary)
@@ -659,10 +710,10 @@ def validate_storyboard_zip(
             print_report(report)
             return 1
         print_warnings(report)
-        return run_storyboard_validator(script, root, snapshot, allow_legacy, review_missing_sources)
+        return run_storyboard_validator(script, root, snapshot, allow_legacy, review_missing_sources, panel_exception)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="ComicFlow Validator - 交付包验收工具"
     )
@@ -683,18 +734,21 @@ def main() -> int:
     )
     parser.add_argument("--zip", type=Path, help="与故事板交付目录逐文件比对的最终 ZIP")
     parser.add_argument("--allow-legacy", action="store_true", help="按历史格式复核故事板包")
+    parser.add_argument("--panel-exception", type=Path, help="本次 ZIP 适用的已批准单组格数例外 JSON")
     parser.add_argument(
         "--review-missing-sources", action="store_true",
         help="把不可访问的复用原图标为未验证，只有此类问题时退出码为 3",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    if args.storyboard_validator is None and (args.zip or args.allow_legacy or args.review_missing_sources):
-        parser.error("--zip、--allow-legacy 和 --review-missing-sources 需要 --storyboard-validator")
+    if args.storyboard_validator is None and (args.zip or args.allow_legacy or args.review_missing_sources or args.panel_exception):
+        parser.error("故事板验收选项需要 --storyboard-validator")
 
     source = Path(args.source).expanduser()
     if args.zip is not None and not source.is_dir():
         parser.error("--zip 用于比对独立交付目录。直接验收 ZIP 时将其作为 source")
+    if args.panel_exception is not None and not (source.is_file() and source.suffix.lower() == ".zip"):
+        parser.error("--panel-exception 需要直接验收最终 ZIP")
 
     try:
         rules = load_rules(args.rules)
@@ -706,6 +760,7 @@ def main() -> int:
             if source.is_file() and source.suffix.lower() == ".zip":
                 return validate_storyboard_zip(
                     source, script, rules, args.allow_legacy, args.review_missing_sources,
+                    PanelException.load(args.panel_exception) if args.panel_exception else None,
                 )
 
         report = validate_delivery(source, rules)
