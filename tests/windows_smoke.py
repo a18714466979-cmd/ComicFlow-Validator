@@ -121,12 +121,14 @@ def run_inside_launcher():
             dialog.destroy()
 
         def inspect_production_dialog(self):
-            from src import drafting_dialog
+            from src import drafting_dialog, image_production_dialog
+            from src.image_api import ImageReply
             from src.production_project import ProductionProject
             from src.text_api import TextReply
 
             original = filedialog.askopenfilename
             request = drafting_dialog.request_text
+            submit_image = image_production_dialog.submit_image
             askyesno = messagebox.askyesno
             askstring = simpledialog.askstring
             try:
@@ -160,10 +162,19 @@ def run_inside_launcher():
                 saved = ProductionProject.open(project_path)
                 assert len(saved.text_drafts) == len(saved.shots) == 1
                 assert saved.shots[0].fields["画面/事件"] == "信号灯亮起"
+                picture = BytesIO()
+                Image.new("RGB", (320, 180), "steelblue").save(picture, format="PNG")
+                image_production_dialog.submit_image = lambda *_args: ImageReply((picture.getvalue(),), request_id="smoke-image")
+                self.after(50, lambda: self.inspect_image_dialog(dialog))
+                click(dialog, "图像制片")
+                saved = ProductionProject.open(project_path)
+                assert len(saved.image_jobs) == len(saved.images) == 1
+                assert saved.image_jobs[0]["status"] == "approved"
                 dialog.destroy()
             finally:
                 filedialog.askopenfilename = original
                 drafting_dialog.request_text = request
+                image_production_dialog.submit_image = submit_image
                 messagebox.askyesno = askyesno
                 simpledialog.askstring = askstring
 
@@ -188,6 +199,40 @@ def run_inside_launcher():
                 return
             click(dialog, "采纳已选建议")
             dialog.destroy()
+
+        def inspect_image_dialog(self, production):
+            dialog = next(walk(production, tk.Toplevel))
+            tabs = next(walk(dialog, ttk.Notebook))
+            assert [tabs.tab(index, "text") for index in range(2)] == ["新建生图任务", "候选与任务"]
+            label = next(widget for widget in walk(dialog, ttk.Label) if widget.cget("text") == "API Key")
+            label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0].insert(0, "synthetic")
+            click(dialog, "确认并提交生图")
+            self.after(100, lambda: self.inspect_candidate(dialog))
+
+        def inspect_candidate(self, dialog):
+            from src.production_project import ProductionProject
+
+            saved = ProductionProject.open(project_path)
+            if not saved.image_jobs or saved.image_jobs[0]["status"] != "ready":
+                self.after(100, lambda: self.inspect_candidate(dialog))
+                return
+            assert not saved.images
+            self.after(50, lambda: self.approve_image(dialog))
+            click(dialog, "批准并加入正式交付")
+            dialog.destroy()
+
+        def approve_image(self, dialog):
+            panel = next(walk(dialog, tk.Toplevel))
+            if panel.title() == "图像核对":
+                assert next(walk(panel, ttk.Notebook)).tab(0, "text") == "模型返回原图"
+                panel.destroy()
+                self.after(50, lambda: self.approve_image(dialog))
+                return
+            assert panel.title() == "批准候选图"
+            for name, value in (("实际处理理由", "补缺合成测试图"), ("实际核图结果", "核对实际尺寸和画面范围")):
+                label = next(widget for widget in walk(panel, ttk.Label) if widget.cget("text") == name)
+                label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0].insert(0, value)
+            click(panel, "确认批准")
 
     tk.Tk = SmokeWindow
     filedialog.askopenfilename = lambda **_kwargs: archive

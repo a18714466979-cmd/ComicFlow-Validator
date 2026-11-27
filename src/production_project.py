@@ -123,6 +123,7 @@ class ProductionProject:
     dialogue_scope: dict[str, list[int]] | None = None
     previous_group: str = ""
     text_drafts: list[dict] = field(default_factory=list)
+    image_jobs: list[dict] = field(default_factory=list)
 
     @classmethod
     def open(cls, path: Path):
@@ -211,7 +212,7 @@ class ProductionProject:
 
     def import_image(self, project_path: Path, path: Path, filename: str, *, action: str,
                      reason: str, inspection: str, version: str = "1", approved: Asset | None = None,
-                     originals: tuple[str, ...] = (), reference_only: bool = False) -> ProjectImage:
+                     originals: tuple[str, ...] = (), reference_only: bool = False, origin_label: str = "") -> ProjectImage:
         filename = checked_name(filename.strip())
         if Path(filename).suffix.lower() != ".png" or action not in ACTIONS or not version.strip():
             raise ValueError("请选择 PNG、批准版本和正式素材处理方式。")
@@ -253,7 +254,7 @@ class ProductionProject:
             raise ValueError("项目内的原图副本与指纹不符。")
 
         asset = ProjectImage(identifier(), approved.version if approved else version.strip(), filename, digest,
-                             width, height, approved.origin if approved else str(path.resolve()),
+                             width, height, approved.origin if approved else origin_label or str(path.resolve()),
                              action, reason.strip(), inspection.strip(), originals, reference_only)
         self.images.append(asset)
         return asset
@@ -277,6 +278,10 @@ class ProductionProject:
         payload = asdict(self)
         del payload["structure_review"]
         del payload["text_drafts"]
+        jobs = payload.pop("image_jobs")
+        published = [job for job in jobs if job.get("approved_image")]
+        if published:
+            payload["image_jobs"] = published
         if self.dialogue_scope is None:
             del payload["dialogue_scope"]
         if not self.previous_group:

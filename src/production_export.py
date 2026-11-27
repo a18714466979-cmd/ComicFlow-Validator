@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
 from .production_dialogue import handoff_rows, validated_scope
+from .production_images import provenance_rows
 from .production_project import GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import IMAGE_LIMIT, plan_dialogue
@@ -175,6 +176,9 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
 
     production.extend(["资产复用核对：\n" + "\n".join(reuse), "场景局部对应表：\n" + "\n".join(plate_rows),
                        "图像验收记录：\n" + "\n".join(inspections)])
+    jobs = provenance_rows(project, images)
+    if jobs:
+        production.append("图像生成和返修来源：\n" + "\n".join(jobs))
     (group_folder / f"{group_id}_shot_details.txt").write_text("\n\n".join(production) + "\n", encoding="utf-8-sig")
     (group_folder / "SD2_prompt.txt").write_text("\n\n".join(sd2) + "\n", encoding="utf-8-sig")
     (folder / "README.txt").write_text(

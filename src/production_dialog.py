@@ -59,10 +59,11 @@ def field(parent, row, label, value, choices=None):
 
 
 class ProductionDialog:
-    def __init__(self, parent, validator, registry, text_session):
+    def __init__(self, parent, validator, registry, text_session, image_session):
         self.validator = validator
         self.registry = registry
         self.text_session = text_session
+        self.image_session = image_session
         self.project = None
         self.path = None
         self.previewed = None
@@ -77,6 +78,7 @@ class ProductionDialog:
         top.pack(fill="x")
         self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open), ("保存项目", self.save))
         self.buttons(top, ("文本制片", self.open_drafting))
+        self.buttons(top, ("图像制片", self.open_image_production))
         self.status = tk.StringVar(self.window, "新建或打开项目后开始。")
         ttk.Label(top, textvariable=self.status).pack(side="left", padx=8)
         self.tabs = ttk.Notebook(self.window)
@@ -330,6 +332,12 @@ class ProductionDialog:
 
         self.save()
         self.wait(DraftingDialog(self, self.text_session).window)
+
+    def open_image_production(self):
+        from .image_production_dialog import ImageProductionDialog
+
+        self.save()
+        self.wait(ImageProductionDialog(self, self.image_session).window)
 
     def refresh(self):
         self.shots.delete(*self.shots.get_children())
@@ -611,5 +619,5 @@ class ProductionDialog:
         self.status.set("已导出并重新核验 ZIP" if result.output else "校验未通过，请查看报告")
 
 
-def open_production_dialog(parent, validator, registry, text_session):
-    ProductionDialog(parent, validator, registry, text_session)
+def open_production_dialog(parent, validator, registry, text_session, image_session):
+    ProductionDialog(parent, validator, registry, text_session, image_session)

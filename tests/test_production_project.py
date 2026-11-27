@@ -179,3 +179,45 @@ def test_source_revision_and_missing_spoken_line(production, validator, tmp_path
     project.shots[3].dialogue.clear()
     with pytest.raises(ValueError, match="有遗漏：D001"):
         preview_project(project, production, validator, tmp_path)
+
+
+def test_approved_local_image_repair_enters_strict_zip(production, validator, tmp_path):
+    from io import BytesIO
+
+    from src.image_api import EDIT, IMAGE_PROVIDERS, ImageReply, ImageSettings
+    from src.production_images import approve_candidate, local_patch, prepare_job, store_reply
+
+    project = ProductionProject.open(production)
+    shot = project.shots[0]
+    plate = next(image for image in project.images if image.id == shot.plate)
+    base = project.checked_image(production, plate)
+    expected_old_digest = sha256_file(base)
+    with Image.open(base) as image:
+        changed = image.copy()
+    edit_box = (26, 20, 40, 32)
+    ImageDraw.Draw(changed).rectangle((26, 20, 39, 31), fill=(103, 87, 73))
+    output = BytesIO()
+    changed.save(output, format="PNG")
+    provider = "火山方舟 Seedream"
+    preset = IMAGE_PROVIDERS[provider]
+    config = ImageSettings(provider, preset.base, preset.model, "test-key")
+    job, _ = prepare_job(project, production, config, EDIT, "净板", shot.id, "修改测试门板颜色", [plate.id], edit_box)
+    project.image_jobs.append(job)
+    store_reply(production, job, ImageReply((output.getvalue(),), request_id="synthetic-image-work"))
+    local_patch(project, production, job, job["outputs"][0])
+    revised = approve_candidate(project, production, job, 0, plate.filename, "R2", "仅修补批准画面的门板局部",
+                                "两版的门和信号灯位置已按合成样例核对", replace_original=True)
+    assert sha256_file(base) == expected_old_digest
+    assert revised.id == project.shots[1].plate and revised.originals == (plate.id,)
+    project.structure_review = project.fingerprint()
+    result = publish_project(project, production, validator, tmp_path / "已批准返修.zip")
+    assert result.exit_code == 0, result.report
+    with ZipFile(result.output) as archive:
+        assert archive.testzip() is None
+        picture = archive.read("SB01/" + revised.filename)
+        assert picture == project.checked_image(production, revised).read_bytes()
+        production_txt = archive.read("SB01/SB01_shot_details.txt").decode("utf-8-sig")
+        sd2 = archive.read("SB01/SD2_prompt.txt").decode("utf-8-sig")
+        assert "图像生成和返修来源：" in production_txt and "synthetic-image-work" in production_txt
+        assert "synthetic-image-work" not in sd2
+        assert not any("原图_" in name for name in archive.namelist())
