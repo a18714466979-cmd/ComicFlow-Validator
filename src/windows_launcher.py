@@ -18,6 +18,7 @@ from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
 from .production_project import atomic_text
+from .production_rules import CHINESE, ENGLISH, RULE_LABELS
 from .image_api import ImageSettings
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
@@ -25,15 +26,20 @@ from .vision import VisionSettings
 from .vision_dialog import open_vision_dialog
 
 
-def validator_preference() -> Path | None:
+VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
+                 CHINESE: "COMICFLOW_CHINESE_STORYBOARD_VALIDATOR"}
+
+
+def validator_preference(rules: str = ENGLISH) -> Path | None:
     home = os.environ.get("LOCALAPPDATA")
-    return Path(home) / "ComicFlow" / "settings.json" if home else None
+    filename = "settings.json" if rules == ENGLISH else "settings-zh.json"
+    return Path(home) / "ComicFlow" / filename if home else None
 
 
-def saved_validator() -> str:
-    if supplied := os.environ.get("COMICFLOW_STORYBOARD_VALIDATOR", "").strip():
+def saved_validator(rules: str = ENGLISH) -> str:
+    if supplied := os.environ.get(VALIDATOR_ENV[rules], "").strip():
         return supplied
-    path = validator_preference()
+    path = validator_preference(rules)
     if path:
         try:
             value = json.loads(path.read_text(encoding="utf-8")).get("validator", "")
@@ -44,9 +50,9 @@ def saved_validator() -> str:
     return ""
 
 
-def remember_validator(value: str) -> None:
-    target = validator_preference()
-    if target is not None and not os.environ.get("COMICFLOW_STORYBOARD_VALIDATOR"):
+def remember_validator(value: str, rules: str = ENGLISH) -> None:
+    target = validator_preference(rules)
+    if target is not None and not os.environ.get(VALIDATOR_ENV[rules], "").strip():
         target.parent.mkdir(parents=True, exist_ok=True)
         atomic_text(target, json.dumps({"validator": value}, ensure_ascii=False) + "\n")
 
@@ -59,9 +65,13 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     options = ttk.Frame(window, padding=(12, 10))
     options.pack(fill="x")
     options.columnconfigure(1, weight=1)
+    selected_rules = tk.StringVar(window, ENGLISH)
+    active_rules = ENGLISH
+    validators = {rules: saved_validator(rules) for rules in RULE_LABELS}
+    validator_label = tk.StringVar(window, "英文校验脚本（严格验收）")
     entries = (
         ("交付 ZIP", tk.StringVar(value=initial_zip), ("ZIP 交付包", "*.zip")),
-        ("故事板校验脚本（严格验收）", tk.StringVar(value=saved_validator()),
+        ("校验脚本", tk.StringVar(value=validators[ENGLISH]),
          ("Python 校验脚本", "*.py")),
         ("已批准格数例外（可选）", tk.StringVar(), ("JSON 例外文件", "*.json")),
     )
@@ -215,7 +225,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             window.after(100, receive)
             return
         busy = False
-        start_button.configure(state="normal")
+        set_running(False)
         if isinstance(completed, Exception):
             exit_code = 1
             status.set("验收未完成")
@@ -229,7 +239,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         verdict = verdicts.get(result.exit_code, "验收未完成")
         if not strict_review and result.exit_code == 0:
             verdict = "文件完整性检查通过 · 工作流未验"
-        status.set(f"{verdict} · {len(result.issues)} 条结果")
+        status.set(f"{RULE_LABELS[active_rules]} · {verdict} · {len(result.issues)} 条结果")
         set_text(report_text, result.report)
         for number, issue in enumerate(result.issues):
             table.insert("", "end", iid=str(number), values=(
@@ -254,19 +264,56 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
 
     def save_validator_choice() -> None:
         value = entries[1][1].get().strip()
-        if value and Path(value).suffix.lower() == ".py" and Path(value).is_file():
+        path = Path(value).expanduser()
+        validators[active_rules] = value
+        if path.suffix.lower() == ".py" and path.is_file():
+            validators[active_rules] = str(path.resolve())
             try:
-                remember_validator(str(Path(value).resolve()))
+                remember_validator(validators[active_rules], active_rules)
             except OSError:
                 messagebox.showinfo("校验脚本", "本次可使用所选脚本，下次启动时需重新选择。", parent=window)
 
     def produce(path=None) -> None:
         save_validator_choice()
-        open_production_dialog(window, entries[1][1].get().strip(), registry_path, text_session, image_session, path)
+        open_production_dialog(window, validators, registry_path, text_session, image_session,
+                               active_rules, switch_rules, initial_project=path)
+
+    def clear_review() -> None:
+        nonlocal result, selected_issue
+        result = selected_issue = None
+        inspect.configure(state="disabled")
+        table.delete(*table.get_children())
+        file_selector.configure(values=())
+        file_selector.set("")
+        location.configure(text="")
+        show_preview()
+        set_text(report_text, "")
+
+    def switch_rules(rules: str) -> None:
+        nonlocal active_rules, exit_code
+        if rules == active_rules:
+            return
+        save_validator_choice()
+        active_rules = rules
+        selected_rules.set(rules)
+        entries[1][1].set(validators[rules])
+        production_language = "中文" if rules == CHINESE else "英文"
+        validator_label.set(f"{production_language}校验脚本（严格验收）")
+        for widget in (*exception_widgets, preflight_button):
+            widget.state(["!disabled"] if rules == ENGLISH else ["disabled"])
+        clear_review()
+        exit_code = 0
+        status.set(f"{RULE_LABELS[rules]} · SB 规则 v{rules}")
+
+    def set_running(running: bool) -> None:
+        for widget in (start_button, production_button, *rule_buttons):
+            widget.state(["disabled"] if running else ["!disabled"])
 
     def start() -> None:
-        nonlocal busy, result, workspace, selected_issue, strict_review
+        nonlocal busy, workspace, strict_review
         archive, validator, exception = (Path(value.get().strip()).expanduser() for _, value, _ in entries)
+        if active_rules == CHINESE:
+            exception = Path()
         required = ((archive, ".zip", "交付 ZIP"),)
         if validator != Path():
             required += ((validator, ".py", "校验脚本"),)
@@ -297,15 +344,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         workspace = TemporaryDirectory(prefix="comicflow-review-")
         directory = Path(workspace.name)
         busy = True
-        result = selected_issue = None
-        inspect.configure(state="disabled")
-        table.delete(*table.get_children())
-        file_selector.configure(values=())
-        file_selector.set("")
-        location.configure(text="")
-        show_preview()
-        set_text(report_text, "")
-        start_button.configure(state="disabled")
+        clear_review()
+        set_running(True)
         status.set(f"正在验收 {archive.name}…")
 
         def worker() -> None:
@@ -324,11 +364,16 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         window.destroy()
 
     for row, (label, value, kind) in enumerate(entries):
-        ttk.Label(options, text=label).grid(row=row, column=0, sticky="w", padx=12, pady=5)
-        ttk.Entry(options, textvariable=value, width=58).grid(row=row, column=1, sticky="ew")
-        ttk.Button(options, text="浏览", command=lambda v=value, k=kind: browse(v, k)).grid(
-            row=row, column=2, padx=12,
-        )
+        caption = ttk.Label(options, text=label)
+        if row == 1:
+            caption.configure(textvariable=validator_label)
+        caption.grid(row=row, column=0, sticky="w", padx=12, pady=5)
+        field = ttk.Entry(options, textvariable=value, width=58)
+        field.grid(row=row, column=1, sticky="ew")
+        picker = ttk.Button(options, text="浏览", command=lambda v=value, k=kind: browse(v, k))
+        picker.grid(row=row, column=2, padx=12)
+        if row == 2:
+            exception_widgets = (field, picker)
     ttk.Checkbutton(options, text="将不可访问的复用原图标为未验证", variable=review).grid(
         row=3, column=1, sticky="w", pady=8,
     )
@@ -337,11 +382,24 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=2, sticky="w", padx=12)
     actions = ttk.Frame(options)
     actions.grid(row=4, column=2, sticky="e", pady=(0, 2))
-    ttk.Button(actions, text="单组制片", command=produce).pack(side="left", padx=(0, 5))
-    ttk.Button(actions, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).pack(side="left")
+    production_button = ttk.Button(actions, text="单组制片", command=produce)
+    production_button.pack(side="left", padx=(0, 5))
+    preflight_button = ttk.Button(actions, text="生图前预检",
+                                  command=lambda: open_preflight_dialog(window, entries[1][1].get().strip()))
+    preflight_button.pack(side="left")
     ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(
         window, registry_path, entries[1][1].get().strip(), result,
     )).pack(side="left", padx=(5, 0))
+    rule_bar = ttk.Frame(options)
+    rule_bar.grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(5, 0))
+    ttk.Label(rule_bar, text="制作规则").pack(side="left", padx=(0, 8))
+    rule_buttons = [
+        ttk.Radiobutton(rule_bar, text=label, variable=selected_rules, value=rules,
+                        command=lambda version=rules: switch_rules(version))
+        for rules, label in RULE_LABELS.items()
+    ]
+    for button in rule_buttons:
+        button.pack(side="left", padx=(0, 7))
     tabs.pack(expand=True, fill="both", padx=12, pady=(0, 12))
     window.protocol("WM_DELETE_WINDOW", close)
     if initial_project is not None:

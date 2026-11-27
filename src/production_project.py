@@ -13,9 +13,10 @@ from uuid import uuid4
 from PIL import Image
 
 from .asset_registry import Asset, sha256_file
+from .production_rules import CHINESE, ENGLISH
 
 
-RULE_VERSION = "14.10.3"
+RULE_VERSION = ENGLISH
 GROUP_FIELDS = (
     "分组状态", "覆盖段落", "内容类型", "打斗节奏依据", "对白规格", "本组进入状态", "本组退出状态",
     "连续性锁定", "场景资产模式", "场景清单", "场景身份判定", "人物判定", "人物资产表",
@@ -131,7 +132,7 @@ class ProductionProject:
     @classmethod
     def open(cls, path: Path):
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
-        if payload.get("version") != 1 or payload.get("rules") != RULE_VERSION:
+        if payload.get("version") != 1 or payload.get("rules") not in (ENGLISH, CHINESE):
             raise ValueError("项目格式或制作规则版本不兼容。")
         payload["sources"] = [ApprovedSource(**item) for item in payload.get("sources", [])]
         payload["lines"] = [ApprovedLine(**{**item, "sentence_ends": tuple(item.get("sentence_ends", ()))})
@@ -144,6 +145,8 @@ class ProductionProject:
         return project
 
     def check_identity(self) -> None:
+        if self.rules not in (ENGLISH, CHINESE):
+            raise ValueError("项目的制作规则版本不兼容。")
         if not re.fullmatch(r"SB\d{2,}", self.group):
             raise ValueError("组号请使用 SB01 这类格式。")
         if any(char in self.name + self.episode for char in "|\r\n"):

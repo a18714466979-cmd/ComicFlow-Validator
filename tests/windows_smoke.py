@@ -22,6 +22,8 @@ def run_inside_launcher():
     archive = os.environ["COMICFLOW_SMOKE_ZIP"]
     mode = os.environ["COMICFLOW_SMOKE_MODE"]
     project_path = Path(archive).with_name(f"制片-{mode}.cfproject")
+    if mode == "shell-project":
+        project_path = Path(os.environ["COMICFLOW_SMOKE_PROJECT"])
     marker = project_path.with_suffix(".status")
 
     def walk(root, kind):
@@ -58,13 +60,21 @@ def run_inside_launcher():
             if mode == "shell-project":
                 dialog = next(walk(self, tk.Toplevel))
                 name = next(walk(dialog, ttk.Entry))
-                assert name.get() == "直接打开项目", name.get()
-                assert next(walk(dialog, ttk.Notebook)).tab(1, "state") == "normal"
+                assert name.get() == project_path.stem, name.get()
+                tabs = next(walk(dialog, ttk.Notebook))
+                assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "state") == "disabled"
+                assert any(widget.instate(["selected"]) for widget in walk(self, ttk.Radiobutton)
+                           if widget.cget("text") == "中文制作")
+                assert any("中文制作 · v14.8.8" in self.getvar(variable)
+                           for label in walk(dialog, ttk.Label) if (variable := label.cget("textvariable")))
                 self.destroy()
                 marker.write_text("COMICFLOW_GUI_OK", encoding="utf-8")
                 return
             field, validator, *_ = walk(self, ttk.Entry)
             assert field.get() == ("" if mode == "empty" else archive), field.get()
+            if mode == "mode-switch":
+                self.inspect_mode_switch(validator)
+                return
             if mode == "file-only":
                 assert not validator.get()
                 click(self, "开始验收")
@@ -75,6 +85,55 @@ def run_inside_launcher():
                 assert field.get() == archive
             click(self, "开始验收")
             self.after(100, self.inspect_result)
+
+        def inspect_mode_switch(self, validator):
+            from src.production_project import ProductionProject
+            from src.production_rules import CHINESE
+
+            english, chinese = walk(self, ttk.Radiobutton)
+            assert english.cget("text") == "英文制作" and english.instate(["selected"])
+            assert chinese.cget("text") == "中文制作"
+            scripts = Path(archive).with_name("validator.py"), Path(archive).with_name("中文校验.py")
+            select_script = next(widget for widget in walk(self, ttk.Button) if widget.cget("text") == "浏览"
+                                 and int(widget.grid_info().get("row", -1)) == 1)
+            for choice, script in zip((english, chinese), scripts):
+                choice.invoke()
+                assert not validator.get()
+                filedialog.askopenfilename = lambda **_kwargs: str(script)
+                select_script.invoke()
+                assert validator.get() == str(script)
+            english.invoke()
+            assert Path(validator.get()).resolve() == scripts[0].resolve()
+            chinese.invoke()
+            assert Path(validator.get()).resolve() == scripts[1].resolve()
+
+            click(self, "单组制片")
+            dialog = next(walk(self, tk.Toplevel))
+            filedialog.asksaveasfilename = lambda **_kwargs: str(project_path)
+            click(dialog, "新建单组项目")
+            assert ProductionProject.open(project_path).rules == CHINESE
+            tabs = next(walk(dialog, ttk.Notebook))
+            assert tabs.tab(3, "state") == "disabled"
+            previous = project_path.with_name("旧英文制片.cfproject")
+            ProductionProject("旧英文制片", "EP01", "SB01").save(previous)
+            for path, choice, script, state in ((previous, english, scripts[0], "normal"),
+                                                (project_path, chinese, scripts[1], "disabled")):
+                filedialog.askopenfilename = lambda **_kwargs: str(path)
+                click(dialog, "打开单组项目")
+                assert choice.instate(["selected"]) and tabs.tab(3, "state") == state
+                assert Path(validator.get()).resolve() == script.resolve()
+            dialog.destroy()
+            click(self, "开始验收")
+            self.after(100, self.inspect_chinese_report)
+
+        def inspect_chinese_report(self):
+            table = next(walk(self, ttk.Treeview))
+            if not table.get_children():
+                self.after(100, self.inspect_chinese_report)
+                return
+            assert "Chinese mode validator" in table.item("0", "values")[-1]
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
 
         def inspect_file_only(self):
             for label in walk(self, ttk.Label):
@@ -322,6 +381,10 @@ def verify_windows_launcher(root=ROOT):
             'print("WARNING: SB01/SB01_shot_details.txt: shot SB01-01: smoke fixture")\n'
             'print("RESULT: 0 error(s), 1 warning(s)")\n', encoding="utf-8",
         )
+        (folder / "中文校验.py").write_text(
+            'print("WARNING: SB01/SB01_shot_details.txt: shot SB01-01: Chinese mode validator")\n'
+            'print("RESULT: 0 error(s), 1 warning(s)")\n', encoding="utf-8",
+        )
         (folder / "sitecustomize.py").write_text(
             "import sys\n"
             "if '-m' in getattr(sys, 'orig_argv', []) and 'src.windows_launcher' in sys.orig_argv:\n"
@@ -334,7 +397,9 @@ def verify_windows_launcher(root=ROOT):
             "COMICFLOW_SMOKE_HELPER": str(Path(__file__).resolve()), "PYTHONPATH": str(folder), "PYTHONUTF8": "1",
             "LOCALAPPDATA": str(folder / "AppData"),
         }
-        for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"')):
+        env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
+        for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
+                               ("mode-switch", f' "{archive}"')):
             env["COMICFLOW_SMOKE_MODE"] = mode
             if mode == "file-only":
                 env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
@@ -346,16 +411,14 @@ def verify_windows_launcher(root=ROOT):
             assert completed.returncode == 0 and "COMICFLOW_GUI_OK" in completed.stdout, completed.stderr
             print(f"Verified {mode} launch and Tk window actions")
 
-        sys.path.insert(0, str(root))
-        from src.production_project import ProductionProject
-
-        project = folder / "制片-shell-project.cfproject"
-        ProductionProject("直接打开项目", "EP001", "SB01").save(project)
+        project = folder / "制片-mode-switch.cfproject"
         env["COMICFLOW_SMOKE_MODE"] = "shell-project"
+        env["COMICFLOW_SMOKE_PROJECT"] = str(project)
         previous = os.environ.copy()
         try:
             os.environ.update(env)
             os.environ.pop("COMICFLOW_STORYBOARD_VALIDATOR", None)
+            os.environ.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
             os.startfile(str(root / "ComicFlow-Windows.bat"), "open", subprocess.list2cmdline([str(project)]), str(root))
             deadline = time.monotonic() + 30
             marker = project.with_suffix(".status")
@@ -369,7 +432,7 @@ def verify_windows_launcher(root=ROOT):
         finally:
             os.environ.clear()
             os.environ.update(previous)
-        print("Verified Windows shell invocation with a .cfproject and real Tk widgets")
+        print("Verified Windows shell reopened the Chinese .cfproject and restored its mode")
 
 
 if __name__ == "__main__":

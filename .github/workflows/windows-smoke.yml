@@ -2,7 +2,7 @@ name: Windows desktop validation
 
 on:
   push:
-    branches: [codex/storyboard-delivery-validation, codex/windows-smoke, main]
+    branches: [codex/storyboard-delivery-validation, codex/chinese-production, codex/windows-smoke, main]
   pull_request:
   workflow_dispatch:
 
@@ -27,6 +27,7 @@ jobs:
       - name: Install the unpacked trial and test the desktop and delivery paths
         run: python -m scripts.verify_windows_trial dist/ComicFlow-Windows-Trial.zip --install
       - name: Upload Windows trial archive
+        if: github.ref != 'refs/heads/codex/chinese-production'
         uses: actions/upload-artifact@v7
         with:
           path: dist/ComicFlow-Windows-Trial.zip

@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 from .asset_registry import AssetRegistry, sha256_file
 from .production_export import preview_project, project_registry, publish_project, render_dialogue
 from .production_project import ACTIONS, GROUP_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
+from .production_rules import ENGLISH, RULE_LABELS
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import ReviewResult, index_members
 from .storyboard_preflight import IMAGE_LIMIT
@@ -59,8 +60,10 @@ def field(parent, row, label, value, choices=None):
 
 
 class ProductionDialog:
-    def __init__(self, parent, validator, registry, text_session, image_session):
-        self.validator = validator
+    def __init__(self, parent, validators, registry, text_session, image_session, rules, on_rules_changed):
+        self.validators = validators
+        self.rules = rules
+        self.on_rules_changed = on_rules_changed
         self.registry = registry
         self.text_session = text_session
         self.image_session = image_session
@@ -77,11 +80,15 @@ class ProductionDialog:
         top = ttk.Frame(self.window, padding=10)
         top.pack(fill="x")
         self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open), ("保存项目", self.save))
-        self.buttons(top, ("文本制片", self.open_drafting))
-        self.buttons(top, ("图像制片", self.open_image_production))
-        self.buttons(top, ("排版与交接", self.open_layout))
+        self.production_tools = self.buttons(top, ("文本制片", self.open_drafting),
+                                             ("图像制片", self.open_image_production),
+                                             ("排版与交接", self.open_layout))
         self.status = tk.StringVar(self.window, "新建或打开项目后开始。")
-        ttk.Label(top, textvariable=self.status).pack(side="left", padx=8)
+        info = ttk.Frame(self.window, padding=(10, 0, 10, 6))
+        info.pack(fill="x")
+        self.rule_name = tk.StringVar(self.window)
+        ttk.Label(info, textvariable=self.rule_name).pack(side="left")
+        ttk.Label(info, textvariable=self.status).pack(side="left", padx=8)
         self.tabs = ttk.Notebook(self.window)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.setup_group(self.tab("项目与组"))
@@ -90,6 +97,7 @@ class ProductionDialog:
         self.setup_delivery(self.tab("复核与交付"))
         for index in range(4):
             self.tabs.tab(index, state="disabled")
+        self.show_rules(rules)
 
     def guarded(self, task):
         try:
@@ -98,8 +106,20 @@ class ProductionDialog:
             messagebox.showerror("单组制片", str(exc), parent=self.window)
 
     def buttons(self, bar, *buttons):
+        built = []
         for title, command in buttons:
-            ttk.Button(bar, text=title, command=lambda task=command: self.guarded(task)).pack(side="left", padx=(0, 6))
+            button = ttk.Button(bar, text=title, command=lambda task=command: self.guarded(task))
+            button.pack(side="left", padx=(0, 6))
+            built.append(button)
+        return built
+
+    def show_rules(self, rules):
+        self.rules = rules
+        self.rule_name.set(f"{RULE_LABELS[rules]} · v{rules}")
+        enabled = self.project is not None and rules == ENGLISH
+        self.tabs.tab(3, state="normal" if enabled else "disabled")
+        for button in self.production_tools:
+            button.state(["!disabled"] if enabled else ["disabled"])
 
     def tab(self, name):
         page = ttk.Frame(self.tabs, padding=10)
@@ -222,7 +242,7 @@ class ProductionDialog:
             path = Path(value)
             if path.exists():
                 raise ValueError("这个项目文件已存在，请选择新文件名。")
-            project = ProductionProject(path.stem, "EP01", "SB01")
+            project = ProductionProject(path.stem, "EP01", "SB01", rules=self.rules)
             project.save(path)
             self.load(project, path)
 
@@ -236,20 +256,22 @@ class ProductionDialog:
 
     def load(self, project, path):
         self.project, self.path, self.previewed = project, path, None
+        self.show_rules(project.rules)
+        self.on_rules_changed(project.rules)
         for variable, value in zip((self.name, self.episode, self.group), (project.name, project.episode, project.group)):
             variable.set(value)
         write_text(self.notes, fields_text(GROUP_FIELDS, project.notes))
         write_text(self.prompt, fields_text(PROMPT_FIELDS, project.prompt))
         self.baseline.set("")
         self.exception.set("")
-        for index in range(4):
+        for index in range(3):
             self.tabs.tab(index, state="normal")
         self.tabs.select(0)
         self.refresh_sources()
         self.refresh()
         if project_registry(path).is_file():
             self.registry.set(str(project_registry(path)))
-        self.status.set(path.name)
+        self.status.set(path.name if project.rules == ENGLISH else f"{path.name} · 中文项目设置")
 
     def refresh_sources(self):
         self.source["values"] = tuple(f"{source.name} · {source.version}" for source in self.project.sources)
@@ -558,9 +580,9 @@ class ProductionDialog:
         write_text(self.report, "当前版本需复核\n" + "\n".join(impacts) if impacts else "已确认本版画面，可发起严格验收。")
 
     def validator_path(self):
-        path = Path(self.validator).expanduser()
+        path = Path(self.validators.get(self.rules, "")).expanduser()
         if not path.is_file():
-            raise ValueError("请在主窗口选择当前故事板校验脚本。")
+            raise ValueError(f"请在主窗口为{RULE_LABELS[self.rules]}选择对应的故事板校验脚本。")
         return path
 
     def preview(self):
@@ -626,7 +648,8 @@ class ProductionDialog:
         self.status.set("已导出并重新核验 ZIP" if result.output else "校验未通过，请查看报告")
 
 
-def open_production_dialog(parent, validator, registry, text_session, image_session, initial_project=None):
-    dialog = ProductionDialog(parent, validator, registry, text_session, image_session)
+def open_production_dialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed,
+                           initial_project=None):
+    dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)
     if initial_project is not None:
         dialog.guarded(lambda: dialog.load(ProductionProject.open(initial_project), initial_project))

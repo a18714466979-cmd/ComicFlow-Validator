@@ -12,6 +12,7 @@ from .production_handoff import active_scope, adjacent, pending_record, reviewed
 from .production_images import provenance_rows
 from .production_layout import mark_ledger, windows_for_shots
 from .production_project import GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject
+from .production_rules import ENGLISH
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import IMAGE_LIMIT, plan_dialogue
 
@@ -85,6 +86,8 @@ def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tu
 def build_delivery(project: ProductionProject, project_path: Path, folder: Path, validator: Path,
                    registry_path: Path, *, write_root=True):
     project.check_identity()
+    if project.rules != ENGLISH:
+        raise ValueError("中文项目的交付模板尚未接入。")
     if not project.name.strip() or not project.episode.strip() or not project.sources or not project.shots:
         raise ValueError("完整组需要项目名、集次、批准剧本和镜头。")
     images = [image for image in project.images if not image.reference_only]

@@ -76,6 +76,8 @@ def pending_record(project, scope):
 
 
 def adjacent(left, right):
+    if left.rules != right.rules:
+        raise ValueError("相邻组需使用同一套制作规则。")
     if (left.name, left.episode) != (right.name, right.episode) or int(right.group[2:]) - int(left.group[2:]) != 1:
         raise ValueError("请选择同项目、同集次且组号连续的项目。")
 
