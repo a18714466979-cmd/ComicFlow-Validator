@@ -16,6 +16,7 @@ from .asset_registry import sha256_file
 from .image_api import EDIT, REFERENCE, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES, IMAGE_PROVIDERS, ImageReply, ImageSettings, build_image_request
 from .production_project import ProductionProject, checked_name, identifier
 from .production_layout import replace_laid_out_asset
+from .production_rules import CHINESE
 from .storyboard_preflight import IMAGE_LIMIT
 
 
@@ -36,9 +37,20 @@ def shot_input(project, shot_id):
     return next(((index, shot) for index, shot in enumerate(project.shots, 1) if shot.id == shot_id), (0, None))
 
 
+def storyboard_job_page(project, target):
+    if project.rules == CHINESE and len(project.shots) == 10:
+        ordinal, _ = shot_input(project, target)
+        if not ordinal:
+            raise ValueError("中文 10 格故事板请选本次页内的一镜，按 01–06 或 07–10 单页生成。")
+        return (1, 6, "storyboard_01_6panel_bw_16x9.png") if ordinal <= 6 else (7, 10, "storyboard_02_4panel_bw_16x9.png")
+    total = len(project.shots)
+    return 1, total, f"storyboard_{total}panel_bw_16x9.png"
+
+
 def shot_signature(project, kind, target) -> str:
     if kind == "故事板":
-        data = [asdict(shot) for shot in project.shots]
+        first, last, _ = storyboard_job_page(project, target)
+        data = [asdict(shot) for shot in project.shots[first - 1:last]]
         for shot in data:
             shot.pop("plate")
             shot.pop("plate_note")
@@ -57,11 +69,17 @@ def image_prompt(project, kind, target, mode) -> str:
     if mode == EDIT:
         lines.append("在原图对应选区内完成以下修改，保持该处透视、光影和边缘一致。")
     if kind == "故事板":
-        lines.insert(0, f"{project.group}，按已锁定的 {len(project.shots)} 镜排一张。")
-        for index, shot in enumerate(project.shots, 1):
+        first, last, _ = storyboard_job_page(project, target)
+        board_scope = f"本页镜号 {first:02d}–{last:02d}，仅将这 {last - first + 1} 镜排一张。"
+        if project.rules != CHINESE or len(project.shots) != 10:
+            board_scope = f"按已锁定的 {len(project.shots)} 镜排一张。"
+        lines.insert(0, f"{project.group}，{board_scope}")
+        for index, shot in enumerate(project.shots[first - 1:last], first):
             fields = ("景别", "机位/角度", "人物站位", "动作起止", "情绪/表演", "连续性")
             details = "；".join(f"{key} {shot.fields[key]}" for key in fields if shot.fields.get(key))
             lines.append(f"{project.group}-{index:02d} {shot.anchor}。{details}")
+    if kind == "场景" and project.rules == CHINESE:
+        lines.append("按已批准地点生成单张无人物、无说明标签的完整单机位画面。真反打从空间另一侧朝正打机位拍摄，保留空间锚点、色温与照明方向，禁止水平镜像。")
     if kind == "净板":
         ordinal, shot = shot_input(project, target)
         if shot:
@@ -129,7 +147,7 @@ def prepare_job(project, project_path, settings, mode, kind, target, prompt, ref
     job = {
         "id": identifier(), "time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": "submitting",
         "provider": settings.provider, "base": settings.base.rstrip("/"), "model": settings.model, "mode": mode,
-        "kind": kind, "shot": target if kind == "净板" else "", "shot_signature": shot_signature(project, kind, target),
+        "kind": kind, "shot": target if kind in {"净板", "故事板"} else "", "shot_signature": shot_signature(project, kind, target),
         "prompt": prompt, "references": [pin_asset(item) for item in sources], "box": list(box), "outputs": [],
     }
     return job, request_for_job(project, project_path, settings, job)
@@ -280,9 +298,11 @@ def approve_candidate(project: ProductionProject, project_path: Path, job: dict,
         if image.convert("RGBA").getchannel("A").getextrema()[0] != 255:
             raise ValueError("正式交付要求不透明实底。")
     filename = checked_name(filename.strip())
-    if job["kind"] == "故事板" and not re.search(rf"storyboard.*(?<!\d){len(project.shots)}panel", filename, re.I):
-        raise ValueError("故事板文件名需含实际格数，例如 storyboard_8panel_bw_16x9.png。")
-    if job["kind"] == "净板" and "_details" not in filename.lower() and "场景合辑" not in filename:
+    if job["kind"] == "故事板":
+        first, last, name = storyboard_job_page(project, job["shot"])
+        if not re.search(rf"storyboard.*(?<!\d){last-first+1}panel", filename, re.I):
+            raise ValueError(f"故事板文件名需含实际页格数，例如 {name}。")
+    if job["kind"] == "净板" and not any(token in filename.lower() for token in ("_details", "场景合辑", "scene_九图合并_")):
         raise ValueError("净板应使用包含 details 的正式场景文件名。")
     if not reason.strip() or not inspection.strip() or any(x in reason + inspection for x in "|\r\n"):
         raise ValueError("请填写单行处理理由和实际核图结果。")
@@ -294,10 +314,12 @@ def approve_candidate(project: ProductionProject, project_path: Path, job: dict,
     formal_count = sum(not item.reference_only for item in project.images)
     if formal_count + (not replace_original) > IMAGE_LIMIT:
         raise ValueError(f"批准后会超出 {IMAGE_LIMIT} 张正式图上限，请先调整资产计划。")
-    if job["kind"] == "故事板" and not replace_original and any(
-        "storyboard" in item.filename.lower() for item in project.images if not item.reference_only
-    ):
-        raise ValueError("本组已有正式故事板，可按批准原图走局部返修，或先处理旧图绑定。")
+    if job["kind"] == "故事板" and not replace_original:
+        boards = [item for item in project.images if "storyboard" in item.filename.lower() and not item.reference_only]
+        other_page = "4panel" if first == 1 else "6panel"
+        two_pages = project.rules == CHINESE and len(project.shots) == 10
+        if boards and not (two_pages and len(boards) == 1 and other_page in boards[0].filename.lower()):
+            raise ValueError("本页已有正式故事板，可按批准原图走局部返修，或先处理旧图绑定。")
 
     images = project.images[:]
     layout = deepcopy(project.layout)

@@ -154,7 +154,8 @@ class ProductionProject:
     @property
     def group_fields(self):
         if self.rules == CHINESE:
-            return tuple(dict.fromkeys((*CHINESE_TEXT_FIELDS, *(key for key in GROUP_FIELDS if key in self.notes))))
+            return tuple(dict.fromkeys((*CHINESE_TEXT_FIELDS, "场景资产模式", "场景清单",
+                                        *(key for key in GROUP_FIELDS if key in self.notes))))
         return GROUP_FIELDS
 
     def check_identity(self) -> None:

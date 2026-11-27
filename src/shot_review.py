@@ -13,7 +13,7 @@ SHOT_HEADERS = {
     "production": re.compile(r"^分镜(?:[^\S\r\n]*[：:]|[^\S\r\n]+)[^\S\r\n]*([^\r\n]+)", re.MULTILINE),
     "sd2": re.compile(r"^分镜编号[^\S\r\n]*[：:][^\S\r\n]*([^\r\n]+)", re.MULTILINE),
 }
-PRODUCTION_FOOTER = re.compile(r"^(?:资产复用核对|场景局部对应表|图像验收记录|资产清单)[ \t]*[：:]", re.MULTILINE)
+PRODUCTION_FOOTER = re.compile(r"^(?:资产复用核对|场景资产模式|场景局部对应表|图像验收记录|资产清单)[ \t]*[：:]", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -102,8 +102,8 @@ def load_shots(result: ReviewResult) -> list[ShotReview]:
                     notices.append(f"无法读取{label}：{exc}")
             return ""
 
-        storyboard = find_one([n for n in files if "storyboard" in n.lower()
-                               and PurePosixPath(n).suffix.lower() in IMAGE_SUFFIXES], "故事板")
+        boards = [n for n in files if "storyboard" in n.lower()
+                  and PurePosixPath(n).suffix.lower() in IMAGE_SUFFIXES]
         production = read_text(find_one([n for n in files if n.lower().endswith("_shot_details.txt")], "生产记录"), "生产记录")
         sd2 = read_text(find_one([n for n in files if n.lower() == "sd2_prompt.txt"], "SD2 提示词"), "SD2 提示词")
         source = shot_sections(production, "production", group)
@@ -112,6 +112,7 @@ def load_shots(result: ReviewResult) -> list[ShotReview]:
         windows = image_windows(production, group)
         for identity in dict.fromkeys([*source, *prompts]):
             warnings = list(notices)
+            storyboard = f"{folder}/{boards[0]}" if len(boards) == 1 else None
             source_rows = source.get(identity, [])
             prompt_rows = prompts.get(identity, [])
             for rows, label in ((source_rows, "生产记录"), (prompt_rows, "SD2 提示词")):
@@ -125,10 +126,14 @@ def load_shots(result: ReviewResult) -> list[ShotReview]:
                 warnings.append(f"净板文件未在本组图像中找到：{plate.filename}")
             board_box = plate_box = None
             matches = windows.get(identity, ())
-            if len(matches) == 1 and plate and storyboard:
+            if len(matches) == 1:
                 board, board_position, clean, plate_position = matches[0]
-                if storyboard == f"{folder}/{board}" and plate.filename == clean:
-                    board_box, plate_box = board_position, plate_position
+                if board in boards:
+                    storyboard, board_box = f"{folder}/{board}", board_position
+                if plate and plate.filename == clean and clean in files:
+                    plate_box = plate_position
+            if not storyboard:
+                warnings.append("故事板缺失。" if not boards else "有多张故事板，请核对该镜的页码和窗口。")
             if "实际画面窗口：" in production and not board_box:
                 warnings.append("该镜缺少与正式文件一致的窗口坐标。")
             shots.append(ShotReview(folder, identity, storyboard,

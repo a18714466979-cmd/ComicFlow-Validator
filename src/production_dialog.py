@@ -12,7 +12,8 @@ from PIL import Image, ImageTk
 
 from .asset_registry import AssetRegistry, sha256_file
 from .production_export import (
-    chinese_text_records, preview_project, project_registry, publish_project, render_dialogue, write_chinese_texts,
+    chinese_text_records, preview_chinese_layout, preview_project, project_registry, publish_project,
+    render_dialogue, write_chinese_layout, write_chinese_texts,
 )
 from .production_project import ACTIONS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS
@@ -120,9 +121,9 @@ class ProductionDialog:
         self.rule_name.set(f"{RULE_LABELS[rules]} · v{rules}")
         chinese = rules == CHINESE
         has_project = self.project is not None
-        self.tabs.tab(3, state="normal" if has_project else "disabled", text="文本交付" if chinese else "复核与交付")
-        for index, button in enumerate(self.production_tools):
-            button.state(["!disabled"] if has_project and (index == 0 or not chinese) else ["disabled"])
+        self.tabs.tab(3, state="normal" if has_project else "disabled", text="文本与排版" if chinese else "复核与交付")
+        for button in self.production_tools:
+            button.state(["!disabled"] if has_project else ["disabled"])
         self.english_delivery.pack_forget()
         self.chinese_delivery.pack_forget()
         (self.chinese_delivery if chinese else self.english_delivery).pack(fill="x")
@@ -191,7 +192,8 @@ class ProductionDialog:
         text_bar = ttk.Frame(self.chinese_delivery)
         text_bar.pack(fill="x", pady=5)
         self.buttons(text_bar, ("预览两份 TXT", self.preview_chinese_text), ("导出两份 TXT", self.export_chinese_text))
-        ttk.Label(self.chinese_delivery, text="先核对本组对白与格数，再导出制作记录和 SD2 提示词。").pack(anchor="w")
+        self.buttons(text_bar, ("逐格复核排版", self.review_chinese_layout), ("导出排版图与 TXT", self.export_chinese_layout))
+        ttk.Label(self.chinese_delivery, text="在「排版与交接」绑定与确认图片，再逐格核对板页、净板和两份 TXT。").pack(anchor="w")
         self.report = self.editor(page, 18)
         self.report.pack(fill="both", expand=True, pady=(5, 0))
 
@@ -428,7 +430,8 @@ class ProductionDialog:
         variables = [tk.StringVar(panel, value) for value in ("", shot.anchor, "", shot.scene, shot.plate_note)]
         sources = self.project.sources
         plates = [image for image in self.project.images if not image.reference_only
-                  and ("_details" in image.filename.lower() or "场景合辑" in image.filename)]
+                  and ("_details" in image.filename.lower() or "场景合辑" in image.filename
+                       or "scene_九图合并_" in image.filename)]
         source = field(form, 0, "批准剧本", variables[0], [f"{s.name} · {s.version}" for s in sources])
         if any(item.id == shot.source for item in sources):
             source.current(next(i for i, item in enumerate(sources) if item.id == shot.source))
@@ -594,7 +597,7 @@ class ProductionDialog:
 
     def show_impacts(self):
         if self.rules == CHINESE:
-            write_text(self.report, "可预览或导出当前项目的文字稿。")
+            write_text(self.report, "可预览或导出文字稿。确认排版后可逐格复核并保存图文。")
             return
         impacts = self.project.impacts()
         write_text(self.report, "当前版本需复核\n" + "\n".join(impacts) if impacts else "已确认本版画面，可发起严格验收。")
@@ -616,6 +619,23 @@ class ProductionDialog:
         if destination:
             path = write_chinese_texts(self.project, Path(destination))
             write_text(self.report, f"已导出文字稿\n{path}\n\n" + "\n".join(sorted(item.name for item in path.iterdir())))
+
+    def review_chinese_layout(self):
+        self.save()
+        with TemporaryDirectory(prefix="comicflow-cn-layout-") as directory:
+            archive = preview_chinese_layout(self.project, self.path, Path(directory))
+            with ZipFile(archive) as stream:
+                members = index_members(stream)
+            open_shot_review(self.window, ReviewResult(0, "", archive, members, []), group=self.project.group)
+            self.window.grab_set()
+
+    def export_chinese_layout(self):
+        self.save()
+        destination = filedialog.askdirectory(parent=self.window, title="选择排版图文保存目录", initialdir=self.path.parent)
+        if destination:
+            folder = Path(destination) / f"{self.project.group}_排版复核"
+            write_chinese_layout(self.project, self.path, folder)
+            write_text(self.report, f"已保存排版复核图文\n{folder}")
 
     def preview(self):
         self.save()

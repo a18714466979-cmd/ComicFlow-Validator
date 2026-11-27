@@ -133,9 +133,11 @@ def plan_dialogue(source: str, planner: Path | None = None, *, rules: str = ENGL
     return groups
 
 
-def image_budget(leads: int, supporting: int, props: int, scenes: int) -> tuple[int, int]:
-    """Count actual planned image files, with the storyboard always occupying one slot."""
+def image_budget(leads: int, supporting: int, props: int, scenes: int, *, storyboards: int = 1) -> tuple[int, int]:
+    """Count image files, including each planned storyboard page."""
+    if type(storyboards) is not int or storyboards not in (1, 2):
+        raise ValueError("故事板需按实际页数计入九图。")
     if any(type(count) is not int or count < 0 for count in (leads, supporting, props, scenes)):
         raise ValueError("图片张数需为非负整数。")
-    total = 1 + leads + supporting + props + scenes
+    total = storyboards + leads + supporting + props + scenes
     return total, IMAGE_LIMIT - total

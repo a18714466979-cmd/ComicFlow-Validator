@@ -10,10 +10,52 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def attach_chinese_layout(project, path, folder, *, distinct=1, local=3, extras=0):
+    """Register simple synthetic walls and fixed equipment without calling an image model."""
+    from src.production_layout import bind_window
+
+    def picture(name, index, *, muted=False, reference=False, reverse=False, site=0):
+        target = folder / name
+        wall = (235, 235, 235) if muted else ((120, 156, 160) if site else (162, 138, 102))
+        floor = (195, 195, 195) if muted else ((65, 103, 103) if site else (113, 73, 59))
+        feature = (220, 220, 220) if muted else ((53, 80, 98) if site else (66, 95, 78))
+        canvas = Image.new("RGB", (640, 360), wall)
+        paint = ImageDraw.Draw(canvas)
+        paint.polygon([(0, 288), (219, 220), (400, 220), (640, 272), (640, 360), (0, 360)], fill=floor, outline="#242424")
+        paint.rectangle((100 if reverse else 366, 50, 226 if reverse else 494, 240), fill=feature, outline="#333333", width=5)
+        x = 516 if reverse else 92 + index * 7
+        paint.rectangle((x, 144, x+59, 190), fill="#343434", outline="#111111", width=4)
+        paint.ellipse((x+12, 156, x+21, 165), fill="#d7d7d7" if muted else "#e9ad60")
+        paint.line((0, 47, 639, 47 + index * 8), fill="#565656", width=3)
+        canvas.save(target)
+        return project.import_image(path, target, name, action="直接复用", reason="本地合成测试素材",
+                                    inspection="模拟门、设备和机位关系", reference_only=reference)
+
+    places = ("南厅", "北廊")[:distinct]
+    plates = {}
+    for site, place in enumerate(places):
+        picture(f"scene_{place}_main_16x9.png", 0, site=site)
+        picture(f"scene_{place}_reverse_16x9.png", 2, site=site, reverse=True)
+        for camera in range(local):
+            plates[(place, camera)] = picture(f"{place}_批准净板_{camera+1:02d}.png", camera, reference=True, site=site)
+    for index, shot in enumerate(project.shots):
+        site = min(index // 5, distinct - 1)
+        camera = (index % 5 if distinct > 1 else index) % local
+        shot.scene = places[site]
+        shot.plate_note = f"{shot.scene}第 {camera + 1} 机位独立净板"
+        shot.fields["机位空间"] = f"{shot.scene}同侧机位 {camera + 1}"
+        shot.fields["可见范围"] = f"固定小门与设备 {camera + 1}"
+        board = picture(f"合成板格_{index+1:02d}.png", index+1, muted=True, reference=True, site=site)
+        bind_window(project, path, shot.id, "board", board.id)
+        bind_window(project, path, shot.id, "plate", plates[(shot.scene, camera)].id)
+    for index in range(extras):
+        picture(f"other_characters_{index+1:02d}_合成预算载体_16x9.png", index)
 
 
 def run_inside_launcher():
@@ -63,7 +105,7 @@ def run_inside_launcher():
                 name = next(walk(dialog, ttk.Entry))
                 assert name.get() == project_path.stem, name.get()
                 tabs = next(walk(dialog, ttk.Notebook))
-                assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "text") == "文本交付"
+                assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "text") == "文本与排版"
                 assert any(widget.instate(["selected"]) for widget in walk(self, ttk.Radiobutton)
                            if widget.cget("text") == "中文制作")
                 assert any("中文制作 · v14.8.8" in self.getvar(variable)
@@ -114,16 +156,17 @@ def run_inside_launcher():
             click(dialog, "新建单组项目")
             assert ProductionProject.open(project_path).rules == CHINESE
             tabs = next(walk(dialog, ttk.Notebook))
-            assert tabs.tab(3, "text") == "文本交付"
+            assert tabs.tab(3, "text") == "文本与排版"
             previous = project_path.with_name("旧英文制片.cfproject")
             ProductionProject("旧英文制片", "EP01", "SB01").save(previous)
             for path, choice, script, title in ((previous, english, scripts[0], "复核与交付"),
-                                                (project_path, chinese, scripts[1], "文本交付")):
+                                                (project_path, chinese, scripts[1], "文本与排版")):
                 filedialog.askopenfilename = lambda **_kwargs: str(path)
                 click(dialog, "打开单组项目")
                 assert choice.instate(["selected"]) and tabs.tab(3, "text") == title
                 assert Path(validator.get()).resolve() == script.resolve()
             self.exercise_chinese_text(dialog, tabs)
+            self.exercise_chinese_layout(dialog, tabs)
             dialog.destroy()
             click(self, "开始验收")
             self.after(100, self.inspect_chinese_report)
@@ -179,6 +222,60 @@ def run_inside_launcher():
             assert "总发声字数：100" in record and approved_line in record and approved_line in prompt
             assert "走！" in (export / "待制作分镜.txt").read_text(encoding="utf-8-sig")
             print("Verified Chinese 100/101 dialogue preview and TXT export through Tk", flush=True)
+
+        def exercise_chinese_layout(self, dialog, tabs):
+            from src.production_project import SHOT_FIELDS, ProductionProject, Shot
+            from src.production_rules import CHINESE
+
+            folder = project_path.parent / "合成排版"
+            folder.mkdir()
+            path = folder / "中文十格.cfproject"
+            project = ProductionProject("中文十格", "EP01", "SB01", rules=CHINESE)
+            source = project.import_source("批准片段.md", "R1", "灯灭后，转到北侧廊道观察。")
+            project.notes.update({"分组状态": "常规", "对白规格": "无对白", "覆盖段落": "合成样例",
+                                  "本组进入状态": "门关着", "本组退出状态": "灯灭", "连续性锁定": "保持门灯位置"})
+            project.prompt = {"场景/总体状态": "南厅与北廊", "公共限制": "保持两个独立场景"}
+            for index in range(10):
+                project.shots.append(Shot(source=source.id, anchor=f"观察 {index+1}",
+                                          fields=dict.fromkeys(SHOT_FIELDS, "本镜环境示意")))
+            attach_chinese_layout(project, path, folder, distinct=2)
+            project.save(path)
+            filedialog.askopenfilename = lambda **_kwargs: str(path)
+            click(dialog, "打开单组项目")
+
+            def inspect_sheets():
+                layout = next(walk(dialog, tk.Toplevel))
+                mixed = next(widget for widget in walk(layout, ttk.Checkbutton) if widget.cget("text") == "多场景共用净板合辑")
+                mixed.invoke()
+
+                def inspect_pages():
+                    preview = next(walk(layout, tk.Toplevel))
+                    book = next(walk(preview, ttk.Notebook))
+                    assert [book.tab(index, "text") for index in range(2)] == ["故事板 01–06", "故事板 07–10"]
+                    preview.destroy()
+
+                self.after(50, inspect_pages)
+                click(layout, "生成排版预览")
+                original = simpledialog.askstring
+                try:
+                    simpledialog.askstring = lambda *_args, **_kwargs: "合成样例，核对页码、地点和局部窗"
+                    click(layout, "确认排版并更新正式图")
+                finally:
+                    simpledialog.askstring = original
+                layout.destroy()
+
+            self.after(50, inspect_sheets)
+            click(dialog, "排版与交接")
+            tabs.select(3)
+            filedialog.askdirectory = lambda **_kwargs: str(folder)
+            click(dialog, "导出排版图与 TXT")
+            output = folder / "SB01_排版复核"
+            assert (output / "storyboard_01_6panel_bw_16x9.png").is_file()
+            assert (output / "storyboard_02_4panel_bw_16x9.png").is_file()
+            text = (output / "SB01_shot_details.txt").read_text(encoding="utf-8-sig")
+            assert "场景资产模式：多场景局部" in text
+            assert "SB01-07 | storyboard_02_4panel" in text and "最终总图数=4" in text
+            print("Verified Chinese 6+4 storyboard tabs and multi-scene PNG/TXT export through Tk", flush=True)
 
         def inspect_chinese_report(self):
             table = next(walk(self, ttk.Treeview))

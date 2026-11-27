@@ -10,12 +10,16 @@ from .production_rules import CHINESE, ENGLISH
 from .storyboard_preflight import IMAGE_LIMIT, group_capacity, image_budget, plan_dialogue
 
 
-def add_image_budget(window):
+def add_image_budget(window, chinese):
     budget = ttk.LabelFrame(window, text="单组九图预算", padding=10)
     budget.pack(fill="x", padx=12, pady=(12, 4))
     labels = ("主角", "配角", "道具 / HUD", "场景")
     counts = [tk.StringVar(value="0") for _ in labels]
-    ttk.Label(budget, text="故事板固定 1 张").grid(row=0, column=0, padx=(0, 10))
+    ten_panels = tk.BooleanVar(window)
+    if chinese:
+        ttk.Checkbutton(budget, text="10 格，故事板 2 张", variable=ten_panels).grid(row=0, column=0, padx=(0, 10))
+    else:
+        ttk.Label(budget, text="故事板固定 1 张").grid(row=0, column=0, padx=(0, 10))
     for index, (label, count) in enumerate(zip(labels, counts), start=1):
         ttk.Label(budget, text=label).grid(row=0, column=2 * index - 1, padx=(0, 4))
         ttk.Entry(budget, textvariable=count, width=4).grid(row=0, column=2 * index, padx=(0, 8))
@@ -24,17 +28,17 @@ def add_image_budget(window):
 
     def update_budget(*_args) -> None:
         try:
-            total, remaining = image_budget(*(int(count.get()) for count in counts))
+            total, remaining = image_budget(*(int(count.get()) for count in counts), storyboards=1 + ten_panels.get())
         except ValueError:
             budget_result.configure(text="请填写各类计划交付的图片张数，使用非负整数。")
             return
-        detail = f"还可用 {remaining} 张" if remaining >= 0 else (
-            f"超出 {-remaining} 张。按道具 → 配角 → 主角 → 同类场景的顺序检查能否合图。"
-        )
+        stages = "道具 → 配角 → 主角 → 主配 → 场景 → 故事板" if chinese else "道具 → 配角 → 主角 → 同类场景"
+        detail = f"还可用 {remaining} 张" if remaining >= 0 else f"超出 {-remaining} 张。按 {stages} 顺序核对合图。"
         budget_result.configure(text=f"总计 {total} / {IMAGE_LIMIT} 张 · {detail}")
 
     for count in counts:
         count.trace_add("write", update_budget)
+    ten_panels.trace_add("write", update_budget)
     update_budget()
 
 
@@ -44,8 +48,7 @@ def open_preflight_dialog(parent: tk.Tk, validator: str, rules: str = ENGLISH) -
     window.title("ComicFlow 中文对白预检" if chinese else "ComicFlow 生图前预检")
     window.geometry("840x720")
     window.minsize(660, 540)
-    if not chinese:
-        add_image_budget(window)
+    add_image_budget(window, chinese)
 
     section = ttk.LabelFrame(window, text="中文对白容量预排" if chinese else "英文对白容量预排", padding=10)
     section.pack(expand=True, fill="both", padx=12, pady=(6, 12))

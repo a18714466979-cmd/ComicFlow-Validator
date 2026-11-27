@@ -13,8 +13,9 @@ from .image_api import EDIT, IMAGE_PROVIDERS, TEXT, ImageRequestError, ImageSett
 from .production_dialog import field, write_text
 from .production_images import (
     KINDS, STATUS, approve_candidate, candidate_path, image_prompt, local_patch, pinned_assets,
-    prepare_job, shot_input, store_reply,
+    prepare_job, shot_input, storyboard_job_page, store_reply,
 )
+from .production_rules import CHINESE
 from .shot_review import pixel_selection
 
 
@@ -73,7 +74,8 @@ class ImageProductionDialog:
         self.mode_picker = field(config, 5, "生成模式", self.mode, ())
         self.mode_picker.bind("<<ComboboxSelected>>", self.update_scope)
         field(config, 6, "候选用途", self.kind, KINDS).bind("<<ComboboxSelected>>", self.update_scope)
-        self.shot_picker = field(config, 7, "净板目标镜头", self.target, ())
+        target_label = "目标镜头／故事板页" if self.project.rules == CHINESE else "净板目标镜头"
+        self.shot_picker = field(config, 7, target_label, self.target, ())
         self.shot_picker["values"] = tuple(
             f"{self.project.group}-{n:02d} · {shot.scene or shot.anchor}" for n, shot in enumerate(self.project.shots, 1)
         )
@@ -158,7 +160,9 @@ class ImageProductionDialog:
 
     def update_scope(self, _event=None):
         self.refs.configure(state="disabled" if self.mode.get() == TEXT else "normal")
-        self.shot_picker.configure(state="readonly" if self.kind.get() == "净板" and self.project.shots else "disabled")
+        paged = self.project.rules == CHINESE and len(self.project.shots) == 10 and self.kind.get() == "故事板"
+        targeted = (paged or self.kind.get() == "净板") and self.project.shots
+        self.shot_picker.configure(state="readonly" if targeted else "disabled")
         self.update_base_choice()
 
     def refresh_refs(self):
@@ -470,7 +474,7 @@ class ImageProductionDialog:
         if job["mode"] == EDIT:
             return job["references"][0]["filename"]
         if job["kind"] == "故事板":
-            return f"storyboard_{len(self.project.shots)}panel_bw_16x9.png"
+            return storyboard_job_page(self.project, job["shot"])[2]
         if job["kind"] == "净板":
             number, shot = shot_input(self.project, job["shot"])
             if shot:

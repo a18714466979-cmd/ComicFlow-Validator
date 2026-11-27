@@ -3,14 +3,14 @@
 import json
 import re
 from pathlib import Path
-from shutil import copyfile
+from shutil import copyfile, copyfileobj
 from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
 from .production_dialogue import handoff_rows
 from .production_handoff import active_scope, adjacent, pending_record, reviewed_boundary
 from .production_images import provenance_rows
-from .production_layout import mark_ledger, windows_for_shots
+from .production_layout import exact_box, mark_ledger, overlap, valid_box, windows_for_shots
 from .production_project import (
     CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
     PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
@@ -150,6 +150,63 @@ def check_chinese_panels(project, spoken_ids, pending):
         raise ValueError(f"{spec}当前有 {len(project.shots)} 格，{status}需要 {target} 格。请重排有效镜头。")
 
 
+def chinese_layout_fields(project):
+    output = project.layout.get("output", {})
+    metadata = output.get("chinese")
+    if not metadata:
+        return {}
+    assets = {item.id: item for item in project.images if not item.reference_only}
+    if len(assets) != metadata["count"] or len(assets) > IMAGE_LIMIT or not set(metadata["scene_views"]) <= assets.keys():
+        raise ValueError("正式图片已变化，请重新确认中文排版和九图预算。")
+    windows = windows_for_shots(project, assets)
+    figures, views, locations = [], [], {}
+    for sheet in output["sheets"]:
+        asset = assets[sheet["asset"]]
+        rectangles, view_names, boxes = [], [], []
+        for cell in sheet["cells"]:
+            box = cell["box"]
+            if (not valid_box(box, (asset.width, asset.height)) or not exact_box(box)
+                    or any(overlap(box, other) for other in boxes)):
+                raise ValueError(f"{asset.filename} 的图格布局无效。")
+            x, y, right, bottom = box
+            boxes.append(box)
+            rectangles.append(f"{x},{y},{right-x},{bottom-y}")
+            if cell["view"]:
+                scene, angle = cell["view"]
+                view_names.append(f"{scene}/{angle}")
+                for identity in cell["shots"]:
+                    locations[identity] = (cell["slot"], scene)
+        figures.append(f"- {asset.filename}：{'；'.join(rectangles)}")
+        if metadata["mode"] == "九图合并" and view_names:
+            views.append(f"- {asset.filename}：{'；'.join(view_names)}")
+    plates, pixel_rows = [], []
+    for number, shot in enumerate(project.shots, 1):
+        name = f"{project.group}-{number:02d}"
+        slot, scene = locations[shot.id]
+        if scene != shot.scene or not shot.plate_note.strip() or any(char in shot.plate_note for char in "|\n\r"):
+            raise ValueError(f"{name} 请填写对应的实际净板机位说明。")
+        board, board_box = windows[shot.id]["board"]
+        plate, plate_box = windows[shot.id]["plate"]
+        plates.append(f"- {name} | {plate.filename} | {slot} | {scene} | {shot.plate_note}")
+        a, b = (",".join(map(str, box)) for box in (board_box, plate_box))
+        pixel_rows.append(f"- {name} | {board.filename} | {a} | {plate.filename} | {b}")
+    values = {
+        "场景资产模式": metadata["mode"],
+        "场景清单": "；".join(dict.fromkeys(shot.scene for shot in project.shots)),
+        "故事板排版模式": metadata["board_mode"],
+        "九图优化记录": metadata["budget"],
+        "图格布局": "\n".join(figures),
+        "图格比例核对": metadata["inspection"],
+        "故事板运动标注": mark_ledger(project),
+        "场景局部对应表": "\n".join(plates),
+        "实际画面窗口": "\n".join(pixel_rows),
+    }
+    if views:
+        values["场景合并来源"] = metadata["source_mode"]
+        values["场景视图映射"] = "\n".join(views)
+    return values
+
+
 def chinese_text_records(project: ProductionProject) -> dict[str, str]:
     """Prepare the standalone text files before image layout and package review."""
     project.check_identity()
@@ -176,6 +233,8 @@ def chinese_text_records(project: ProductionProject) -> dict[str, str]:
         record, prompt = shot_records(shot, f"{group}-{ordinal:02d}", dialogue, sources)
         production.append(record)
         sd2.append(prompt)
+    if layout := chinese_layout_fields(project):
+        production.append(format_fields(layout, tuple(layout)))
     files = {f"{group}_shot_details.txt": "\n\n".join(production) + "\n",
              "SD2_prompt.txt": "\n\n".join(sd2) + "\n"}
     if pending:
@@ -183,9 +242,7 @@ def chinese_text_records(project: ProductionProject) -> dict[str, str]:
     return files
 
 
-def write_chinese_texts(project: ProductionProject, directory: Path) -> Path:
-    files = chinese_text_records(project)
-    folder = directory / f"{project.group}_文字稿"
+def write_chinese_outputs(folder, files, pictures=()):
     try:
         folder.mkdir()
     except FileExistsError:
@@ -197,6 +254,13 @@ def write_chinese_texts(project: ProductionProject, directory: Path) -> Path:
             with path.open("x", encoding="utf-8-sig", newline="\n") as stream:
                 created.append(path)
                 stream.write(contents)
+        for image, source in pictures:
+            target = folder / image.filename
+            with source.open("rb") as original, target.open("xb") as destination:
+                created.append(target)
+                copyfileobj(original, destination)
+            if sha256_file(target) != image.digest:
+                raise ValueError(f"{image.filename} 在复制过程中发生变化。")
     except BaseException:
         for path in created:
             path.unlink(missing_ok=True)
@@ -204,6 +268,28 @@ def write_chinese_texts(project: ProductionProject, directory: Path) -> Path:
             folder.rmdir()
         raise
     return folder
+
+
+def write_chinese_texts(project: ProductionProject, directory: Path) -> Path:
+    return write_chinese_outputs(directory / f"{project.group}_文字稿", chinese_text_records(project))
+
+
+def write_chinese_layout(project: ProductionProject, project_path: Path, folder: Path) -> Path:
+    if not project.layout.get("output", {}).get("chinese"):
+        raise ValueError("请生成排版预览，核图后确认本组故事板和净板。")
+    files = chinese_text_records(project)
+    pictures = [(image, project.checked_image(project_path, image))
+                for image in project.images if not image.reference_only]
+    return write_chinese_outputs(folder, files, pictures)
+
+
+def preview_chinese_layout(project: ProductionProject, project_path: Path, directory: Path) -> Path:
+    delivery = directory / "layout"
+    delivery.mkdir()
+    write_chinese_layout(project, project_path, delivery / project.group)
+    preview = directory / "layout-review.zip"
+    write_delivery_zip(delivery, preview)
+    return preview
 
 
 def build_delivery(project: ProductionProject, project_path: Path, folder: Path, validator: Path,

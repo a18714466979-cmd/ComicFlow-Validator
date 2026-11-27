@@ -13,7 +13,8 @@ from .production_dialog import PROJECT_FILES, fields_text, write_text
 from .production_export import project_registry, publish_batch
 from .production_handoff import active_scope, adjacent, adopt_pending, boundary_report, confirm_boundary, defer_tail, pending_record, restore_tail
 from .production_layout import COLORS, add_mark, apply_layout, bind_window, render_layout, windows_for_shots
-from .production_project import GROUP_FIELDS, ProductionProject
+from .production_project import ProductionProject
+from .production_rules import CHINESE
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import ReviewResult, index_members
 
@@ -22,6 +23,7 @@ class LayoutDialog:
     def __init__(self, production):
         self.production = production
         self.project, self.path = production.project, production.path
+        self.chinese = self.project.rules == CHINESE
         self.workspace = None
         self.draft = None
         self.next_group = None
@@ -59,7 +61,11 @@ class LayoutDialog:
             ttk.Button(bar, text=label, command=lambda run=action: self.protect(run)).pack(side="left", padx=(0, 5))
 
     def layout_page(self, page):
-        ttk.Label(page, text="选择镜头，再绑定已批准的黑白板格和同机位彩色净板。可用整图或已有同用途图内的实际窗口。",
+        guidance = ("绑定已批准的黑白板格和彩色净板。相同地点、机位和可见范围的镜头可绑定同一净板。"
+                    "常规场景从已批准的 scene_地点_main_16x9 和 scene_地点_reverse_16x9 读取完整画面。"
+                    if self.chinese else
+                    "选择镜头，再绑定已批准的黑白板格和同机位彩色净板。可用整图或已有同用途图内的实际窗口。")
+        ttk.Label(page, text=guidance,
                   wraplength=960).pack(anchor="w")
         self.rows = self.production.table(page, ("镜头", "来源", "黑白板格", "彩色净板", "箭头"), (105, 185, 260, 260, 65))
         self.rows.bind("<<TreeviewSelect>>", self.sync_source)
@@ -85,9 +91,21 @@ class LayoutDialog:
 
         controls = ttk.Frame(page)
         controls.pack(fill="x", pady=6)
-        self.mixed = tk.BooleanVar(self.window, self.project.notes.get("场景资产模式") == "多场景局部")
+        previous = self.project.layout.get("output", {}).get("chinese", {})
+        self.mixed = tk.BooleanVar(self.window, previous.get("source_mode", self.project.notes.get("场景资产模式")) == "多场景局部")
         ttk.Checkbutton(controls, text="多场景共用净板合辑", variable=self.mixed).pack(side="left", padx=(0, 7))
         self.buttons(controls, ("生成排版预览", self.preview_layout), ("确认排版并更新正式图", self.use_layout))
+        if self.chinese:
+            packed_scenes, packed_board, note = previous.get("options", (False, False, ""))
+            self.pack_scenes = tk.BooleanVar(self.window, packed_scenes)
+            self.pack_board = tk.BooleanVar(self.window, packed_board)
+            self.budget_note = tk.StringVar(self.window, note)
+            budget = ttk.Frame(page)
+            budget.pack(fill="x", pady=(0, 5))
+            ttk.Checkbutton(budget, text="九图优化：合并场景", variable=self.pack_scenes).pack(side="left")
+            ttk.Checkbutton(budget, text="仍超限时将 6＋4 合为一页", variable=self.pack_board).pack(side="left", padx=7)
+            ttk.Label(page, text="超限处理记录按「道具：…；配角：…；主角：…；主配：…」填写，合板前补记场景处理。").pack(anchor="w")
+            ttk.Entry(page, textvariable=self.budget_note).pack(fill="x", pady=(0, 6))
         self.layout_status = tk.StringVar(self.window)
         ttk.Label(page, textvariable=self.layout_status, wraplength=955).pack(anchor="w")
         self.refresh()
@@ -96,7 +114,9 @@ class LayoutDialog:
         files = ttk.Frame(page)
         files.pack(fill="x")
         self.buttons(files, ("载入下一组", self.load_next), ("对照前末后首", self.compare_boundary),
-                     ("确认本处交接", self.approve_boundary), ("导出相邻组 ZIP", self.batch))
+                     ("确认本处交接", self.approve_boundary))
+        if not self.chinese:
+            self.buttons(files, ("导出相邻组 ZIP", self.batch))
         work = ttk.Frame(page)
         work.pack(fill="x", pady=8)
         self.buttons(work, ("暂存所选及后续镜头", self.defer), ("恢复本组待制作", self.restore),
@@ -200,7 +220,9 @@ class LayoutDialog:
             self.workspace.cleanup()
         self.draft = None
         self.workspace = TemporaryDirectory(prefix="comicflow-layout-")
-        self.draft = render_layout(self.project, self.path, Path(self.workspace.name), self.mixed.get())
+        packed_scenes, packed_board, note = self.chinese_options()
+        self.draft = render_layout(self.project, self.path, Path(self.workspace.name), self.mixed.get(),
+                                   pack_scenes=packed_scenes, pack_board=packed_board, budget_note=note)
         dialog = tk.Toplevel(self.window)
         dialog.title("排版预览")
         dialog.transient(self.window)
@@ -210,7 +232,12 @@ class LayoutDialog:
         detail = []
         for sheet in self.draft.sheets:
             page = ttk.Frame(tabs)
-            tabs.add(page, text="故事板" if sheet.kind == "board" else sheet.path.stem.removeprefix("scene_").removesuffix("_16x9"))
+            if sheet.kind == "board" and self.chinese:
+                indices = [index for index, shot in enumerate(self.project.shots, 1) if shot.id in sheet.slots]
+                label = f"故事板 {indices[0]:02d}–{indices[-1]:02d}"
+            else:
+                label = "故事板" if sheet.kind == "board" else sheet.path.stem.removeprefix("scene_").removesuffix("_16x9")
+            tabs.add(page, text=label)
             display_picture(page, sheet.path)
             notes = []
             if sheet.shrunken:
@@ -219,21 +246,36 @@ class LayoutDialog:
                 notes.append("当前格数保留必要板面余量")
             if notes:
                 detail.append(sheet.path.name + " · " + "、".join(notes))
-        self.layout_status.set(f"排版预览 {len(self.draft.sheets)} 张。 " + ("；".join(detail) or "板面无空槽。"))
+        if self.chinese:
+            assets = {asset.id: asset for asset in self.project.images}
+            for identity in self.draft.keep_views:
+                asset = assets[identity]
+                page = ttk.Frame(tabs)
+                tabs.add(page, text=asset.filename.removeprefix("scene_").removesuffix("_16x9.png"))
+                display_picture(page, self.project.checked_image(self.path, asset))
+            detail.insert(0, self.draft.chinese["budget"])
+        self.layout_status.set("；".join(detail) or f"排版预览 {len(self.draft.sheets)} 张，板面无空槽。")
         self.wait(dialog)
+
+    def chinese_options(self):
+        return [self.pack_scenes.get(), self.pack_board.get(), self.budget_note.get().strip()] if self.chinese else [False, False, ""]
 
     def use_layout(self):
         if not self.draft or self.draft.mixed != self.mixed.get():
             raise ValueError("请先生成并检查当前设置的排版预览。")
+        if self.chinese and self.draft.chinese["options"] != self.chinese_options():
+            raise ValueError("九图选项或记录已更改，请重新预览。")
         review = simpledialog.askstring("批准本次排版", "记录实际核对结果，包含板格、净板与可读性。", parent=self.window)
         if review is None:
             return
         apply_layout(self.project, self.path, self.draft, review)
         self.draft = None
-        write_text(self.production.notes, fields_text(GROUP_FIELDS, self.project.notes))
+        self.production.group_form_fields = self.project.group_fields
+        write_text(self.production.notes, fields_text(self.production.group_form_fields, self.project.notes))
         self.production.refresh()
         self.refresh()
-        self.layout_status.set("正式图和镜头绑定已更新。请在「复核与交付」核对最终图片和双 TXT。")
+        tab = "文本与排版" if self.chinese else "复核与交付"
+        self.layout_status.set(f"正式图和镜头绑定已更新。请在「{tab}」核对图片和两份 TXT。")
 
     def load_next(self):
         filename = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
@@ -256,7 +298,7 @@ class LayoutDialog:
         return [(self.project, self.path), (actual, path)]
 
     def planner(self):
-        return self.production.validator_path().with_name("plan_english_dialogue.py")
+        return None if self.chinese else self.production.validator_path().with_name("plan_english_dialogue.py")
 
     def report_text(self, content):
         self.report.configure(state="normal")
@@ -309,7 +351,8 @@ class LayoutDialog:
             return
         confirm_boundary(self.project, right, self.planner(), review)
         self.save()
-        self.report_text("跨组交接已确认。两组分别确认正式画面后，可导出相邻组 ZIP。\n\n" + review)
+        self.report_text("跨组交接已记录。\n\n" + review if self.chinese else
+                         "跨组交接已确认。两组分别确认正式画面后，可导出相邻组 ZIP。\n\n" + review)
 
     def batch(self):
         groups = self.projects()
