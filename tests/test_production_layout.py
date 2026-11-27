@@ -14,7 +14,7 @@ from src.production_export import publish_batch, preview_project
 from src.production_handoff import boundary_report, confirm_boundary, defer_tail
 from src.production_layout import add_mark, apply_layout, bind_window, render_layout, square_layout, windows_for_shots
 from src.production_project import ProductionProject, Shot
-from src.shot_review import load_shots
+from src.shot_review import image_windows, load_shots
 from src.storyboard_review import ReviewResult, index_members
 from test_production_project import production, validator
 
@@ -31,6 +31,13 @@ def test_actual_sheet_windows_do_not_overlap(count):
         covered |= window
     if count not in (2, 3, 5):
         assert len(covered) == side * side
+
+
+def test_read_actual_window_with_windows_line_endings():
+    entry = "实际画面窗口：\r\n- SB01-01 | board.png | 0,0,320,180 | plate.png | 0,0,320,180\r\n"
+    assert image_windows(entry, "SB01")["SB01-01"] == [
+        ("board.png", (0, 0, 320, 180), "plate.png", (0, 0, 320, 180))
+    ]
 
 
 def attach(project, path, shot, number):

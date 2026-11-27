@@ -139,7 +139,7 @@ def load_shots(result: ReviewResult) -> list[ShotReview]:
 
 
 def image_windows(text, group):
-    match = re.search(r"^实际画面窗口[ \t]*[：:][ \t]*$", text, re.MULTILINE)
+    match = re.search(r"^实际画面窗口[ \t]*[：:][ \t]*\r?$", text, re.MULTILINE)
     found = defaultdict(list)
     if not match:
         return found
