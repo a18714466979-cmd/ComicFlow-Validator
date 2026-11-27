@@ -235,12 +235,15 @@ def run_inside_launcher():
                 panel.destroy()
                 next_route()
 
-            def finish():
-                assert ProductionProject.open(project_path).rules == CHINESE
-                click(self, "Assets & repairs")
+            def verify_repair():
                 panel = next(walk(self, tk.Toplevel))
                 assert panel.title() == "ComicFlow Assets & Repairs"
                 panel.destroy()
+
+            def finish():
+                assert ProductionProject.open(project_path).rules == CHINESE
+                self.after(80, verify_repair)
+                click(self, "Assets & repairs")
                 filedialog.askopenfilename = original_picker
                 click(self, "中文 / English")
                 assert chinese.cget("text") == "中文制作" and chinese.instate(["selected"])
