@@ -30,7 +30,7 @@ goto complete
 
 :missing_dependencies
 echo No Python interpreter with Tkinter, Pillow, and NumPy was found.
-echo Install Python 3 with Tcl/Tk, then run: python -m pip install -r requirements.txt
+echo Run ComicFlow-Setup.bat first.
 set "COMICFLOW_EXIT=2"
 
 :complete

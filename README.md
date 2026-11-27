@@ -143,13 +143,13 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 ### Windows 双击或拖拽验收
 
-1. 安装含 Tcl/Tk 的 Python 3，再运行 `python -m pip install -r requirements.txt`。如果电脑只提供 `py`，可用 `py -3 -m pip install -r requirements.txt`。启动器优先找项目 `.venv`，然后尝试 `python` 和 `py -3`，并检查依赖。
-2. 双击 `ComicFlow-Windows.bat` 选择 ZIP，或在资源管理器把 ZIP 拖到该文件上。
-3. 选择可信的故事板校验脚本，点击「开始验收」。可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填脚本路径。
+1. 安装带 Tcl/Tk 的 Python 3.13，再双击 `ComicFlow-Setup.bat` 安装依赖。试用包下载位置、内置样例和操作说明见 [Windows 试用指南](WINDOWS-TRYOUT.md)。
+2. 双击 `ComicFlow-Windows.bat` 选择 ZIP，或在资源管理器把 ZIP 拖到该文件上。也可以把 `.cfproject` 拖到启动器恢复已保存的项目。
+3. 点击「开始验收」可检查文件完整性。需要严格验收时，先选择可信工作流的故事板校验脚本。主窗口会记住该路径，也可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填。
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 5. 点「逐格复核」，按镜号查看故事板整图、对应的彩色净板和局部号，以及同镜的生产记录与 SD2 提示词。下方显示前后镜的缩略图和动作摘要，可点「上一镜／下一镜」跨组切换。拖动框选图片中的格子可放大对照。前后镜有框选时显示所选格，否则标为整板。框选范围按镜号保留到本次复核窗口关闭。复核不会改写交付包。
 
-开发验收可在 Windows 安装依赖后运行 `python tests/windows_smoke.py`。它以合成交付包检查启动器的无参数和带 ZIP 参数两种入口，并实际操作 Tk 窗口。验证资源管理器的鼠标拖放时，可将一个 ZIP 拖到 `ComicFlow-Windows.bat` 上并检查窗口里的路径。
+开发验收可在 Windows 安装依赖后运行 `python tests/windows_smoke.py`。它用合成包测试双击启动、传入 ZIP 和通过 Windows Shell 打开 `.cfproject`，并实际操作 Tk 窗口。验证资源管理器的鼠标拖放时，可将一个 ZIP 拖到 `ComicFlow-Windows.bat` 上并检查窗口里的路径。
 
 ### SD2 单组制片
 

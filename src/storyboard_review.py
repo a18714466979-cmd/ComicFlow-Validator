@@ -86,8 +86,8 @@ def run_review(arguments: list[str], directory: Path) -> ReviewResult:
     )
     report = (completed.stdout + completed.stderr).replace(str(archive), arguments[0])
     members = {}
-    # Only index archives that reached the storyboard validator's final report.
-    if re.search(r"^RESULT: ", completed.stdout, re.MULTILINE):
+    integrity_passed = completed.returncode == 0 and ("--storyboard-validator" not in arguments[1:])
+    if integrity_passed or re.search(r"^RESULT: ", completed.stdout, re.MULTILINE):
         with ZipFile(archive) as package:
             members = index_members(package)
     issues = []

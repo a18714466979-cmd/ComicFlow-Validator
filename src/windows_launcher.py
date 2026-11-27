@@ -1,6 +1,7 @@
 """Local storyboard review window."""
 
 from io import BytesIO
+import json
 import os
 from queue import Empty, Queue
 import re
@@ -16,6 +17,7 @@ from PIL import Image, ImageTk
 from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
+from .production_project import atomic_text
 from .image_api import ImageSettings
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
@@ -23,7 +25,33 @@ from .vision import VisionSettings
 from .vision_dialog import open_vision_dialog
 
 
-def open_workbench(initial_zip: str) -> int:
+def validator_preference() -> Path | None:
+    home = os.environ.get("LOCALAPPDATA")
+    return Path(home) / "ComicFlow" / "settings.json" if home else None
+
+
+def saved_validator() -> str:
+    if supplied := os.environ.get("COMICFLOW_STORYBOARD_VALIDATOR", "").strip():
+        return supplied
+    path = validator_preference()
+    if path:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8")).get("validator", "")
+            if isinstance(value, str) and Path(value).is_file():
+                return value
+        except (OSError, ValueError, AttributeError):
+            pass
+    return ""
+
+
+def remember_validator(value: str) -> None:
+    target = validator_preference()
+    if target is not None and not os.environ.get("COMICFLOW_STORYBOARD_VALIDATOR"):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        atomic_text(target, json.dumps({"validator": value}, ensure_ascii=False) + "\n")
+
+
+def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int:
     window = tk.Tk()
     window.title("ComicFlow 故事板交付验收")
     window.geometry("1120x770")
@@ -33,18 +61,19 @@ def open_workbench(initial_zip: str) -> int:
     options.columnconfigure(1, weight=1)
     entries = (
         ("交付 ZIP", tk.StringVar(value=initial_zip), ("ZIP 交付包", "*.zip")),
-        ("故事板校验脚本", tk.StringVar(value=os.getenv("COMICFLOW_STORYBOARD_VALIDATOR", "")),
+        ("故事板校验脚本（严格验收）", tk.StringVar(value=saved_validator()),
          ("Python 校验脚本", "*.py")),
         ("已批准格数例外（可选）", tk.StringVar(), ("JSON 例外文件", "*.json")),
     )
     review = tk.BooleanVar()
     registry_path = tk.StringVar()
-    status = tk.StringVar(value="请选择交付包和校验脚本。")
+    status = tk.StringVar(value="选择 ZIP 检查文件完整性。严格验收需选择故事板校验脚本。")
     result: ReviewResult | None = None
     workspace: TemporaryDirectory | None = None
     busy = False
     exit_code = 0
     selected_issue: ReviewIssue | None = None
+    strict_review = False
     results: Queue = Queue()
     image_preview = None
     vision_session: dict[str, VisionSettings] = {}
@@ -198,6 +227,8 @@ def open_workbench(initial_zip: str) -> int:
         exit_code = result.exit_code
         verdicts = {0: "自动检查通过", 1: "验收失败", 2: "配置错误", 3: "复用未验证"}
         verdict = verdicts.get(result.exit_code, "验收未完成")
+        if not strict_review and result.exit_code == 0:
+            verdict = "文件完整性检查通过 · 工作流未验"
         status.set(f"{verdict} · {len(result.issues)} 条结果")
         set_text(report_text, result.report)
         for number, issue in enumerate(result.issues):
@@ -218,11 +249,28 @@ def open_workbench(initial_zip: str) -> int:
         selected = filedialog.askopenfilename(parent=window, filetypes=(kind, ("所有文件", "*")))
         if selected:
             value.set(selected)
+            if value is entries[1][1]:
+                save_validator_choice()
+
+    def save_validator_choice() -> None:
+        value = entries[1][1].get().strip()
+        if value and Path(value).suffix.lower() == ".py" and Path(value).is_file():
+            try:
+                remember_validator(str(Path(value).resolve()))
+            except OSError:
+                messagebox.showinfo("校验脚本", "本次可使用所选脚本，下次启动时需重新选择。", parent=window)
+
+    def produce(path=None) -> None:
+        save_validator_choice()
+        open_production_dialog(window, entries[1][1].get().strip(), registry_path, text_session, image_session, path)
 
     def start() -> None:
-        nonlocal busy, result, workspace, selected_issue
+        nonlocal busy, result, workspace, selected_issue, strict_review
         archive, validator, exception = (Path(value.get().strip()).expanduser() for _, value, _ in entries)
-        for path, suffix, label in ((archive, ".zip", "交付 ZIP"), (validator, ".py", "校验脚本")):
+        required = ((archive, ".zip", "交付 ZIP"),)
+        if validator != Path():
+            required += ((validator, ".py", "校验脚本"),)
+        for path, suffix, label in required:
             if path.suffix.lower() != suffix or not path.is_file():
                 messagebox.showerror("文件未找到", f"请选择有效的{label}。", parent=window)
                 return
@@ -230,13 +278,20 @@ def open_workbench(initial_zip: str) -> int:
             messagebox.showerror("文件未找到", "请选择有效的格数例外 JSON。", parent=window)
             return
 
-        arguments = [str(archive.resolve()), "--storyboard-validator", str(validator.resolve())]
-        if exception != Path():
-            arguments.extend(("--panel-exception", str(exception.resolve())))
-        if review.get():
-            arguments.append("--review-missing-sources")
-        if registry_path.get().strip():
-            arguments.extend(("--asset-registry", str(Path(registry_path.get().strip()).expanduser().resolve())))
+        strict_review = validator != Path()
+        if exception != Path() and not strict_review:
+            messagebox.showerror("校验脚本", "使用批准格数例外前，请选择现行故事板校验脚本。", parent=window)
+            return
+        arguments = [str(archive.resolve())]
+        if strict_review:
+            save_validator_choice()
+            arguments.extend(("--storyboard-validator", str(validator.resolve())))
+            if exception != Path():
+                arguments.extend(("--panel-exception", str(exception.resolve())))
+            if review.get():
+                arguments.append("--review-missing-sources")
+            if registry_path.get().strip():
+                arguments.extend(("--asset-registry", str(Path(registry_path.get().strip()).expanduser().resolve())))
         if workspace:
             workspace.cleanup()
         workspace = TemporaryDirectory(prefix="comicflow-review-")
@@ -282,15 +337,15 @@ def open_workbench(initial_zip: str) -> int:
     ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=2, sticky="w", padx=12)
     actions = ttk.Frame(options)
     actions.grid(row=4, column=2, sticky="e", pady=(0, 2))
-    ttk.Button(actions, text="单组制片", command=lambda: open_production_dialog(
-        window, entries[1][1].get().strip(), registry_path, text_session, image_session,
-    )).pack(side="left", padx=(0, 5))
+    ttk.Button(actions, text="单组制片", command=produce).pack(side="left", padx=(0, 5))
     ttk.Button(actions, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).pack(side="left")
     ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(
         window, registry_path, entries[1][1].get().strip(), result,
     )).pack(side="left", padx=(5, 0))
     tabs.pack(expand=True, fill="both", padx=12, pady=(0, 12))
     window.protocol("WM_DELETE_WINDOW", close)
+    if initial_project is not None:
+        window.after_idle(lambda: produce(initial_project))
     try:
         window.mainloop()
     finally:
@@ -300,7 +355,10 @@ def open_workbench(initial_zip: str) -> int:
 
 
 def main() -> int:
-    return open_workbench(sys.argv[1] if len(sys.argv) > 1 else "")
+    initial = sys.argv[1] if len(sys.argv) > 1 else ""
+    if Path(initial).suffix.casefold() == ".cfproject":
+        return open_workbench("", Path(initial).expanduser().resolve())
+    return open_workbench(initial)
 
 
 if __name__ == "__main__":

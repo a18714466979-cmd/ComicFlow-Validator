@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import time
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,8 +20,9 @@ def run_inside_launcher():
     from tkinter import filedialog, messagebox, simpledialog, ttk
 
     archive = os.environ["COMICFLOW_SMOKE_ZIP"]
-    empty = os.environ["COMICFLOW_SMOKE_MODE"] == "empty"
-    project_path = Path(archive).with_name(f"制片-{os.environ['COMICFLOW_SMOKE_MODE']}.cfproject")
+    mode = os.environ["COMICFLOW_SMOKE_MODE"]
+    project_path = Path(archive).with_name(f"制片-{mode}.cfproject")
+    marker = project_path.with_suffix(".status")
 
     def walk(root, kind):
         for child in root.winfo_children():
@@ -35,14 +37,14 @@ def run_inside_launcher():
 
     def fail(reason):
         print(reason, file=sys.stderr, flush=True)
+        if mode == "shell-project":
+            marker.write_text(str(reason), encoding="utf-8")
         os._exit(10)
 
     class SmokeWindow(tk.Tk):
         def report_callback_exception(self, exc, value, traceback):
             sys.__excepthook__(exc, value, traceback)
-            sys.stdout.flush()
-            sys.stderr.flush()
-            os._exit(10)
+            fail(value)
 
         def mainloop(self):
             self.after(100, self.begin)
@@ -53,13 +55,37 @@ def run_inside_launcher():
             if not self.winfo_viewable():
                 self.after(100, self.begin)
                 return
-            field = next(walk(self, ttk.Entry))
-            assert field.get() == ("" if empty else archive), field.get()
-            if empty:
+            if mode == "shell-project":
+                dialog = next(walk(self, tk.Toplevel))
+                name = next(walk(dialog, ttk.Entry))
+                assert name.get() == "直接打开项目", name.get()
+                assert next(walk(dialog, ttk.Notebook)).tab(1, "state") == "normal"
+                self.destroy()
+                marker.write_text("COMICFLOW_GUI_OK", encoding="utf-8")
+                return
+            field, validator, *_ = walk(self, ttk.Entry)
+            assert field.get() == ("" if mode == "empty" else archive), field.get()
+            if mode == "file-only":
+                assert not validator.get()
+                click(self, "开始验收")
+                self.after(100, self.inspect_file_only)
+                return
+            if mode == "empty":
                 click(self, "浏览")
                 assert field.get() == archive
             click(self, "开始验收")
             self.after(100, self.inspect_result)
+
+        def inspect_file_only(self):
+            for label in walk(self, ttk.Label):
+                if (variable := label.cget("textvariable")) and "工作流未验" in self.getvar(variable):
+                    dialog_buttons = list(walk(self, ttk.Button))
+                    review = next(button for button in dialog_buttons if button.cget("text") == "逐格复核")
+                    assert review.instate(["!disabled"])
+                    print("COMICFLOW_GUI_OK", flush=True)
+                    self.destroy()
+                    return
+            self.after(100, self.inspect_file_only)
 
         def inspect_result(self):
             table = next(walk(self, ttk.Treeview))
@@ -211,6 +237,20 @@ def run_inside_launcher():
             assert [tabs.tab(index, "text") for index in range(2)] == ["新建生图任务", "候选与任务"]
             label = next(widget for widget in walk(dialog, ttk.Label) if widget.cget("text") == "API Key")
             label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0].insert(0, "synthetic")
+            label = next(widget for widget in walk(dialog, ttk.Label) if widget.cget("text") == "API 基础地址")
+            base = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+            original_base, showerror = base.get(), messagebox.showerror
+            errors = []
+            try:
+                base.delete(0, "end")
+                base.insert(0, "http://example.test")
+                messagebox.showerror = lambda _title, message, **_kwargs: errors.append(message)
+                click(dialog, "预览本次发送")
+                assert len(errors) == 1 and "HTTPS" in errors[0], errors
+            finally:
+                base.delete(0, "end")
+                base.insert(0, original_base)
+                messagebox.showerror = showerror
             click(dialog, "确认并提交生图")
             self.after(100, lambda: self.inspect_candidate(dialog))
 
@@ -259,7 +299,7 @@ def run_inside_launcher():
     messagebox.showerror = lambda title, message, **_kwargs: fail(f"{title}: {message}")
 
 
-def verify_windows_launcher():
+def verify_windows_launcher(root=ROOT):
     if os.name != "nt":
         raise SystemExit("This smoke test requires Windows.")
     with TemporaryDirectory(prefix="comicflow-smoke-") as temporary:
@@ -292,17 +332,45 @@ def verify_windows_launcher():
         env = {
             **os.environ, "COMICFLOW_STORYBOARD_VALIDATOR": str(validator), "COMICFLOW_SMOKE_ZIP": str(archive),
             "COMICFLOW_SMOKE_HELPER": str(Path(__file__).resolve()), "PYTHONPATH": str(folder), "PYTHONUTF8": "1",
+            "LOCALAPPDATA": str(folder / "AppData"),
         }
-        for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"')):
+        for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"')):
             env["COMICFLOW_SMOKE_MODE"] = mode
+            if mode == "file-only":
+                env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
             completed = subprocess.run(
-                f'cmd.exe /d /c .\\ComicFlow-Windows.bat{argument}', cwd=ROOT, env=env,
+                f'cmd.exe /d /c .\\ComicFlow-Windows.bat{argument}', cwd=root, env=env,
                 stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", timeout=35,
             )
             print(completed.stdout, end="")
             assert completed.returncode == 0 and "COMICFLOW_GUI_OK" in completed.stdout, completed.stderr
             print(f"Verified {mode} launch and Tk window actions")
 
+        sys.path.insert(0, str(root))
+        from src.production_project import ProductionProject
+
+        project = folder / "制片-shell-project.cfproject"
+        ProductionProject("直接打开项目", "EP001", "SB01").save(project)
+        env["COMICFLOW_SMOKE_MODE"] = "shell-project"
+        previous = os.environ.copy()
+        try:
+            os.environ.update(env)
+            os.environ.pop("COMICFLOW_STORYBOARD_VALIDATOR", None)
+            os.startfile(str(root / "ComicFlow-Windows.bat"), "open", subprocess.list2cmdline([str(project)]), str(root))
+            deadline = time.monotonic() + 30
+            marker = project.with_suffix(".status")
+            while time.monotonic() < deadline:
+                if marker.is_file() and (value := marker.read_text(encoding="utf-8")):
+                    assert value == "COMICFLOW_GUI_OK", value
+                    break
+                time.sleep(0.1)
+            else:
+                raise AssertionError("Windows shell did not open the .cfproject in Tk")
+        finally:
+            os.environ.clear()
+            os.environ.update(previous)
+        print("Verified Windows shell invocation with a .cfproject and real Tk widgets")
+
 
 if __name__ == "__main__":
-    verify_windows_launcher()
+    verify_windows_launcher(Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT)

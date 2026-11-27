@@ -626,5 +626,7 @@ class ProductionDialog:
         self.status.set("已导出并重新核验 ZIP" if result.output else "校验未通过，请查看报告")
 
 
-def open_production_dialog(parent, validator, registry, text_session, image_session):
-    ProductionDialog(parent, validator, registry, text_session, image_session)
+def open_production_dialog(parent, validator, registry, text_session, image_session, initial_project=None):
+    dialog = ProductionDialog(parent, validator, registry, text_session, image_session)
+    if initial_project is not None:
+        dialog.guarded(lambda: dialog.load(ProductionProject.open(initial_project), initial_project))
