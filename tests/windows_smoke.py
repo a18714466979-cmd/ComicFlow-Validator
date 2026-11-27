@@ -44,11 +44,14 @@ def run_inside_launcher():
             os._exit(10)
 
         def mainloop(self):
-            self.after(0, self.begin)
+            self.after(100, self.begin)
             self.after(25000, lambda: fail("Desktop smoke timed out"))
             super().mainloop()
 
         def begin(self):
+            if not self.winfo_viewable():
+                self.after(100, self.begin)
+                return
             field = next(walk(self, ttk.Entry))
             assert field.get() == ("" if empty else archive), field.get()
             if empty:
@@ -86,10 +89,14 @@ def run_inside_launcher():
 
             dialog = next(walk(self, tk.Toplevel))
             field = next(walk(dialog, ttk.Combobox))
+            board = next(walk(dialog, ImagePane))
+            # Paned windows negotiate geometry only after the dialog is mapped.
+            if not board.canvas.winfo_viewable() or board.canvas.winfo_width() < 40:
+                self.after(100, self.inspect_shot_dialog)
+                return
             assert field.get() == "SB01 / SB01-01"
             click(dialog, "下一镜")
             assert field.get() == "SB01 / SB01-02"
-            board = next(walk(dialog, ImagePane))
             dialog.update_idletasks()
             left, top, width, height = board.image_bounds
             assert width >= 40 and height >= 30, (board.image_bounds, board.canvas.winfo_geometry())
