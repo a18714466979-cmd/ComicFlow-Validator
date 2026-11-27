@@ -90,11 +90,17 @@ def run_inside_launcher():
             click(dialog, "下一镜")
             assert field.get() == "SB01 / SB01-02"
             board = next(walk(dialog, ImagePane))
+            dialog.update_idletasks()
             left, top, width, height = board.image_bounds
-            board.canvas.event_generate("<ButtonPress-1>", x=left + 4, y=top + 4)
-            board.canvas.event_generate("<B1-Motion>", x=left + width // 2, y=top + height // 2)
-            board.canvas.event_generate("<ButtonRelease-1>", x=left + width // 2, y=top + height // 2)
-            assert board.zoomed and board.regions[("SB01", "SB01-02")]
+            assert width >= 40 and height >= 30, (board.image_bounds, board.canvas.winfo_geometry())
+            x, y = left + width // 2, top + height // 2
+            board.canvas.event_generate("<ButtonPress-1>", x=left + 4, y=top + 4, when="now")
+            assert board.drag_start is not None, "Tk did not process the canvas button press"
+            board.canvas.event_generate("<Motion>", x=x, y=y, state=0x100, when="now")
+            board.canvas.event_generate("<ButtonRelease-1>", x=x, y=y, state=0x100, when="now")
+            assert board.zoomed and board.regions.get(("SB01", "SB01-02")), (
+                board.image_bounds, board.canvas.winfo_geometry(), board.drag_start,
+            )
             dialog.destroy()
 
         def inspect_asset_dialog(self):
