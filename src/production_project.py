@@ -28,8 +28,9 @@ PROMPT_FIELDS = ("场景/总体状态", "公共限制")
 SHOT_FIELDS = (
     "景别", "机位/角度", "机位空间", "可见范围", "运镜", "画面/事件", "人物站位", "动作起止",
     "唯一角色数量锁定", "本格新增叙事功能", "情绪/表演", "环境威胁/视觉副线", "声音", "声源位置",
-    "连续性", "视频模型约束", "成片动作", "场景/环境",
+    "连续性", "视频模型约束", "成片动作", "场景/环境", "成片声音",
 )
+OPTIONAL_SHOT_FIELDS = {"成片动作", "成片声音"}
 ACTIONS = ("直接复用", "必要规范排版", "局部补缺/修复", "新生成")
 
 
@@ -74,6 +75,7 @@ class ApprovedLine:
     speaker: str
     text: str
     source: str
+    sentence_ends: tuple[int, ...] = ()
 
 
 @dataclass
@@ -118,6 +120,9 @@ class ProductionProject:
     structure_review: str = ""
     version: int = 1
     rules: str = RULE_VERSION
+    dialogue_scope: dict[str, list[int]] | None = None
+    previous_group: str = ""
+    text_drafts: list[dict] = field(default_factory=list)
 
     @classmethod
     def open(cls, path: Path):
@@ -125,7 +130,8 @@ class ProductionProject:
         if payload.get("version") != 1 or payload.get("rules") != RULE_VERSION:
             raise ValueError("项目格式或制作规则版本不兼容。")
         payload["sources"] = [ApprovedSource(**item) for item in payload.get("sources", [])]
-        payload["lines"] = [ApprovedLine(**item) for item in payload.get("lines", [])]
+        payload["lines"] = [ApprovedLine(**{**item, "sentence_ends": tuple(item.get("sentence_ends", ()))})
+                            for item in payload.get("lines", [])]
         payload["shots"] = [Shot(**item) for item in payload.get("shots", [])]
         payload["images"] = [ProjectImage(**item) for item in payload.get("images", [])]
         project = cls(**payload)
@@ -165,28 +171,43 @@ class ProductionProject:
         entries = json.loads(content.removeprefix("\ufeff"))
         if not isinstance(entries, list):
             raise ValueError("批准对白 JSON 必须是数组，每条包含 id、speaker 和完整原文 text。")
-        updated = {item.id: item for item in self.lines}
+        before = {item.id: item for item in self.lines}
+        updated = before.copy()
+        supplied = {}
         for item in entries:
             if not isinstance(item, dict) or not all(isinstance(item.get(key), str) for key in ("id", "speaker", "text")):
                 raise ValueError("对白记录必须填写 id、speaker 和 text。")
             line = ApprovedLine(item["id"], item["speaker"].strip(), item["text"].strip(), source.id)
             if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", line.id) or not line.speaker or not line.text:
                 raise ValueError(f"对白缺少有效的 ID、说话人或原文：{line.id}")
-            if any(char in line.speaker + line.text for char in "\r\n") or not re.search(r"[\u3400-\u9fff]", line.speaker):
+            if (any(char in line.speaker for char in "|：:\r\n") or "\r" in line.text or "\n" in line.text
+                    or not re.search(r"[\u3400-\u9fff]", line.speaker)):
                 raise ValueError(f"{line.id} 需要中文说话人和单行原文。")
             if line.text not in source.text:
                 raise ValueError(f"{line.id} 原文未在所选批准剧本中找到。")
-            if line.id in updated and updated[line.id] != line:
+            if line.id in supplied:
+                raise ValueError(f"{line.id} 重复了。同一源 ID 的多句请使用 sentence_ends。")
+            ends = item.get("sentence_ends", [])
+            if (not isinstance(ends, list) or any(type(end) is not int for end in ends)
+                    or ends and (ends != sorted(set(ends)) or ends[0] <= 0 or ends[-1] != len(line.text))):
+                raise ValueError(f"{line.id} 的整句终点需按字符位置递增，最后一项为完整原文长度。")
+            old = updated.get(line.id)
+            if old and (old.speaker, old.text, old.source) != (line.speaker, line.text, line.source):
                 raise ValueError(f"{line.id} 已绑定不同的批准原文或来源版本，请分配新对白 ID。")
-            updated[line.id] = line
+            supplied[line.id] = ApprovedLine(line.id, line.speaker, line.text, line.source, tuple(ends))
+            updated[line.id] = supplied[line.id]
         if replace_source_lines:
-            supplied = {item["id"] for item in entries}
-            removed = {item.id for item in self.lines if item.source == source.id} - supplied
+            removed = {item.id for item in self.lines if item.source == source.id} - supplied.keys()
             if any(identity in removed for shot in self.shots for identity, _, _ in shot.dialogue):
                 raise ValueError("请先移除镜头里对这些对白 ID 的引用，再更新本组对白清单。")
             for identity in removed:
                 del updated[identity]
-        self.lines = list(updated.values())
+        chosen_order = iter(supplied.values())
+        self.lines = [next(chosen_order) if replace_source_lines and item.source == source.id else item
+                      for item in updated.values()]
+        if self.lines != list(before.values()):
+            self.dialogue_scope = None
+            self.previous_group = ""
 
     def import_image(self, project_path: Path, path: Path, filename: str, *, action: str,
                      reason: str, inspection: str, version: str = "1", approved: Asset | None = None,
@@ -255,6 +276,14 @@ class ProductionProject:
     def fingerprint(self) -> str:
         payload = asdict(self)
         del payload["structure_review"]
+        del payload["text_drafts"]
+        if self.dialogue_scope is None:
+            del payload["dialogue_scope"]
+        if not self.previous_group:
+            del payload["previous_group"]
+        for line in payload["lines"]:
+            if not line["sentence_ends"]:
+                del line["sentence_ends"]
         return sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
     def impacts(self) -> tuple[str, ...]:

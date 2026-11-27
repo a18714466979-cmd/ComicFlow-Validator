@@ -59,9 +59,10 @@ def field(parent, row, label, value, choices=None):
 
 
 class ProductionDialog:
-    def __init__(self, parent, validator, registry):
+    def __init__(self, parent, validator, registry, text_session):
         self.validator = validator
         self.registry = registry
+        self.text_session = text_session
         self.project = None
         self.path = None
         self.previewed = None
@@ -75,6 +76,7 @@ class ProductionDialog:
         top = ttk.Frame(self.window, padding=10)
         top.pack(fill="x")
         self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open), ("保存项目", self.save))
+        self.buttons(top, ("文本制片", self.open_drafting))
         self.status = tk.StringVar(self.window, "新建或打开项目后开始。")
         ttk.Label(top, textvariable=self.status).pack(side="left", padx=8)
         self.tabs = ttk.Notebook(self.window)
@@ -239,6 +241,7 @@ class ProductionDialog:
         self.exception.set("")
         for index in range(4):
             self.tabs.tab(index, state="normal")
+        self.tabs.select(0)
         self.refresh_sources()
         self.refresh()
         if project_registry(path).is_file():
@@ -289,11 +292,16 @@ class ProductionDialog:
         panel = tk.Toplevel(self.window)
         panel.title("导入本组批准对白")
         panel.transient(self.window)
-        ttk.Label(panel, text="粘贴或打开本组 UTF-8 JSON。保存后更新当前剧本版本的本组对白清单。").pack(padx=10, pady=6)
+        ttk.Label(panel, text="粘贴或打开批准对白 JSON。可用 sentence_ends 标同一 ID 的整句分界。").pack(padx=10, pady=6)
         editor = self.editor(panel, 12)
         editor.pack(fill="both", expand=True, padx=10)
         lines = [{"id": line.id, "speaker": line.speaker, "text": line.text}
                  for line in self.project.lines if line.source == source.id]
+        by_id = {line.id: line for line in self.project.lines}
+        for row in lines:
+            ends = by_id[row["id"]].sentence_ends
+            if ends:
+                row["sentence_ends"] = list(ends)
         write_text(editor, json.dumps(lines or [{"id": "D001", "speaker": "人物名", "text": "Approved line."}],
                                       ensure_ascii=False, indent=2))
 
@@ -316,6 +324,12 @@ class ProductionDialog:
         dialog.grab_set()
         self.window.wait_window(dialog)
         self.window.grab_set()
+
+    def open_drafting(self):
+        from .drafting_dialog import DraftingDialog
+
+        self.save()
+        self.wait(DraftingDialog(self, self.text_session).window)
 
     def refresh(self):
         self.shots.delete(*self.shots.get_children())
@@ -370,7 +384,7 @@ class ProductionDialog:
             plate.current(next(i for i, image in enumerate(plates) if image.id == shot.plate))
         field(form, 3, "地点", variables[3])
         field(form, 4, "净板机位说明", variables[4])
-        ttk.Label(panel, text="对白 · 每行一个 ID。分句续说可填「D001 起始字符位 结束字符位」。").pack(anchor="w", padx=10)
+        ttk.Label(panel, text="对白 · 单填 ID 使用本组已选范围。跨镜续说填写「D001 起始字符位 结束字符位」。").pack(anchor="w", padx=10)
         dialogue = self.editor(panel, 3)
         dialogue.pack(fill="x", padx=10)
         write_text(dialogue, "\n".join(f"{identity} {start} {end}" for identity, start, end in shot.dialogue))
@@ -389,7 +403,12 @@ class ProductionDialog:
                 identity = parts[0]
                 if identity not in by_id or len(parts) not in (1, 3):
                     raise ValueError(f"对白 ID 或区间不可用：{row}")
-                start, end = (0, len(by_id[identity].text)) if len(parts) == 1 else map(int, parts[1:])
+                span = (0, len(by_id[identity].text)) if self.project.dialogue_scope is None else self.project.dialogue_scope.get(identity)
+                if span is None:
+                    raise ValueError(f"{identity} 不在本组的批准对白范围内。")
+                start, end = span if len(parts) == 1 else map(int, parts[1:])
+                if not span[0] <= start < end <= span[1]:
+                    raise ValueError(f"{identity} 的字符区间超出本组批准范围。")
                 utterances.append((identity, start, end))
             updated = replace(shot, source=sources[source.current()].id if source.current() >= 0 else "",
                               anchor=variables[1].get().strip(), plate=plates[plate.current()].id if plate.current() >= 0 else "",
@@ -592,5 +611,5 @@ class ProductionDialog:
         self.status.set("已导出并重新核验 ZIP" if result.output else "校验未通过，请查看报告")
 
 
-def open_production_dialog(parent, validator, registry):
-    ProductionDialog(parent, validator, registry)
+def open_production_dialog(parent, validator, registry, text_session):
+    ProductionDialog(parent, validator, registry, text_session)

@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 
 MAX_IMAGE_BYTES = 6 * 1024 * 1024
 MAX_REPLY_BYTES = 1024 * 1024
+ANTHROPIC_VERSION = "2026-10-21"
 REVIEW_PROMPT = (
     "请用简体中文复核这张漫剧制作图。若是多格图，按可辨认的格号或画面位置报告。"
     "只指出图中可见的问题，例如重复身份、肢体或接触异常、人物与标记遮挡、留白和可读性。"
@@ -113,7 +114,7 @@ def build_request(settings: VisionSettings, image: bytes) -> Request:
     provider = PROVIDERS[settings.provider]
     payload = {"model": settings.model, provider.token_limit_field: 1200}
     if provider.native_messages:
-        headers.update({"X-Api-Key": settings.api_key, "Anthropic-Version": "2026-10-21"})
+        headers.update({"X-Api-Key": settings.api_key, "Anthropic-Version": ANTHROPIC_VERSION})
         attachment = {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
     else:
         headers["Authorization"] = f"Bearer {settings.api_key}"

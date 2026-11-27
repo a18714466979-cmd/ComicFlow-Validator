@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def run_inside_launcher():
     import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
+    from tkinter import filedialog, messagebox, simpledialog, ttk
 
     archive = os.environ["COMICFLOW_SMOKE_ZIP"]
     empty = os.environ["COMICFLOW_SMOKE_MODE"] == "empty"
@@ -121,7 +121,14 @@ def run_inside_launcher():
             dialog.destroy()
 
         def inspect_production_dialog(self):
+            from src import drafting_dialog
+            from src.production_project import ProductionProject
+            from src.text_api import TextReply
+
             original = filedialog.askopenfilename
+            request = drafting_dialog.request_text
+            askyesno = messagebox.askyesno
+            askstring = simpledialog.askstring
             try:
                 filedialog.asksaveasfilename = lambda **_kwargs: str(project_path)
                 filedialog.askopenfilename = lambda **_kwargs: str(project_path)
@@ -134,12 +141,53 @@ def run_inside_launcher():
                 name = next(walk(dialog, ttk.Entry))
                 name.delete(0, "end")
                 name.insert(0, "制片窗口验收")
+                script = project_path.with_suffix(".md")
+                script.write_text("信号灯亮起。", encoding="utf-8")
+                filedialog.askopenfilename = lambda **_kwargs: str(script)
+                simpledialog.askstring = lambda *_args, **_kwargs: "R1"
+                click(dialog, "导入批准剧本")
                 click(dialog, "保存项目")
+                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
                 click(dialog, "打开单组项目")
                 assert name.get() == "制片窗口验收"
+
+                mock_output = ('{"shots":[{"line_start":1,"line_end":1,'
+                               '"fields":{"画面/事件":"信号灯亮起","景别":"特写"}}]}')
+                drafting_dialog.request_text = lambda *_args: TextReply(mock_output, "smoke")
+                messagebox.askyesno = lambda *_args, **_kwargs: True
+                self.after(50, lambda: self.inspect_drafting_dialog(dialog))
+                click(dialog, "文本制片")
+                saved = ProductionProject.open(project_path)
+                assert len(saved.text_drafts) == len(saved.shots) == 1
+                assert saved.shots[0].fields["画面/事件"] == "信号灯亮起"
                 dialog.destroy()
             finally:
                 filedialog.askopenfilename = original
+                drafting_dialog.request_text = request
+                messagebox.askyesno = askyesno
+                simpledialog.askstring = askstring
+
+        def inspect_drafting_dialog(self, production):
+            dialog = next(walk(production, tk.Toplevel))
+            tabs = next(walk(dialog, ttk.Notebook))
+            assert [tabs.tab(index, "text") for index in range(2)] == ["对白与九图预排", "文本模型与历史"]
+            click(dialog, "预排批准整句")
+            tabs.select(1)
+            for label_text in ("文本模型 ID", "API Key"):
+                label = next(widget for widget in walk(dialog, ttk.Label) if widget.cget("text") == label_text)
+                entry = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+                entry.insert(0, "synthetic")
+            click(dialog, "调用模型起草")
+            self.after(100, lambda: self.finish_drafting(dialog))
+
+        def finish_drafting(self, dialog):
+            from src.production_project import ProductionProject
+
+            if not ProductionProject.open(project_path).text_drafts:
+                self.after(100, lambda: self.finish_drafting(dialog))
+                return
+            click(dialog, "采纳已选建议")
+            dialog.destroy()
 
     tk.Tk = SmokeWindow
     filedialog.askopenfilename = lambda **_kwargs: archive

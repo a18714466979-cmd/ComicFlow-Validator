@@ -47,6 +47,7 @@ def open_workbench(initial_zip: str) -> int:
     results: Queue = Queue()
     image_preview = None
     vision_session: dict[str, VisionSettings] = {}
+    text_session: dict[str, VisionSettings] = {}
 
     tabs = ttk.Notebook(window)
     issues_tab = ttk.Frame(tabs, padding=8)
@@ -280,7 +281,7 @@ def open_workbench(initial_zip: str) -> int:
     actions = ttk.Frame(options)
     actions.grid(row=4, column=2, sticky="e", pady=(0, 2))
     ttk.Button(actions, text="单组制片", command=lambda: open_production_dialog(
-        window, entries[1][1].get().strip(), registry_path,
+        window, entries[1][1].get().strip(), registry_path, text_session,
     )).pack(side="left", padx=(0, 5))
     ttk.Button(actions, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).pack(side="left")
     ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(

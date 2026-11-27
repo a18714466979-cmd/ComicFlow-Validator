@@ -7,7 +7,8 @@ from shutil import copyfile
 from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
-from .production_project import GROUP_FIELDS, GROUP_OPTIONAL, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject
+from .production_dialogue import handoff_rows, validated_scope
+from .production_project import GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import IMAGE_LIMIT, plan_dialogue
 
@@ -36,7 +37,9 @@ def format_fields(values: dict[str, str], fields: tuple[str, ...], optional=()) 
     return "\n".join(pairs)
 
 
-def render_dialogue(project: ProductionProject, planner: Path) -> tuple[list[tuple[str, str, str]], str, int]:
+def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tuple[list[tuple[str, str, str]], str, int]:
+    if scope is None:
+        scope = validated_scope(project, planner)
     lines = {line.id: line for line in project.lines}
     next_offset = {}
     items, output, ledger = [], [], []
@@ -44,26 +47,32 @@ def render_dialogue(project: ProductionProject, planner: Path) -> tuple[list[tup
         ids, cues, spoken = [], [], []
         for identity, start, end in shot.dialogue:
             original = lines.get(identity)
+            span = scope.get(identity)
             if original is None or original.source != shot.source:
                 raise ValueError(f"{project.group}-{number:02d} 的对白 {identity} 缺少本镜的批准来源。")
-            if identity in ids or start != next_offset.get(identity, 0) or not 0 <= start < end <= len(original.text):
+            if (not span or identity in ids or start != next_offset.get(identity, span[0])
+                    or not span[0] <= start < end <= span[1]):
                 raise ValueError(f"{identity} 的对白区间缺字、重复或顺序不符。")
             text = original.text[start:end].strip()
             if not text:
                 raise ValueError(f"{identity} 的片段没有实际发声内容。")
+            first_in_group = identity not in next_offset
             next_offset[identity] = end
             ids.append(identity)
             cues.append(f"{identity}={'续说' if start else '首说'}")
             spoken.append(f"{original.speaker}：“{text}”")
             items.append({"id": identity, "speaker": original.speaker, "text": original.text, "start": start, "end": end})
-            ledger.append(f"- {identity} → {project.group}-{number:02d} [{start}:{end}]")
+            origin = f" | 跨组续说，上一组 {project.previous_group}" if first_in_group and start else ""
+            ledger.append(f"- {identity} → {project.group}-{number:02d} [{start}:{end}]{origin}")
         output.append(tuple("；".join(parts) or "无" for parts in (ids, cues, spoken)))
     for identity, end in next_offset.items():
-        if end != len(lines[identity].text):
+        if end != scope[identity][1]:
             raise ValueError(f"{identity} 的批准对白未完整分配，请补全本组发声区间。")
-    omitted = lines.keys() - next_offset.keys()
+    omitted = scope.keys() - next_offset.keys()
     if omitted:
         raise ValueError("本组已导入的批准对白有遗漏：" + "、".join(sorted(omitted)))
+    if list(next_offset) != [line.id for line in project.lines if line.id in scope]:
+        raise ValueError("镜头里的对白首说顺序与批准对白清单不一致。")
     groups = plan_dialogue(json.dumps(items, ensure_ascii=False), planner) if items else []
     if len(groups) > 1:
         raise ValueError("本组实际发声超过 60 个英文词，请按完整句重新分组。")
@@ -82,11 +91,16 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     if len(storyboard_files) != 1 or not re.search(rf"(?<!\d){len(project.shots)}panel", storyboard_files[0].filename, re.I):
         raise ValueError("请导入一张格数与镜头清单一致的正式故事板，文件名包含实际格数，如 storyboard_8panel。")
 
-    dialogues, dialogue_ledger, _ = render_dialogue(project, validator.with_name("plan_english_dialogue.py"))
+    planner = validator.with_name("plan_english_dialogue.py")
+    scope = validated_scope(project, planner)
+    dialogues, dialogue_ledger, _ = render_dialogue(project, planner, scope)
+    cross_rows, pending = handoff_rows(project, scope)
     sources = {source.id: source for source in project.sources}
     assets = {image.id: image for image in images}
     group_id = project.group
     notes = dict(project.notes)
+    if pending and notes.get("分组状态") == "整集尾组":
+        raise ValueError("仍有跨组对白待续，请核对分组状态。")
     if not notes.get("图片预算核对", "").strip():
         notes["图片预算核对"] = "；".join(f"{stage}={len(images)}" for stage in ("初始", "道具后", "配角后", "主角后", "场景后", "最终")) + "；说明=以本组导入的批准交付图为准，本次输出保持图像文件张数。"
     if not notes.get("资产清单", "").strip():
@@ -95,6 +109,8 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     production = [f"分组：{group_id}\n格数：{len(project.shots)}\n视频任务时长：待剪辑\n画面格式：16:9 彩色视频",
                   format_fields(notes, GROUP_FIELDS, GROUP_OPTIONAL | {"图片预算核对", "资产清单"}),
                   f"对白保全核对：{dialogue_ledger}\n视频上色约束：{COLOR}\n视频文字约束：{LANGUAGE}"]
+    if cross_rows:
+        production.append("跨组对白原文：\n" + "\n".join(cross_rows))
     common = dict(project.prompt)
     common["公共限制"] = (common.get("公共限制", "").strip() + " " + MARKS).strip()
     sd2 = [f"分组：{group_id}\n视频上色约束：{COLOR}\n视频文字约束：{LANGUAGE}", format_fields(common, PROMPT_FIELDS)]
@@ -113,17 +129,18 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
         plate_rows.append(f"- {name} | {plate.filename} | 局部{number:02d} | {shot.scene} | {shot.plate_note}")
         fields = shot.fields
         try:
-            format_fields(fields, SHOT_FIELDS, {"成片动作"})
+            format_fields(fields, SHOT_FIELDS, OPTIONAL_SHOT_FIELDS)
         except ValueError as exc:
             raise ValueError(f"{name} {exc}") from exc
         ids, cues, spoken = dialogue
-        notes_text = format_fields(fields, tuple(key for key in SHOT_FIELDS if key != "成片动作"))
+        notes_text = format_fields(fields, tuple(key for key in SHOT_FIELDS if key not in OPTIONAL_SHOT_FIELDS))
         production.append(f"分镜 {name}\n源镜ID：{shot.id}\n源段：{shot.anchor}\n时间码：待剪辑\n{notes_text}\n对白编号：{ids}\n对白衔接：{cues}\n对白：{spoken}")
         prompt = {"景别": fields["景别"], "机位/角度": f"{fields['机位/角度']}；{fields['机位空间']}",
                   "人物数量限制": fields["唯一角色数量锁定"], "人物位置": fields["人物站位"],
                   "动作": fields.get("成片动作", "").strip() or fields["动作起止"], "运镜": fields["运镜"],
                   "场景/环境": fields["场景/环境"], "对白": spoken,
-                  "声音/音效": f"{fields['声源位置']}；{fields['声音']}", "本镜必要限制": fields["视频模型约束"]}
+                  "声音/音效": f"{fields['声源位置']}；{fields.get('成片声音', '').strip() or fields['声音']}",
+                  "本镜必要限制": fields["视频模型约束"]}
         sd2.append(f"分镜编号：{name}\n" + format_fields(prompt, tuple(prompt)))
         shot_rows.append(f"- {name} | {shot.id} | {sources[shot.source].name} {sources[shot.source].version} | {shot.anchor} | 局部{number:02d}")
 
@@ -166,6 +183,12 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
         f"本组退出状态：{notes['本组退出状态']}\n镜头与来源：\n" + "\n".join(shot_rows) + "\n",
         encoding="utf-8-sig",
     )
+    if pending:
+        (folder / "待制作分镜.txt").write_text(
+            f"本组 {group_id} 退出状态：{notes['本组退出状态']}\n"
+            "下组承接以上状态，继续分配以下批准对白。\n"
+            + "\n".join(pending) + "\n", encoding="utf-8-sig",
+        )
 
 
 def project_registry(project_path: Path) -> Path:
