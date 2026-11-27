@@ -24,7 +24,7 @@ from .vision import PROVIDERS, VisionSettings
 
 
 class DraftingDialog:
-    def __init__(self, production, session, *, prompts=False):
+    def __init__(self, production, session, *, start_task=None):
         self.production = production
         self.project = production.project
         self.session = session
@@ -47,9 +47,9 @@ class DraftingDialog:
         tabs.add(ai, text=translate(tabs, "文本模型与历史"))
         self.setup_plan(capacity)
         self.setup_ai(ai)
-        if prompts:
+        if start_task:
             tabs.select(ai)
-            self.task_picker.current(TASKS.index(SD2_TASK))
+            self.task_picker.current(TASKS.index(start_task))
             self.pick_task()
 
     def close(self):
@@ -243,6 +243,9 @@ class DraftingDialog:
         actions.pack(fill="x")
         self.buttons(actions, ("保存编辑为新版本", self.save_revision), ("采纳已选建议", self.accept),
                      ("复制交接建议", self.copy_handoff))
+        self.asset_next, = self.buttons(actions, ("下一步：分析资产", self.open_assets))
+        if not self.project.shots:
+            self.asset_next.state(["disabled"])
         self.refresh_history()
 
     def pick_provider(self, _event=None):
@@ -425,8 +428,16 @@ class DraftingDialog:
         apply_candidate(self.project, self.candidate, selected)
         self.production.refresh()
         self.production.save()
+        self.asset_next.state(["!disabled"])
         self.pick_task()
         self.status.set("已写入镜头记录。导出前请完成逐格复核。")
+
+    def open_assets(self):
+        if self.busy:
+            return
+        index = self.source.current()
+        preferred = self.sources[index].id if index >= 0 else ""
+        self.production.open_assets_for_shots(owner=self.window, preferred_source=preferred)
 
     def copy_handoff(self):
         if not self.candidate or self.candidate["task"] != HANDOFF_TASK:

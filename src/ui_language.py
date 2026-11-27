@@ -115,6 +115,25 @@ ENGLISH = {
     "正在验收 {archive}…": "Validating {archive}…",
     "请选择有效的{label}。": "Select a valid {label}.",
     "无法预览 {path}": "Unable to preview {path}",
+    # Stage handoff
+    "剧本 → 分镜 → 资产可接续制作，也可以从本地文件单独开始。":
+        "Continue from script to shots to assets, or start any step with a local file.",
+    "将剧本带入分镜": "Bring script into shot planning",
+    "选择新项目或已有项目。这份原文将作为一个剧本版本带入镜头清单。":
+        "Choose a new or existing project. This manuscript becomes a source revision in its shot list.",
+    "新建项目并拆分镜": "Create project and plan shots",
+    "加入已有项目": "Add to an existing project",
+    "当前分镜源稿": "Current shot source",
+    "分镜前请导入批准剧本。": "Import an approved script before planning shots.",
+    "AI 拆分镜": "Plan shots with AI",
+    "下一步：分析资产": "Next: analyze assets",
+    "请先插入或采纳分镜，再分析本组资产。": "Insert or adopt shots before analyzing this group's assets.",
+    "请先在镜头清单中为每个镜头绑定批准剧本。": "Bind each shot to an approved script in the shot list.",
+    "选择资产分析使用的剧本版本": "Choose a script revision for asset analysis",
+    "本组镜头引用多个剧本版本。每次仅分析同一版本及其镜头。":
+        "This group uses multiple script revisions. Analyze one revision and its shots at a time.",
+    "分析所选版本": "Analyze selected revision",
+    "{count} 镜": "{count} shot(s)",
     # Top-level workspaces
     "故事板制作": "Storyboard production",
     "检查验收": "Inspection & validation",

@@ -307,10 +307,11 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             except OSError:
                 messagebox.showinfo(tr("校验脚本"), tr("本次可使用所选脚本，下次启动时需重新选择。"), parent=window)
 
-    def produce(path=None, *, action=None, destination="group") -> None:
+    def produce(path=None, *, action=None, destination="group", owner=None, loaded_project=None, source_id=""):
         save_validator_choice()
-        open_production_dialog(window, validators, registry_path, text_session, image_session,
-                               active_rules, switch_rules, initial_project=path, initial_action=action, destination=destination)
+        return open_production_dialog(owner or window, validators, registry_path, text_session, image_session,
+                                      active_rules, switch_rules, initial_project=path, initial_action=action,
+                                      destination=destination, loaded_project=loaded_project, source_id=source_id)
 
     def clear_review() -> None:
         nonlocal result, selected_issue
@@ -421,9 +422,22 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             show_preview()
 
     def plan_script(task):
+        from .script_handoff_dialog import choose_project_for_script
         from .storyboard_planning_dialog import open_storyboard_planning
 
-        open_storyboard_planning(window, text_session, task=task, rules=active_rules)
+        def use_script(title, body):
+            editor = planner.window
+            selected = choose_project_for_script(editor, title, body, active_rules)
+            if selected is None:
+                return False
+            path, project, source = selected
+            production = produce(path, destination="shots", owner=editor, loaded_project=project, source_id=source.id)
+            editor.wait_window(production.window)
+            editor.grab_set()
+            return True
+
+        planner = open_storyboard_planning(window, text_session, task=task, rules=active_rules,
+                                           on_use_script=use_script if task == "script" else None)
 
     def inspect_image():
         from .review_tools_dialog import open_image_inspection

@@ -131,6 +131,9 @@ def run_inside_launcher():
             if mode == "new-tools":
                 self.inspect_new_tools()
                 return
+            if mode == "production-handoff":
+                self.inspect_production_handoff()
+                return
             if mode == "mode-switch":
                 self.inspect_mode_switch(validator)
                 return
@@ -258,6 +261,114 @@ def run_inside_launcher():
                 self.destroy()
 
             self.after(120, check_project_tools)
+
+        def inspect_production_handoff(self):
+            from src import drafting_dialog
+            from src.production_project import ProductionProject
+            from src.text_api import TextReply
+
+            title = "信号站制片"
+            body = "门打开了。\n\n值班员拿钥匙。"
+            alternate = "新稿标记，门关了。"
+            group = ProductionProject("接续制片试用", "EP01", "SB01")
+            base = group.import_source(title, "R1", body)
+            group.import_source(title, "R2", alternate)
+            group.save(project_path)
+            original = project_path.read_bytes()
+            show_page(self, 0)
+            click(self, "剧本创作")
+            editor = next(walk(self, tk.Toplevel))
+            title_box = next(walk(editor, ttk.Entry))
+            title_box.delete(0, "end")
+            title_box.insert(0, title)
+            left = next(walk(editor, tk.Text))
+            left.insert("1.0", body)
+
+            def choose_project(cancel=False):
+                choice = next(walk(editor, tk.Toplevel))
+                assert choice.title() == "将剧本带入分镜"
+                if cancel:
+                    click(choice, "取消")
+                else:
+                    click(choice, "加入已有项目")
+
+            def fake_shots(settings, instructions, payload):
+                data = json.loads(payload)
+                assert data["approved_source"]["version"] == "R1"
+                assert "值班员拿钥匙。" in data["approved_source"]["lines"].values()
+                return TextReply('{"shots":[{"line_start":1,"line_end":3,'
+                                 '"fields":{"画面/事件":"值班员拿起钥匙","人物站位":"门右侧"}}]}',
+                                 "fixture-shot-handoff")
+
+            def inspect_project():
+                project = next(walk(editor, tk.Toplevel))
+                tabs = next(walk(project, ttk.Notebook))
+                assert tabs.tab(tabs.select(), "text") == "镜头清单"
+                assert any(w.get() == f"{title} · R1" for w in walk(project, ttk.Combobox))
+                self.after(90, lambda: use_draft(project))
+                click(project, "AI 拆分镜")
+                project.destroy()
+
+            def use_draft(project):
+                tool = next(walk(project, tk.Toplevel))
+                tabs = next(walk(tool, ttk.Notebook))
+                assert tabs.tab(tabs.select(), "text") == "文本模型与历史"
+                for caption in ("文本模型 ID", "API Key"):
+                    label = next(widget for widget in walk(tool, ttk.Label) if widget.cget("text") == caption)
+                    entry = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+                    entry.insert(0, "synthetic")
+                click(tool, "调用模型起草")
+                self.after(100, lambda: accept_shots(tool))
+
+            def accept_shots(tool):
+                if not ProductionProject.open(project_path).text_drafts:
+                    self.after(100, lambda: accept_shots(tool))
+                    return
+                click(tool, "采纳已选建议")
+                saved = ProductionProject.open(project_path)
+                assert len(saved.shots) == 1 and saved.shots[0].source == base.id
+                self.after(75, lambda: inspect_assets(tool, saved.shots[0].id))
+                click(tool, "下一步：分析资产")
+                tool.destroy()
+
+            def inspect_assets(tool, shot_id):
+                analysis = next(walk(tool, tk.Toplevel))
+                assert analysis.title() == "资产分析"
+                before = project_path.read_bytes()
+                original_source = next(walk(analysis, tk.Text))
+                assert original_source.get("1.0", "end-1c") == body
+                assert original_source.cget("state") == "disabled"
+
+                def inspect_request():
+                    preview = next(walk(analysis, tk.Toplevel))
+                    content = next(walk(preview, tk.Text)).get("1.0", "end-1c")
+                    assert shot_id in content and "SB01-01" in content and "值班员拿起钥匙" in content
+                    assert alternate not in content and '"3": "值班员拿钥匙。"' in content
+                    preview.destroy()
+
+                self.after(60, inspect_request)
+                click(analysis, "预览发送内容")
+                click(analysis, "关闭")
+                assert project_path.read_bytes() == before
+
+            old_confirm, old_request, old_picker = messagebox.askyesno, drafting_dialog.request_text, filedialog.askopenfilename
+            try:
+                messagebox.askyesno = lambda *_args, **_kwargs: True
+                drafting_dialog.request_text = fake_shots
+                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
+                self.after(75, lambda: choose_project(cancel=True))
+                click(editor, "用左侧稿件拆分镜")
+                assert project_path.read_bytes() == original and left.get("1.0", "end-1c") == body
+                self.after(75, choose_project)
+                self.after(220, inspect_project)
+                click(editor, "用左侧稿件拆分镜")
+                assert left.get("1.0", "end-1c") == body
+                click(editor, "关闭")
+            finally:
+                messagebox.askyesno, drafting_dialog.request_text, filedialog.askopenfilename = old_confirm, old_request, old_picker
+            print("Verified script-to-shots-to-assets with the exact approved revision, shot evidence and cancellation", flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
 
         def inspect_new_tools(self):
             from src.production_project import ProductionProject
@@ -939,7 +1050,8 @@ def verify_windows_launcher(root=ROOT):
         env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
-                               ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"')):
+                               ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
+                               ("production-handoff", f' "{archive}"')):
             env["COMICFLOW_SMOKE_MODE"] = mode
             if mode == "file-only":
                 env.pop("COMICFLOW_STORYBOARD_VALIDATOR")

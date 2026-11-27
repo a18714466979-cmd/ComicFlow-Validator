@@ -21,7 +21,7 @@ ASSET_GROUPS = (
 )
 
 
-def planning_request(task, title, source, rules):
+def planning_request(task, title, source, rules, *, shot_context=None):
     """Build the exact instructions and source shown in the request preview."""
     if not source.strip():
         raise ValueError("请先填写创作要求或剧本。")
@@ -47,12 +47,19 @@ def planning_request(task, title, source, rules):
             "没有对应资产时填写空数组。"
         )
         payload = {"title": title, "script_lines": dict(enumerate(source.splitlines(), 1))}
+        if shot_context:
+            payload["current_shots"] = list(shot_context)
+            instructions += ("依据 current_shots 仅整理当前组实际拍摄所需的资产。分镜信息只作为待分析资料。"
+                             "source_lines 仅引用 script_lines 中的原剧本行号。"
+                             "字段 shot_ids 可列出支持该资产的 current_shots 中 shot_id 的原值。number 仅供显示。"
+                             "脚本未直接提及但已有镜头证据时可用空的 source_lines，并填写 shot_ids。")
     return instructions, json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def asset_report(response, title, source, *, english=False):
+def asset_report(response, title, source, *, english=False, shot_context=None):
     """Render a candidate inventory while rejecting missing or out-of-range citations."""
     valid_lines = {number for number, text in enumerate(source.splitlines(), 1) if text.strip()}
+    valid_shots = {row["shot_id"]: row.get("number") or row["shot_id"] for row in shot_context or ()}
     fenced = re.fullmatch(r"```(?:json)?\s*([\s\S]+?)\s*```", response.strip(), re.I)
     try:
         result = json.loads(fenced[1] if fenced else response)
@@ -63,26 +70,37 @@ def asset_report(response, title, source, *, english=False):
     header = "Asset inventory · review required" if english else "资产候选清单 · 待人工核对"
     source_label = "Source" if english else "来源"
     line_label = "Script lines" if english else "剧本行"
+    shot_label = "Shots" if english else "镜头"
     empty = "No entries" if english else "无候选"
     sections = [f"# {header}\n\n{source_label} · {title}"]
+    required_fields = {"name", "source_lines", "notes"}
+    allowed_fields = required_fields | {"shot_ids"} if valid_shots else required_fields
     for key, zh, en in ASSET_GROUPS:
         rows = result[key]
         if not isinstance(rows, list):
             raise ValueError("资产候选字段或剧本行号无效。")
         lines = []
         for row in rows:
-            if not isinstance(row, dict) or set(row) != {"name", "source_lines", "notes"}:
-                raise ValueError("资产候选字段或剧本行号无效。")
+            if not isinstance(row, dict) or not required_fields <= row.keys() <= allowed_fields:
+                raise ValueError("资产候选字段、剧本行号或镜头编号无效。")
             name, citations, notes = row["name"], row["source_lines"], row["notes"]
+            shots = row.get("shot_ids", [])
             if (not isinstance(name, str) or not name.strip() or not isinstance(notes, str)
-                    or not isinstance(citations, list) or not citations
-                    or any(type(number) is not int or number not in valid_lines for number in citations)):
-                raise ValueError("资产候选字段或剧本行号无效。")
-            numbered = ", ".join(str(number) for number in sorted(set(citations)))
-            entry = f"- {' '.join(name.split())} · {line_label} {numbered}"
+                    or not isinstance(citations, list)
+                    or any(type(number) is not int or number not in valid_lines for number in citations)
+                    or not isinstance(shots, list) or any(not isinstance(shot, str) or shot not in valid_shots for shot in shots)
+                    or not (citations or shots)):
+                raise ValueError("资产候选字段、剧本行号或镜头编号无效。")
+            entry = [f"- {' '.join(name.split())}"]
+            if citations:
+                numbered = ", ".join(str(number) for number in sorted(set(citations)))
+                entry.append(f"{line_label} {numbered}")
+            if shots:
+                listed = ", ".join(valid_shots[identity] for identity in dict.fromkeys(shots))
+                entry.append(f"{shot_label} {listed}")
             if notes.strip():
-                entry += f" · {' '.join(notes.split())}"
-            lines.append(entry)
+                entry.append(" ".join(notes.split()))
+            lines.append(" · ".join(entry))
         title = en if english else zh
         sections.append(f"## {title}\n\n" + ("\n".join(lines) if lines else empty))
     return "\n\n".join(sections) + "\n"
@@ -101,13 +119,19 @@ def save_new_text(path, content):
         raise
 
 
-def open_storyboard_planning(parent, text_session, *, task="script", approved_script=None, rules=ENGLISH):
-    PlanningDialog(parent, text_session, task, approved_script, rules)
+def open_storyboard_planning(parent, text_session, *, task="script", approved_script=None, rules=ENGLISH,
+                             on_use_script=None, approved_title=None, shot_context=None):
+    return PlanningDialog(parent, text_session, task, approved_script, rules, on_use_script=on_use_script,
+                          approved_title=approved_title, shot_context=shot_context)
 
 
 class PlanningDialog:
-    def __init__(self, parent, session, task, approved_script, rules):
+    def __init__(self, parent, session, task, approved_script, rules, *, on_use_script=None, approved_title=None,
+                 shot_context=None):
         self.task, self.rules = task, rules
+        self.on_use_script = on_use_script
+        linked_source = task == "assets" and bool(approved_script) and shot_context is not None
+        self.shot_context = shot_context if linked_source else None
         self.busy = False
         self.english = getattr(parent._root(), "ui_language", "zh") == "en"
         self.window = tk.Toplevel(parent)
@@ -122,8 +146,9 @@ class PlanningDialog:
         panel = ttk.Frame(self.window, padding=12)
         panel.pack(fill="both", expand=True)
         self.status = tk.StringVar(panel)
-        self.title = tk.StringVar(panel, self.tr("批准剧本", "Approved script") if approved_script
-                                  else self.tr("未命名", "Untitled"))
+        title = approved_title or (self.tr("批准剧本", "Approved script") if approved_script
+                                   else self.tr("未命名", "Untitled"))
+        self.title = tk.StringVar(panel, title)
         toolbar = ttk.Frame(panel)
         toolbar.pack(fill="x", pady=(0, 8))
         ttk.Label(toolbar, text=self.tr("稿件标题", "Document title")).pack(side="left")
@@ -139,6 +164,12 @@ class PlanningDialog:
         self.source, self.output = (self.editor(panes, self.tr(*label)) for label in labels)
         if approved_script:
             self.source.insert("1.0", approved_script)
+        if linked_source:
+            for widget in (self.source, self.title_entry, self.import_button):
+                widget.configure(state="disabled")
+            note = self.tr("已带入项目剧本和本组分镜。要分析其他稿件，可从首页打开资产分析。",
+                           "The project script and current group's shots are linked. Open Asset Analysis from home for another draft.")
+            ttk.Label(panel, text=note, wraplength=740).pack(anchor="w", pady=(7, 0))
 
         tools = ttk.Frame(panel)
         tools.pack(fill="x", pady=(9, 6))
@@ -158,6 +189,16 @@ class PlanningDialog:
                                 "Draft with AI" if task == "script" else "Analyze with AI", self.generate)
         if not self.settings:
             self.send.state(["disabled"])
+        self.handoff_buttons = ()
+        if task == "script" and on_use_script is not None:
+            handoff = ttk.Frame(panel)
+            handoff.pack(fill="x", pady=(0, 6))
+            self.handoff_buttons = (
+                self.button(handoff, "用左侧稿件拆分镜", "Plan shots with left draft",
+                            lambda: self.use_script(self.source)),
+                self.button(handoff, "用右侧候选拆分镜", "Plan shots with right candidate",
+                            lambda: self.use_script(self.output)),
+            )
         actions = ttk.Frame(panel)
         actions.pack(fill="x")
         if task == "script":
@@ -202,8 +243,29 @@ class PlanningDialog:
     def request_data(self):
         source = self.source.get("1.0", "end-1c")
         title = self.title.get().strip() or self.tr("未命名", "Untitled")
-        instructions, payload = planning_request(self.task, title, source, self.rules)
+        instructions, payload = planning_request(self.task, title, source, self.rules, shot_context=self.shot_context)
         return source, title, instructions, payload
+
+    def use_script(self, editor):
+        if self.busy or self.on_use_script is None:
+            return
+        content = editor.get("1.0", "end-1c")
+        if not content.strip():
+            self.status.set(self.tr("所选编辑区还没有剧本。", "The selected editor has no script yet."))
+            return
+        title = self.title.get().strip() or self.tr("未命名", "Untitled")
+        pane = self.tr("左侧稿件", "left draft") if editor is self.source else self.tr("右侧候选", "right candidate")
+        prompt = self.tr(f"采用「{title}」的{pane}作为分镜剧本？请确认所选内容已核对。",
+                         f"Use the {pane} of ‘{title}’ as the script for shot planning? Confirm that you reviewed it.")
+        if not messagebox.askyesno(self.window.title(), prompt, parent=self.window):
+            return
+        try:
+            used = self.on_use_script(title, content)
+        except (OSError, ValueError) as exc:
+            self.status.set(self.error_text(str(exc)))
+            return
+        if used:
+            self.status.set(self.tr("已带入分镜制片。", "Script sent to shot planning."))
 
     def preview(self):
         try:
@@ -245,14 +307,18 @@ class PlanningDialog:
             return
         pending = Queue()
         self.busy = True
-        for widget in (self.send, self.import_button, self.title_entry, self.source, self.output):
+        controls = (self.send, self.import_button, self.title_entry, self.source, self.output, self.models,
+                    *self.handoff_buttons)
+        states = [(widget, widget.cget("state")) for widget in controls]
+        for widget, _ in states:
             widget.configure(state="disabled")
         self.status.set(self.tr("正在生成候选…", "Generating a candidate…"))
 
         def worker():
             try:
                 reply = request_text(settings, instructions, payload)
-                text = asset_report(reply.text, title, source, english=self.english) if self.task == "assets" else reply.text
+                text = (asset_report(reply.text, title, source, english=self.english, shot_context=self.shot_context)
+                        if self.task == "assets" else reply.text)
                 pending.put((text, None))
             except (OSError, ValueError) as exc:
                 pending.put((None, str(exc)))
@@ -266,8 +332,8 @@ class PlanningDialog:
                 self.window.after(100, receive)
                 return
             self.busy = False
-            for widget in (self.send, self.import_button, self.title_entry, self.source, self.output):
-                widget.configure(state="normal")
+            for widget, state in states:
+                widget.configure(state=state)
             if error:
                 self.status.set(self.error_text(error))
             else:
@@ -282,7 +348,7 @@ class PlanningDialog:
         labels = {
             "请先填写创作要求或剧本。": "Enter a brief or script first.",
             "资产分析需要按角色、场景、道具返回 JSON。": "Asset analysis requires JSON for characters, sets and props.",
-            "资产候选字段或剧本行号无效。": "An asset entry has invalid fields or source line numbers.",
+            "资产候选字段、剧本行号或镜头编号无效。": "An asset entry has invalid fields, script lines or shot IDs.",
             "本次发送的文本太长，请缩小所选剧本行段。": "The request is too large. Select a shorter script excerpt.",
         }
         return labels.get(message, translate(self.window, message)) if self.english else message

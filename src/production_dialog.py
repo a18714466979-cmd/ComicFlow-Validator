@@ -12,10 +12,12 @@ from PIL import Image, ImageTk
 
 from .ui_language import translate
 from .asset_registry import AssetRegistry, sha256_file
+from .production_drafting import SD2_TASK, SHOT_TASK
 from .production_export import (
     chinese_text_records, preview_chinese_layout, preview_project, project_registry, publish_project,
     render_dialogue, write_chinese_layout, write_chinese_texts,
 )
+from .production_flow import asset_shot_context, shot_sources
 from .production_project import ACTIONS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
 from .production_rules import CHINESE, DELIVERY_TARGET, ENGLISH, RULE_LABELS
 from .shot_review_dialog import open_shot_review
@@ -90,7 +92,7 @@ class ProductionDialog:
             guides, ("对白与分镜起草", self.open_drafting),
             ("图像制片", self.open_image_production),
             ("排版与交接", self.open_layout),
-            ("写提示词", lambda: self.open_drafting(prompts=True)),
+            ("写提示词", lambda: self.open_drafting(task=SD2_TASK)),
             ("复核与打包", lambda: self.tabs.select(3)),
         )
         ttk.Label(self.window, text=translate(self.window, DELIVERY_TARGET), padding=(10, 0, 10, 5)).pack(anchor="w")
@@ -168,6 +170,13 @@ class ProductionDialog:
         bar.pack(fill="x", pady=(0, 8))
         self.buttons(bar, ("导入批准剧本", self.import_source), ("插入镜头", lambda: self.edit_shot(insert=True)), ("编辑镜头", self.edit_shot),
                      ("上移", lambda: self.move(-1)), ("下移", lambda: self.move(1)), ("删除镜头", self.remove_shot))
+        flow = ttk.Frame(page)
+        flow.pack(fill="x", pady=(0, 8))
+        self.buttons(flow, ("AI 拆分镜", lambda: self.open_drafting(task=SHOT_TASK)),
+                     ("下一步：分析资产", self.open_assets_for_shots))
+        self.shot_source = tk.StringVar(page)
+        ttk.Label(page, textvariable=self.shot_source, wraplength=740).pack(anchor="w", pady=(0, 6))
+        self.source.bind("<<ComboboxSelected>>", lambda _event: self.show_shot_source())
         self.shots = self.table(page, ("镜号", "源段", "净板文件", "对白 ID"), (85, 265, 240, 140))
         self.shots.bind("<Double-1>", lambda _event: self.guarded(self.edit_shot))
         ttk.Label(page, text=translate(page, "镜号和净板局部号按播放顺序生成。移动或插入后，在复核窗口重新核对故事板格与场景图的局部标签。")).pack(anchor="w", pady=(8, 0))
@@ -284,7 +293,7 @@ class ProductionDialog:
             path = Path(value)
             self.load(ProductionProject.open(path), path)
 
-    def load(self, project, path):
+    def load(self, project, path, *, source_id=""):
         self.project, self.path, self.previewed = project, path, None
         self.show_rules(project.rules)
         self.on_rules_changed(project.rules)
@@ -298,7 +307,7 @@ class ProductionDialog:
         for index in range(3):
             self.tabs.tab(index, state="normal")
         self.tabs.select(0)
-        self.refresh_sources()
+        self.refresh_sources(source_id)
         self.refresh()
         if project_registry(path).is_file():
             self.registry.set(str(project_registry(path)))
@@ -310,7 +319,7 @@ class ProductionDialog:
             self.open_layout()
         elif destination == "prompts":
             self.tabs.select(1)
-            self.open_drafting(prompts=True)
+            self.open_drafting(task=SD2_TASK)
         elif destination in {"generate_assets", "generate_board"}:
             self.tabs.select(2)
             self.open_image_production(kind="故事板" if destination == "generate_board" else "角色")
@@ -325,12 +334,19 @@ class ProductionDialog:
         else:
             self.tabs.select({"group": 0, "shots": 1, "assets": 2}[destination])
 
-    def refresh_sources(self):
-        self.source["values"] = tuple(f"{source.name} · {source.version}" for source in self.project.sources)
-        if self.project.sources:
-            self.source.current(len(self.project.sources) - 1)
+    def refresh_sources(self, preferred=""):
+        sources = self.project.sources
+        self.source["values"] = tuple(f"{source.name} · {source.version}" for source in sources)
+        if sources:
+            index = next((i for i, source in enumerate(sources) if source.id == preferred), len(sources) - 1)
+            self.source.current(index)
         else:
             self.source.set("")
+        self.show_shot_source()
+
+    def show_shot_source(self):
+        caption = translate(self.window, "当前分镜源稿") if self.source.get() else translate(self.window, "分镜前请导入批准剧本。")
+        self.shot_source.set(f"{caption} · {self.source.get()}" if self.source.get() else caption)
 
     def current_source(self):
         index = self.source.current()
@@ -345,8 +361,7 @@ class ProductionDialog:
             if version is not None:
                 path = Path(value)
                 source = self.project.import_source(path.name, version, path.read_text(encoding="utf-8-sig"))
-                self.refresh_sources()
-                self.source.current(self.project.sources.index(source))
+                self.refresh_sources(source.id)
 
     def show_text(self, title, content):
         dialog = tk.Toplevel(self.window)
@@ -404,11 +419,64 @@ class ProductionDialog:
         self.window.wait_window(dialog)
         self.window.grab_set()
 
-    def open_drafting(self, *, prompts=False):
+    def open_drafting(self, *, task=None):
         from .drafting_dialog import DraftingDialog
 
         self.save()
-        self.wait(DraftingDialog(self, self.text_session, prompts=prompts).window)
+        self.wait(DraftingDialog(self, self.text_session, start_task=task).window)
+
+    def open_assets_for_shots(self, *, owner=None, preferred_source=""):
+        from .storyboard_planning_dialog import open_storyboard_planning
+
+        if not self.project.shots:
+            raise ValueError("请先插入或采纳分镜，再分析本组资产。")
+        if owner is None:
+            owner = self.window
+            if self.shots.selection():
+                preferred_source = self.project.shots[self.shots.index(self.shots.selection()[0])].source
+        sources = shot_sources(self.project)
+        if len(sources) == 1:
+            source = sources[0]
+        else:
+            source = self.select_asset_source(owner, sources, preferred_source)
+            if source is None:
+                return
+        self.save()
+        planner = open_storyboard_planning(owner, self.text_session, task="assets", approved_script=source.text,
+                                           approved_title=f"{source.name} · {source.version}", rules=self.rules,
+                                           shot_context=asset_shot_context(self.project, source))
+        owner.wait_window(planner.window)
+        owner.grab_set()
+
+    def select_asset_source(self, owner, sources, preferred):
+        panel = tk.Toplevel(owner)
+        title = translate(panel, "选择资产分析使用的剧本版本")
+        panel.title(title)
+        panel.transient(owner)
+        form = ttk.Frame(panel, padding=12)
+        form.pack(fill="both", expand=True)
+        ttk.Label(form, text=translate(panel, "本组镜头引用多个剧本版本。每次仅分析同一版本及其镜头。"),
+                  wraplength=450).pack(anchor="w", pady=(0, 7))
+        count_label = translate(panel, "{count} 镜")
+        choices = tuple(f"{source.name} · {source.version} · " + count_label.format(
+            count=sum(shot.source == source.id for shot in self.project.shots),
+        ) for source in sources)
+        chooser = ttk.Combobox(form, values=choices, state="readonly", width=50)
+        chooser.current(next((index for index, source in enumerate(sources) if source.id == preferred), 0))
+        chooser.pack(fill="x", pady=(0, 7))
+        selection = []
+
+        def accept():
+            selection.append(sources[chooser.current()])
+            panel.destroy()
+
+        bar = ttk.Frame(form)
+        bar.pack(fill="x")
+        self.buttons(bar, ("分析所选版本", accept), ("取消", panel.destroy))
+        panel.grab_set()
+        owner.wait_window(panel)
+        owner.grab_set()
+        return selection[0] if selection else None
 
     def open_image_production(self, *, kind="角色", reference_id="", reference_kind=""):
         from .image_production_dialog import ImageProductionDialog
@@ -744,12 +812,13 @@ class ProductionDialog:
 
 
 def open_production_dialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed,
-                           initial_project=None, *, initial_action=None, destination="group"):
+                           initial_project=None, *, initial_action=None, destination="group",
+                           loaded_project=None, source_id=""):
     dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)
 
     def open_at_destination():
         if initial_project is not None:
-            dialog.load(ProductionProject.open(initial_project), initial_project)
+            dialog.load(loaded_project or ProductionProject.open(initial_project), initial_project, source_id=source_id)
         elif initial_action == "new":
             dialog.create()
         elif initial_action == "open":
@@ -761,3 +830,4 @@ def open_production_dialog(parent, validators, registry, text_session, image_ses
 
     if initial_project is not None or initial_action:
         dialog.window.after_idle(lambda: dialog.guarded(open_at_destination))
+    return dialog

@@ -75,6 +75,8 @@ def build_production_page(page, label_text, callbacks):
     existing = button(shortcuts, "打开项目", "open")
     new.pack(side="left", padx=(4, 0))
     existing.pack(side="left", padx=6)
+    label_text(tk.Label(shortcuts, bg=BACKGROUND, fg=MUTED, anchor="w", justify="left", wraplength=490),
+               "剧本 → 分镜 → 资产可接续制作，也可以从本地文件单独开始。").pack(side="left", padx=(8, 0))
 
     steps = (
         ("剧本创作", "从构思写到剧本草稿，可本地编辑或请文本模型协助。", "script"),
