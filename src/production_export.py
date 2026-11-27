@@ -7,8 +7,10 @@ from shutil import copyfile
 from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
-from .production_dialogue import handoff_rows, validated_scope
+from .production_dialogue import handoff_rows
+from .production_handoff import active_scope, adjacent, pending_record, reviewed_boundary
 from .production_images import provenance_rows
+from .production_layout import mark_ledger, windows_for_shots
 from .production_project import GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import IMAGE_LIMIT, plan_dialogue
@@ -40,7 +42,7 @@ def format_fields(values: dict[str, str], fields: tuple[str, ...], optional=()) 
 
 def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tuple[list[tuple[str, str, str]], str, int]:
     if scope is None:
-        scope = validated_scope(project, planner)
+        scope = active_scope(project, planner)
     lines = {line.id: line for line in project.lines}
     next_offset = {}
     items, output, ledger = [], [], []
@@ -81,7 +83,7 @@ def render_dialogue(project: ProductionProject, planner: Path, scope=None) -> tu
 
 
 def build_delivery(project: ProductionProject, project_path: Path, folder: Path, validator: Path,
-                   registry_path: Path) -> None:
+                   registry_path: Path, *, write_root=True):
     project.check_identity()
     if not project.name.strip() or not project.episode.strip() or not project.sources or not project.shots:
         raise ValueError("完整组需要项目名、集次、批准剧本和镜头。")
@@ -89,19 +91,23 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     if len(images) > IMAGE_LIMIT:
         raise ValueError(f"本组将交付 {len(images)} 张 PNG，超过九图上限。")
     storyboard_files = [image for image in images if "storyboard" in image.filename.lower()]
+    windows = windows_for_shots(project)
     if len(storyboard_files) != 1 or not re.search(rf"(?<!\d){len(project.shots)}panel", storyboard_files[0].filename, re.I):
         raise ValueError("请导入一张格数与镜头清单一致的正式故事板，文件名包含实际格数，如 storyboard_8panel。")
 
     planner = validator.with_name("plan_english_dialogue.py")
-    scope = validated_scope(project, planner)
+    scope = active_scope(project, planner)
     dialogues, dialogue_ledger, _ = render_dialogue(project, planner, scope)
-    cross_rows, pending = handoff_rows(project, scope)
+    cross_rows, _ = handoff_rows(project, scope)
+    pending = pending_record(project, scope)
     sources = {source.id: source for source in project.sources}
     assets = {image.id: image for image in images}
     group_id = project.group
     notes = dict(project.notes)
     if pending and notes.get("分组状态") == "整集尾组":
-        raise ValueError("仍有跨组对白待续，请核对分组状态。")
+        raise ValueError("仍有待制作镜头或对白，请核对分组状态。")
+    if windows and (marks := mark_ledger(project)) != "无":
+        notes["动作辅助标注"] = marks
     if not notes.get("图片预算核对", "").strip():
         notes["图片预算核对"] = "；".join(f"{stage}={len(images)}" for stage in ("初始", "道具后", "配角后", "主角后", "场景后", "最终")) + "；说明=以本组导入的批准交付图为准，本次输出保持图像文件张数。"
     if not notes.get("资产清单", "").strip():
@@ -115,7 +121,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     common = dict(project.prompt)
     common["公共限制"] = (common.get("公共限制", "").strip() + " " + MARKS).strip()
     sd2 = [f"分组：{group_id}\n视频上色约束：{COLOR}\n视频文字约束：{LANGUAGE}", format_fields(common, PROMPT_FIELDS)]
-    plate_rows, shot_rows = [], []
+    plate_rows, shot_rows, window_rows = [], [], []
     for number, (shot, dialogue) in enumerate(zip(project.shots, dialogues), 1):
         name = f"{group_id}-{number:02d}"
         if shot.source not in sources or not shot.anchor.strip() or any(char in shot.anchor for char in "|\n\r"):
@@ -144,6 +150,13 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
                   "本镜必要限制": fields["视频模型约束"]}
         sd2.append(f"分镜编号：{name}\n" + format_fields(prompt, tuple(prompt)))
         shot_rows.append(f"- {name} | {shot.id} | {sources[shot.source].name} {sources[shot.source].version} | {shot.anchor} | 局部{number:02d}")
+        if windows:
+            board, board_box = windows[shot.id]["board"]
+            _, plate_box = windows[shot.id]["plate"]
+            if board.id != storyboard_files[0].id:
+                raise ValueError("板格坐标未绑定当前交付故事板。")
+            board_position, plate_position = (",".join(map(str, box)) for box in (board_box, plate_box))
+            window_rows.append(f"- {name} | {board.filename} | {board_position} | {plate.filename} | {plate_position}")
 
     registry = AssetRegistry(registry_path, create=True)
     references = {}
@@ -179,20 +192,25 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     jobs = provenance_rows(project, images)
     if jobs:
         production.append("图像生成和返修来源：\n" + "\n".join(jobs))
+    if window_rows:
+        production.append("实际画面窗口：\n" + "\n".join(window_rows))
     (group_folder / f"{group_id}_shot_details.txt").write_text("\n\n".join(production) + "\n", encoding="utf-8-sig")
     (group_folder / "SD2_prompt.txt").write_text("\n\n".join(sd2) + "\n", encoding="utf-8-sig")
-    (folder / "README.txt").write_text(
+    readme = (
         f"{project.name} · {project.episode}\n制作规则：{project.rules}\n组号：{group_id}\n"
         f"镜头数：{len(project.shots)}\n图片数：{len(images)}\n本组进入状态：{notes['本组进入状态']}\n"
-        f"本组退出状态：{notes['本组退出状态']}\n镜头与来源：\n" + "\n".join(shot_rows) + "\n",
-        encoding="utf-8-sig",
+        f"本组退出状态：{notes['本组退出状态']}\n镜头与来源：\n" + "\n".join(shot_rows) + "\n"
     )
+    if write_root:
+        write_summary(folder, readme, pending, len(project.pending_shots))
+    return readme, pending
+
+
+def write_summary(folder, summary, pending, count):
     if pending:
-        (folder / "待制作分镜.txt").write_text(
-            f"本组 {group_id} 退出状态：{notes['本组退出状态']}\n"
-            "下组承接以上状态，继续分配以下批准对白。\n"
-            + "\n".join(pending) + "\n", encoding="utf-8-sig",
-        )
+        summary += f"\n待制作镜头数：{count}\n未完成内容见顶层待制作分镜.txt，下一批优先接续。\n"
+        (folder / "待制作分镜.txt").write_text(pending, encoding="utf-8-sig")
+    (folder / "README.txt").write_text(summary, encoding="utf-8-sig")
 
 
 def project_registry(project_path: Path) -> Path:
@@ -216,3 +234,30 @@ def publish_project(project: ProductionProject, project_path: Path, validator: P
         folder, registry = sidecar / "delivery", project_registry(project_path)
         build_delivery(project, project_path, folder, validator, registry)
         return pack_repair(folder, output, validator, baseline, registry, panel_exception)
+
+
+def build_batch(groups, folder, validator, registry):
+    summaries, boundaries = [], []
+    for index, (project, path) in enumerate(groups):
+        if index:
+            previous = groups[index - 1][0]
+            adjacent(previous, project)
+            if reviewed_boundary(previous, project):
+                boundaries.append(f"{previous.group} → {project.group}\n{previous.handoffs[project.group]['review']}")
+        summary, pending = build_delivery(project, path, folder, validator, registry, write_root=False)
+        summaries.append(summary)
+    if boundaries:
+        summaries.extend(("跨组交接记录\n", *boundaries))
+    write_summary(folder, "\n\n".join(summaries).rstrip() + "\n", pending, len(groups[-1][0].pending_shots))
+
+
+def publish_batch(groups, validator, output, baseline=None):
+    if len(groups) < 2 or any(project.impacts() for project, _ in groups):
+        raise ValueError("请先逐格复核并确认每个待交付的组。")
+    if any(not reviewed_boundary(left, right) for (left, _), (right, _) in zip(groups, groups[1:])):
+        raise ValueError("请确认当前版本的每处相邻组交接。")
+    with TemporaryDirectory(prefix="comicflow-batch-") as temporary:
+        folder = Path(temporary) / "delivery"
+        registry = project_registry(groups[0][1])
+        build_batch(groups, folder, validator, registry)
+        return pack_repair(folder, output, validator, baseline, registry)

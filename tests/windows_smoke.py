@@ -170,6 +170,11 @@ def run_inside_launcher():
                 saved = ProductionProject.open(project_path)
                 assert len(saved.image_jobs) == len(saved.images) == 1
                 assert saved.image_jobs[0]["status"] == "approved"
+                self.after(50, lambda: self.inspect_layout_dialog(dialog))
+                click(dialog, "排版与交接")
+                restored = ProductionProject.open(project_path)
+                assert len(restored.shots) == 1 and not restored.pending_shots
+                assert restored.shots[0].id == saved.shots[0].id
                 dialog.destroy()
             finally:
                 filedialog.askopenfilename = original
@@ -208,6 +213,21 @@ def run_inside_launcher():
             label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0].insert(0, "synthetic")
             click(dialog, "确认并提交生图")
             self.after(100, lambda: self.inspect_candidate(dialog))
+
+        def inspect_layout_dialog(self, production):
+            from src.production_project import ProductionProject
+
+            dialog = next(walk(production, tk.Toplevel))
+            tabs = next(walk(dialog, ttk.Notebook))
+            assert [tabs.tab(index, "text") for index in range(2)] == ["16:9 排版", "相邻组交接"]
+            table = next(walk(dialog, ttk.Treeview))
+            table.selection_set(table.get_children()[0])
+            tabs.select(1)
+            click(dialog, "暂存所选及后续镜头")
+            saved = ProductionProject.open(project_path)
+            assert len(saved.pending_shots) == 1 and not saved.shots
+            click(dialog, "恢复本组待制作")
+            dialog.destroy()
 
         def inspect_candidate(self, dialog):
             from src.production_project import ProductionProject

@@ -124,6 +124,9 @@ class ProductionProject:
     previous_group: str = ""
     text_drafts: list[dict] = field(default_factory=list)
     image_jobs: list[dict] = field(default_factory=list)
+    layout: dict = field(default_factory=dict)
+    pending_shots: list[Shot] = field(default_factory=list)
+    handoffs: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def open(cls, path: Path):
@@ -134,6 +137,7 @@ class ProductionProject:
         payload["lines"] = [ApprovedLine(**{**item, "sentence_ends": tuple(item.get("sentence_ends", ()))})
                             for item in payload.get("lines", [])]
         payload["shots"] = [Shot(**item) for item in payload.get("shots", [])]
+        payload["pending_shots"] = [Shot(**item) for item in payload.get("pending_shots", [])]
         payload["images"] = [ProjectImage(**item) for item in payload.get("images", [])]
         project = cls(**payload)
         project.check_identity()
@@ -144,7 +148,7 @@ class ProductionProject:
             raise ValueError("组号请使用 SB01 这类格式。")
         if any(char in self.name + self.episode for char in "|\r\n"):
             raise ValueError("项目名和集次需要使用单行文本。")
-        for label, records in (("镜头", self.shots), ("对白", self.lines), ("剧本", self.sources), ("图像", self.images)):
+        for label, records in (("镜头", self.shots + self.pending_shots), ("对白", self.lines), ("剧本", self.sources), ("图像", self.images)):
             ids = [item.id for item in records]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"项目有重复的{label} ID。")
@@ -199,7 +203,7 @@ class ProductionProject:
             updated[line.id] = supplied[line.id]
         if replace_source_lines:
             removed = {item.id for item in self.lines if item.source == source.id} - supplied.keys()
-            if any(identity in removed for shot in self.shots for identity, _, _ in shot.dialogue):
+            if any(identity in removed for shot in self.shots + self.pending_shots for identity, _, _ in shot.dialogue):
                 raise ValueError("请先移除镜头里对这些对白 ID 的引用，再更新本组对白清单。")
             for identity in removed:
                 del updated[identity]
@@ -278,6 +282,10 @@ class ProductionProject:
         payload = asdict(self)
         del payload["structure_review"]
         del payload["text_drafts"]
+        del payload["handoffs"]
+        for key in ("layout", "pending_shots"):
+            if not payload[key]:
+                del payload[key]
         jobs = payload.pop("image_jobs")
         published = [job for job in jobs if job.get("approved_image")]
         if published:
@@ -297,4 +305,5 @@ class ProductionProject:
         linked = {shot.plate for shot in self.shots}
         media = [image.filename for image in self.images if not image.reference_only
                  and ("storyboard" in image.filename.lower() or image.id in linked)]
-        return (*media, f"{self.group}_shot_details.txt", "SD2_prompt.txt", "README.txt")
+        deferred = ("待制作分镜.txt",) if self.pending_shots else ()
+        return (*media, f"{self.group}_shot_details.txt", "SD2_prompt.txt", "README.txt", *deferred)

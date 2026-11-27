@@ -33,6 +33,8 @@ class ShotReview:
     sd2: str
     plate: PlateReference | None
     notices: tuple[str, ...]
+    board_box: tuple[int, int, int, int] | None = None
+    plate_box: tuple[int, int, int, int] | None = None
 
 
 def shot_id(value: str, group: str) -> str:
@@ -107,6 +109,7 @@ def load_shots(result: ReviewResult) -> list[ShotReview]:
         source = shot_sections(production, "production", group)
         prompts = shot_sections(sd2, "sd2", group)
         plates = plate_references(production, group)
+        windows = image_windows(production, group)
         for identity in dict.fromkeys([*source, *prompts]):
             warnings = list(notices)
             source_rows = source.get(identity, [])
@@ -120,10 +123,39 @@ def load_shots(result: ReviewResult) -> list[ShotReview]:
                 warnings.append("该镜未找到唯一的净板对应关系。")
             elif plate.filename not in files or PurePosixPath(plate.filename).suffix.lower() not in IMAGE_SUFFIXES:
                 warnings.append(f"净板文件未在本组图像中找到：{plate.filename}")
+            board_box = plate_box = None
+            matches = windows.get(identity, ())
+            if len(matches) == 1 and plate and storyboard:
+                board, board_position, clean, plate_position = matches[0]
+                if storyboard == f"{folder}/{board}" and plate.filename == clean:
+                    board_box, plate_box = board_position, plate_position
+            if "实际画面窗口：" in production and not board_box:
+                warnings.append("该镜缺少与正式文件一致的窗口坐标。")
             shots.append(ShotReview(folder, identity, storyboard,
                                     source_rows[0] if len(source_rows) == 1 else "",
-                                    prompt_rows[0] if len(prompt_rows) == 1 else "", plate, tuple(warnings)))
+                                    prompt_rows[0] if len(prompt_rows) == 1 else "", plate, tuple(warnings),
+                                    board_box, plate_box))
     return shots
+
+
+def image_windows(text, group):
+    match = re.search(r"^实际画面窗口[ \t]*[：:][ \t]*$", text, re.MULTILINE)
+    found = defaultdict(list)
+    if not match:
+        return found
+    for row in text[match.end():].strip().splitlines():
+        if not row.startswith("- "):
+            break
+        cells = [part.strip() for part in row[2:].split("|")]
+        if len(cells) != 5:
+            continue
+        identity, board, a, clean, b = cells
+        if not all(re.fullmatch(r"\d{1,8}(?:,\d{1,8}){3}", part) for part in (a, b)):
+            continue
+        boxes = [tuple(map(int, part.split(","))) for part in (a, b)]
+        if all(x < right and y < bottom and (right - x) * 9 == (bottom - y) * 16 for x, y, right, bottom in boxes):
+            found[shot_id(identity, group)].append((board, boxes[0], clean, boxes[1]))
+    return found
 
 
 def shot_summary(shot: ShotReview) -> str:

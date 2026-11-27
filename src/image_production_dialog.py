@@ -492,44 +492,60 @@ class ImageProductionDialog:
         self.wait(panel)
 
     def select_rectangle(self, path: Path, title: str):
-        panel = tk.Toplevel(self.window)
-        panel.title(title)
-        panel.transient(self.window)
-        selected, pressed = [], []
-        canvas, size, fitted, selection = display_picture(panel, path, zoom=False)
+        return select_image_region(self.window, path, title)
 
-        def begin(event):
-            pressed[:] = [(event.x, event.y)]
+
+def select_image_region(parent, path, title, *, direction=False):
+    panel = tk.Toplevel(parent)
+    panel.title(title)
+    panel.transient(parent)
+    canvas, size, fitted, _ = display_picture(panel, path, zoom=False)
+    selected = None
+    result = []
+    start = None
+    controls = ttk.Frame(panel, padding=7)
+    controls.pack(fill="x")
+    status = tk.StringVar(panel, "从起点拖至终点。" if direction else "拖动框选对应的像素范围。")
+    ttk.Label(controls, textvariable=status).pack(side="left")
+
+    def begin(event):
+        nonlocal start, selected
+        start, selected = (event.x, event.y), None
+        canvas.delete("selection")
+
+    def drag(event):
+        if start:
             canvas.delete("selection")
+            coords = (*start, event.x, event.y)
+            if direction:
+                canvas.create_line(*coords, arrow="last", fill="#ffd34e", width=2, tags="selection")
+            else:
+                canvas.create_rectangle(*coords, outline="#ffd34e", width=2, tags="selection")
 
-        def drag(event):
-            if pressed:
-                canvas.delete("selection")
-                canvas.create_rectangle(*pressed[0], event.x, event.y, outline="#ffd34e", width=2, tags="selection")
+    def finish(event):
+        nonlocal start, selected
+        if start:
+            end = event.x, event.y
+            if direction:
+                selected = tuple((round(x * size[0] / fitted[0]), round(y * size[1] / fitted[1])) for x, y in (start, end))
+            else:
+                selected = pixel_selection(start, end, (0, 0, *fitted), size)
+            if selected:
+                status.set(f"已选 {selected}")
+            start = None
 
-        def mark(event):
-            selection.clear()
-            if pressed:
-                box = pixel_selection(pressed.pop(), (event.x, event.y), (0, 0, *fitted), size)
-                if box:
-                    selection.append(box)
-                    coords.set(f"已选 {box}")
+    def accept():
+        if selected:
+            result.append(selected)
+            panel.destroy()
 
-        def accept():
-            if selection:
-                selected.extend(selection)
-                panel.destroy()
-
-        canvas.bind("<ButtonPress-1>", begin)
-        canvas.bind("<B1-Motion>", drag)
-        canvas.bind("<ButtonRelease-1>", mark)
-        controls = ttk.Frame(panel, padding=7)
-        controls.pack(fill="x")
-        coords = tk.StringVar(panel, "拖动框选对应的像素范围。")
-        ttk.Label(controls, textvariable=coords).pack(side="left")
-        ttk.Button(controls, text="确定选区", command=accept).pack(side="right")
-        self.wait(panel)
-        return selected[0] if selected else None
+    for event, action in (("<ButtonPress-1>", begin), ("<B1-Motion>", drag), ("<ButtonRelease-1>", finish)):
+        canvas.bind(event, action)
+    ttk.Button(controls, text="确定选区", command=accept).pack(side="right")
+    panel.grab_set()
+    parent.wait_window(panel)
+    parent.grab_set()
+    return result[0] if result else None
 
 
 def display_picture(parent, path, *, zoom=True):

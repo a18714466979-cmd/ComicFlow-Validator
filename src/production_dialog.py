@@ -79,6 +79,7 @@ class ProductionDialog:
         self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open), ("保存项目", self.save))
         self.buttons(top, ("文本制片", self.open_drafting))
         self.buttons(top, ("图像制片", self.open_image_production))
+        self.buttons(top, ("排版与交接", self.open_layout))
         self.status = tk.StringVar(self.window, "新建或打开项目后开始。")
         ttk.Label(top, textvariable=self.status).pack(side="left", padx=8)
         self.tabs = ttk.Notebook(self.window)
@@ -338,6 +339,12 @@ class ProductionDialog:
 
         self.save()
         self.wait(ImageProductionDialog(self, self.image_session).window)
+
+    def open_layout(self):
+        from .layout_dialog import LayoutDialog
+
+        self.save()
+        self.wait(LayoutDialog(self).window)
 
     def refresh(self):
         self.shots.delete(*self.shots.get_children())

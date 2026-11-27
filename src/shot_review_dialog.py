@@ -8,6 +8,7 @@ from zipfile import BadZipFile
 
 from PIL import Image, ImageTk
 
+from .production_layout import valid_box
 from .shot_review import load_shots, pixel_selection, shot_id, shot_summary
 from .storyboard_review import ReviewResult, read_preview
 
@@ -30,6 +31,7 @@ class ImagePane(ttk.LabelFrame):
         self.path = None
         self.key = None
         self.regions = {}
+        self.auto_region = None
         self.zoomed = False
         self.image_bounds = None
         self.drag_start = None
@@ -49,7 +51,7 @@ class ImagePane(ttk.LabelFrame):
         self.toggle_button = ttk.Button(tools, text="显示整图", command=self.toggle)
         self.toggle_button.pack(side="right")
 
-    def show(self, key: tuple[str, str], path: str | None, notice: str) -> None:
+    def show(self, key: tuple[str, str], path: str | None, notice: str, region=None) -> None:
         self.key = key
         self.notice = notice
         if path != self.path:
@@ -60,7 +62,8 @@ class ImagePane(ttk.LabelFrame):
                     self.image = read_image(self.result, path)
                 except (OSError, ValueError, BadZipFile) as exc:
                     self.notice = f"无法预览：{exc}"
-        self.zoomed = key in self.regions and self.image is not None
+        self.auto_region = region if self.image and valid_box(region, self.image.size) else None
+        self.zoomed = bool(self.image and (key in self.regions or self.auto_region))
         self.draw()
 
     def toggle(self) -> None:
@@ -73,9 +76,9 @@ class ImagePane(ttk.LabelFrame):
         self.photo = None
         width = max(20, self.canvas.winfo_width())
         height = max(20, self.canvas.winfo_height())
-        region = self.regions.get(self.key)
+        region = self.regions.get(self.key) or self.auto_region
         self.toggle_button.configure(state="normal" if region and self.image else "disabled",
-                                     text="显示整图" if self.zoomed else "查看已框选区域")
+                                     text="显示整图" if self.zoomed else "查看本镜窗口")
         if self.image is None:
             self.mode.configure(text="无可预览图像")
             self.canvas.create_text(width / 2, height / 2, text=self.notice, width=max(15, width - 30), fill="white")
@@ -88,7 +91,8 @@ class ImagePane(ttk.LabelFrame):
         left, top = (width - size[0]) // 2, (height - size[1]) // 2
         self.canvas.create_image(left, top, anchor="nw", image=self.photo)
         self.image_bounds = (left, top, *size)
-        self.mode.configure(text="手动框选 · 局部预览" if self.zoomed else "整图预览 · 拖动框选核对区域")
+        title = "手动框选 · 局部预览" if self.key in self.regions else "包内坐标 · 本镜窗口"
+        self.mode.configure(text=title if self.zoomed else "整图预览 · 拖动框选核对区域")
 
     def begin_selection(self, event) -> None:
         if self.image_bounds is None or self.zoomed:
@@ -176,7 +180,7 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
             image = board.image if board.path == path and board.image is not None else read_image(result, path)
         except (OSError, ValueError, BadZipFile):
             return None
-        preview = image.crop(region) if region else image.copy()
+        preview = image.crop(region) if valid_box(region, image.size) else image.copy()
         preview.thumbnail((144, 81), Image.Resampling.LANCZOS)
         return ImageTk.PhotoImage(preview, master=window)
 
@@ -189,8 +193,8 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
         plate_path = f"{row.group}/{reference.filename}" if reference else None
         plate_details.configure(text=(f"{reference.slot} · {reference.scene} · {reference.filename} · {reference.description}"
                                      if reference else "该镜暂无唯一净板对应。"))
-        board.show(key, row.storyboard, "未找到唯一故事板")
-        plate.show(key, plate_path, "净板缺失或对应关系不明确")
+        board.show(key, row.storyboard, "未找到唯一故事板", row.board_box)
+        plate.show(key, plate_path, "净板缺失或对应关系不明确", row.plate_box)
         for pane, text in zip(text_panes, (row.production, row.sd2)):
             pane.configure(state="normal")
             pane.delete("1.0", "end")
@@ -199,12 +203,13 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
         for label, neighbor in zip(neighbor_labels, (index - 1, index + 1)):
             if 0 <= neighbor < len(shots):
                 other = shots[neighbor]
-                region = board.regions.get((other.group, other.shot))
+                manual = board.regions.get((other.group, other.shot))
+                region = manual or other.board_box
                 thumbnail = neighbor_thumbnail(other.storyboard, region)
                 summary = shot_summary(other)
                 if len(summary) > 110:
                     summary = summary[:110] + "…"
-                image_label = " · 已框选" if region else " · 整板" if thumbnail else ""
+                image_label = " · 已框选" if manual else " · 镜头窗口" if region else " · 整板" if thumbnail else ""
                 label.configure(text=f"{other.shot}{image_label}\n{summary}", image=thumbnail or "")
                 label.photo = thumbnail
             else:

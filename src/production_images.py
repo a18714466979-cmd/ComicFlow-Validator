@@ -2,6 +2,7 @@
 
 import json
 import re
+from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -14,6 +15,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageOps
 from .asset_registry import sha256_file
 from .image_api import EDIT, REFERENCE, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES, IMAGE_PROVIDERS, ImageReply, ImageSettings, build_image_request
 from .production_project import ProductionProject, checked_name, identifier
+from .production_layout import replace_laid_out_asset
 from .storyboard_preflight import IMAGE_LIMIT
 
 
@@ -298,6 +300,7 @@ def approve_candidate(project: ProductionProject, project_path: Path, job: dict,
         raise ValueError("本组已有正式故事板，可按批准原图走局部返修，或先处理旧图绑定。")
 
     images = project.images[:]
+    layout = deepcopy(project.layout)
     bindings = [shot.plate for shot in project.shots]
     previous_job = job.copy()
     try:
@@ -311,6 +314,7 @@ def approve_candidate(project: ProductionProject, project_path: Path, job: dict,
             origin_label=f"AI {job['provider']} / {job['model']} / {job['id']}",
         )
         if replace_original:
+            replace_laid_out_asset(project, base_image, asset, job["box"])
             for shot in project.shots:
                 if shot.plate == base_image.id:
                     shot.plate = asset.id
@@ -320,6 +324,7 @@ def approve_candidate(project: ProductionProject, project_path: Path, job: dict,
         project.save(project_path)
     except Exception:
         project.images = images
+        project.layout = layout
         for shot, plate in zip(project.shots, bindings):
             shot.plate = plate
         job.clear()
