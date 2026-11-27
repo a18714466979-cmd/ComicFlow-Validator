@@ -14,6 +14,8 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk
 
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
+from .vision import VisionSettings
+from .vision_dialog import open_vision_dialog
 
 
 def open_workbench(initial_zip: str) -> int:
@@ -39,6 +41,7 @@ def open_workbench(initial_zip: str) -> int:
     selected_issue: ReviewIssue | None = None
     results: Queue = Queue()
     image_preview = None
+    vision_session: dict[str, VisionSettings] = {}
 
     tabs = ttk.Notebook(window)
     issues_tab = ttk.Frame(tabs, padding=8)
@@ -66,12 +69,28 @@ def open_workbench(initial_zip: str) -> int:
 
     location = ttk.Label(preview_frame, wraplength=760)
     location.pack(anchor="w", fill="x")
-    file_selector = ttk.Combobox(preview_frame, state="readonly")
-    file_selector.pack(fill="x", pady=6)
+    file_row = ttk.Frame(preview_frame)
+    file_row.pack(fill="x", pady=6)
+    file_selector = ttk.Combobox(file_row, state="readonly")
+    file_selector.pack(side="left", fill="x", expand=True)
     preview_text = scrolledtext.ScrolledText(preview_frame, height=9, wrap="word", state="disabled")
     preview_text.tag_configure("shot", background="#fce3a0", foreground="#1b1b1b")
     preview_text.pack(fill="both", expand=True)
     preview_image = ttk.Label(preview_frame, anchor="center")
+
+    def analyze_selected_image() -> None:
+        path = file_selector.get()
+        if result is None or path not in result.members or path.lower().endswith(".txt"):
+            return
+        try:
+            image = read_preview(result, path)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("图片无法分析", str(exc), parent=window)
+            return
+        open_vision_dialog(window, path, image, vision_session)
+
+    analyze = ttk.Button(file_row, text="AI 辅助看图", command=analyze_selected_image, state="disabled")
+    analyze.pack(side="right", padx=(8, 0))
 
     def set_text(widget: scrolledtext.ScrolledText, value: str) -> None:
         widget.configure(state="normal")
@@ -81,6 +100,7 @@ def open_workbench(initial_zip: str) -> int:
 
     def show_preview() -> None:
         nonlocal image_preview
+        analyze.configure(state="disabled")
         preview_image.pack_forget()
         preview_image.configure(image="")
         image_preview = None
@@ -116,6 +136,7 @@ def open_workbench(initial_zip: str) -> int:
             preview_text.pack_forget()
             preview_image.configure(image=image_preview)
             preview_image.pack(expand=True, fill="both")
+            analyze.configure(state="normal")
         except Exception as exc:
             set_text(preview_text, f"无法预览 {path}\n{exc}")
 

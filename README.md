@@ -71,6 +71,8 @@ On Windows, install the requirements with the Python 3 interpreter used by the l
 
 For an approved extra-panel exception to the six-panel dialogue rule, pass `--panel-exception file.json` when validating a ZIP directly, or select the JSON in the launcher. The entry is tied to one ZIP SHA-256, one group such as `SB05`, its approved `panels` count (7–12), and a one-line `reason`. Only the matching six-panel-rule diagnostic is treated as an approved exception.
 
+For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图」. The menu offers 12 provider presets and custom OpenAI-compatible Chat Completions. Enter the vision model ID and API key. The HTTPS base address is configurable. The selected image and a review prompt are sent after confirmation. Images over 6 MiB are prepared as a compressed local copy before sending. Credentials stay in memory for the current session. AI suggestions stay separate from the local validation result.
+
 ---
 
 ## 简体中文
@@ -139,6 +141,12 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 
 常规长对白组确有获批的超六格例外时，直验 ZIP 可加 `--panel-exception 文件.json`，也可在启动器选择该 JSON。填写 `zip_sha256`（最终 ZIP 的小写 SHA-256）、`group`（如 `SB05`）、`panels`（批准的格数，7–12）和 `reason`（单行批准理由）。例外只适用于该 ZIP，该组及该条六格规则。
+
+### 可选 AI 辅助看图
+
+在窗口选择并预览一张 PNG、JPEG 或 WebP，点击「AI 辅助看图」。可选豆包（火山方舟）、千问（阿里云百炼）、Claude、OpenAI、Gemini、Kimi、GLM（智谱）、混元（腾讯云 TokenHub）、千帆（百度智能云）、硅基流动、OpenRouter、Grok 和自定义 OpenAI 兼容接口。
+
+填写支持图片输入的模型 ID 和该服务的 API Key，可按账号地域更换 HTTPS 基础地址。确认后仅发送选中图片和看图提示。超过 6 MiB 的预览图片会先在本机生成压缩副本，发送窗口会标明。Key 只保留在当前运行内存中，模型建议单独展示供人工复核，本地验收结论照常保留。
 
 ---
 
