@@ -589,21 +589,52 @@ def print_warnings(report: DeliveryReport) -> None:
 def run_storyboard_validator(
     script: Path, source: Path, archive: Path | None, allow_legacy: bool,
     review_missing_sources: bool, panel_exception: PanelException | None = None,
+    asset_registry: Path | None = None,
 ) -> int:
+    from .asset_registry import AssetRegistry, check_package_assets
+
     command = [sys.executable, str(script), str(source.resolve())]
     if archive is not None:
         command.extend(("--zip", str(archive)))
     if allow_legacy:
         command.append("--allow-legacy")
+    resolved, asset_errors = check_package_assets(source, AssetRegistry(asset_registry) if asset_registry else None)
     approved_error = panel_exception.diagnostic(archive, source) if panel_exception and archive else None
-    if not review_missing_sources and approved_error is None:
+    if not review_missing_sources and approved_error is None and not (asset_registry or asset_errors):
         return subprocess.run(command, check=False).returncode
 
     result = subprocess.run(
         command, check=False, capture_output=True, encoding="utf-8", errors="replace",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
+    if asset_registry or asset_errors:
+        result = reconcile_asset_report(result, resolved, asset_errors)
     return print_storyboard_review(result, review_missing_sources, panel_exception, approved_error)
+
+
+def reconcile_asset_report(
+    result: subprocess.CompletedProcess[str], resolved: set[str], asset_errors: list[str],
+) -> subprocess.CompletedProcess[str]:
+    lines = result.stdout.splitlines()
+    summaries = [line for line in lines if re.fullmatch(r"RESULT: \d+ error\(s\), \d+ warning\(s\)", line)]
+    def incompatible() -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(result.args, result.returncode or 1, result.stdout,
+                                           result.stderr + "资产登记核验未完成：校验脚本未返回完整报告。\n")
+
+    if result.stderr or result.returncode not in (0, 1) or len(summaries) != 1:
+        return incompatible()
+    errors = [line for line in lines if line.startswith("ERROR: ")]
+    warnings = [line for line in lines if line.startswith("WARNING: ")]
+    manual = [line for line in lines if line.startswith("MANUAL REVIEW STILL REQUIRED:")]
+    if len(lines) != len(errors) + len(warnings) + len(manual) + 1:
+        return incompatible()
+    if summaries[0] != f"RESULT: {len(errors)} error(s), {len(warnings)} warning(s)":
+        return incompatible()
+    remaining = [line for line in errors if line not in resolved] + asset_errors
+    output = [*warnings, *remaining, f"RESULT: {len(remaining)} error(s), {len(warnings)} warning(s)"]
+    if not remaining:
+        output.extend(manual or ["MANUAL REVIEW STILL REQUIRED: 仍须人工复核画面和镜头连续性。"])
+    return subprocess.CompletedProcess(result.args, int(bool(remaining)), "\n".join(output) + "\n", result.stderr)
 
 
 def print_storyboard_review(
@@ -691,6 +722,7 @@ def extract_storyboard_root(archive: Path, staging: Path) -> Path:
 def validate_storyboard_zip(
     source: Path, script: Path, rules: DeliveryRules, allow_legacy: bool,
     review_missing_sources: bool, panel_exception: PanelException | None,
+    asset_registry: Path | None = None,
 ) -> int:
     with TemporaryDirectory(prefix="comicflow-") as temporary:
         workspace = Path(temporary)
@@ -710,7 +742,7 @@ def validate_storyboard_zip(
             print_report(report)
             return 1
         print_warnings(report)
-        return run_storyboard_validator(script, root, snapshot, allow_legacy, review_missing_sources, panel_exception)
+        return run_storyboard_validator(script, root, snapshot, allow_legacy, review_missing_sources, panel_exception, asset_registry)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -735,13 +767,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--zip", type=Path, help="与故事板交付目录逐文件比对的最终 ZIP")
     parser.add_argument("--allow-legacy", action="store_true", help="按历史格式复核故事板包")
     parser.add_argument("--panel-exception", type=Path, help="本次 ZIP 适用的已批准单组格数例外 JSON")
+    parser.add_argument("--asset-registry", type=Path, help="可用于核对批准原图的本地资产登记库")
     parser.add_argument(
         "--review-missing-sources", action="store_true",
         help="把不可访问的复用原图标为未验证，只有此类问题时退出码为 3",
     )
     args = parser.parse_args(argv)
 
-    if args.storyboard_validator is None and (args.zip or args.allow_legacy or args.review_missing_sources or args.panel_exception):
+    if args.storyboard_validator is None and (args.zip or args.allow_legacy or args.review_missing_sources
+                                              or args.panel_exception or args.asset_registry):
         parser.error("故事板验收选项需要 --storyboard-validator")
 
     source = Path(args.source).expanduser()
@@ -761,6 +795,7 @@ def main(argv: list[str] | None = None) -> int:
                 return validate_storyboard_zip(
                     source, script, rules, args.allow_legacy, args.review_missing_sources,
                     PanelException.load(args.panel_exception) if args.panel_exception else None,
+                    args.asset_registry,
                 )
 
         report = validate_delivery(source, rules)
@@ -780,7 +815,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print_warnings(archive_report)
 
-        return run_storyboard_validator(script, source, archive, args.allow_legacy, args.review_missing_sources)
+        return run_storyboard_validator(script, source, archive, args.allow_legacy, args.review_missing_sources,
+                                        asset_registry=args.asset_registry)
     except Exception as exc:
         print(f"\n[验收失败] {type(exc).__name__}: {exc}")
         return 1

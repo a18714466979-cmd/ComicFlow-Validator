@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
 
+from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
@@ -35,6 +36,7 @@ def open_workbench(initial_zip: str) -> int:
         ("已批准格数例外（可选）", tk.StringVar(), ("JSON 例外文件", "*.json")),
     )
     review = tk.BooleanVar()
+    registry_path = tk.StringVar()
     status = tk.StringVar(value="请选择交付包和校验脚本。")
     result: ReviewResult | None = None
     workspace: TemporaryDirectory | None = None
@@ -229,6 +231,8 @@ def open_workbench(initial_zip: str) -> int:
             arguments.extend(("--panel-exception", str(exception.resolve())))
         if review.get():
             arguments.append("--review-missing-sources")
+        if registry_path.get().strip():
+            arguments.extend(("--asset-registry", str(Path(registry_path.get().strip()).expanduser().resolve())))
         if workspace:
             workspace.cleanup()
         workspace = TemporaryDirectory(prefix="comicflow-review-")
@@ -272,9 +276,12 @@ def open_workbench(initial_zip: str) -> int:
     start_button = ttk.Button(options, text="开始验收", command=start)
     start_button.grid(row=3, column=2, pady=6)
     ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=2, sticky="w", padx=12)
-    ttk.Button(options, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).grid(
-        row=4, column=2, sticky="e", pady=(0, 2),
-    )
+    actions = ttk.Frame(options)
+    actions.grid(row=4, column=2, sticky="e", pady=(0, 2))
+    ttk.Button(actions, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).pack(side="left")
+    ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(
+        window, registry_path, entries[1][1].get().strip(), result,
+    )).pack(side="left", padx=(5, 0))
     tabs.pack(expand=True, fill="both", padx=12, pady=(0, 12))
     window.protocol("WM_DELETE_WINDOW", close)
     try:

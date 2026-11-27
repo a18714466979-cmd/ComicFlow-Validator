@@ -77,6 +77,10 @@ Use 「生图前预检」 to count planned files against the nine-image upload l
 
 After checking a complete ZIP, use 「逐格复核」 to select a shot and compare its storyboard sheet, referenced clean plate and slot, production record, and SD2 prompt. The window shows neighboring storyboard thumbnails and action summaries and can step between groups. Drag over either image to zoom into the selected pane. Manual regions are kept per shot until the review window closes. Review is read-only and local.
 
+Use 「资产与返修」 to create or select a local asset database. Register approved originals by asset ID and version. A scan of a new directory can relink a renamed or moved file by exact SHA-256. New production records can use `asset:ID@version` in the reuse ledger. For old records, register the source path printed in the ledger as the original reference. The selected database is used in the workbench validator, or pass `--asset-registry` on the CLI.
+
+In 「返修打包」, enter a shot ID to see related files in the most recently checked ZIP. Select the repaired delivery directory, workflow validator, and a new ZIP path. The workbench validates the directory and ZIP, checks CRC and compares member hashes, then publishes a new file on success. If the original ZIP is available, the report also lists changed, added, and removed members. Approved exceptions tied to another ZIP digest require fresh approval.
+
 ---
 
 ## 简体中文
@@ -144,6 +148,11 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 3. 选择可信的故事板校验脚本，点击「开始验收」。可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填脚本路径。
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 5. 点「逐格复核」，按镜号查看故事板整图、对应的彩色净板和局部号，以及同镜的生产记录与 SD2 提示词。下方显示前后镜的缩略图和动作摘要，可点「上一镜／下一镜」跨组切换。拖动框选图片中的格子可放大对照。前后镜有框选时显示所选格，否则标为整板。框选范围按镜号保留到本次复核窗口关闭。复核不会改写交付包。
+
+### 资产登记和返修打包
+
+- 打开「资产与返修」，建一个本地 `.sqlite3` 资产登记库，填写批准原图、资产 ID 和版本。对旧包可在「原引用」填写生产记录里的旧路径。新版生产记录可使用 `asset:资产ID@版本`。换电脑时保留登记库，在新素材目录按 SHA-256 找回；同名异图或重新编码的图不会通过直接复用校验。选择过的登记库会供本次运行的验收使用，命令行也可传 `--asset-registry`。
+- 返修打包前，可先验收原 ZIP，再输入完整镜号查看故事板、所指向的净板、两份 TXT 和已有 README。修复实际文件后，选择返修目录和一个新的 ZIP 文件名。工具复验目录、ZIP CRC 和逐文件 SHA-256，验证通过后才发布，并列出相对原包修改、新增和删除的文件。界面可保存一份「问题—位置—修复—复验」报告。绑定旧包 SHA-256 的例外需要针对新包重新批准。
 
 常规长对白组确有获批的超六格例外时，直验 ZIP 可加 `--panel-exception 文件.json`，也可在启动器选择该 JSON。填写 `zip_sha256`（最终 ZIP 的小写 SHA-256）、`group`（如 `SB05`）、`panels`（批准的格数，7–12）和 `reason`（单行批准理由）。例外只适用于该 ZIP，该组及该条六格规则。
 
