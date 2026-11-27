@@ -17,13 +17,13 @@ ComicFlow Validator is an open-source desktop tool designed to help AI comic cre
 
 The goal is to reduce repetitive manual checks and improve the reliability of production workflows.
 
-### Planned Features
+### Current Checks
 
 - Image integrity and dimension checks
 - Aspect ratio validation
-- File naming and sequence checks
-- ZIP archive integrity and CRC validation
-- Automated validation reports
+- ZIP entry and CRC checks, with a SHA-256 digest from the archive checker
+- Directory and ZIP delivery reports with optional JSON rules for required files, directories, and extensions
+- Complete storyboard package validation through the installed workflow's validator
 
 ### Design Principles
 
@@ -38,16 +38,26 @@ Version: 0.1.0
 
 **Early development.**
 
-The current version is a basic application bootstrap.
-Automated asset validation features have not yet been implemented.
+The desktop entry point is a bootstrap. Validation is available from the command line.
 
 ### Run from Source
 
 Requirements: Python 3.13 (tested).
 
 ```bash
-python src/main.py
+python -m pip install -r requirements.txt
+python -m src.image_checker "path/to/images" --ratio 16:9
+python -m src.delivery_checker "path/to/delivery.zip"
+python -m pytest -q
 ```
+
+For a complete storyboard package, provide the extracted delivery directory and the trusted `scripts/validate_storyboard_package.py` from your installed storyboard workflow. Install NumPy in the same Python environment if needed. Pass the final ZIP to compare the archived files with the delivery directory by SHA-256.
+
+```bash
+python -m src.delivery_checker "path/to/delivery" --storyboard-validator "path/to/workflow/scripts/validate_storyboard_package.py" --zip "path/to/delivery.zip"
+```
+
+Strict mode is the default. Use `--allow-legacy` for historical packages. `--rules` can add project-specific preflight rules to the delivery directory. Visual identity, actual camera geometry, readability, action continuity, and video still require review.
 
 ---
 
@@ -59,13 +69,13 @@ ComicFlow Validator 是一款面向 AI 漫剧创作者的开源桌面工具。
 
 项目旨在减少素材交付过程中重复的人工检查工作，提高漫剧制作流程的可靠性。
 
-### 计划实现的功能
+### 当前可用检查
 
 - 图片完整性和尺寸检查
 - 图片宽高比例检查
-- 文件命名及编号连续性检查
-- ZIP 压缩包完整性及 CRC 检查
-- 自动生成验收报告
+- ZIP 成员及 CRC 检查，基础压缩包模块可计算 SHA-256 指纹
+- 文件夹及 ZIP 交付报告，可用 JSON 配置必需文件、目录和允许的扩展名
+- 通过已安装故事板工作流的校验脚本检查完整交付包
 
 ### 设计原则
 
@@ -80,15 +90,26 @@ ComicFlow Validator 是一款面向 AI 漫剧创作者的开源桌面工具。
 
 **项目处于早期开发阶段。**
 
-当前版本仅完成基础程序框架，自动化素材验收功能尚未实现。
+桌面入口目前为启动框架。验收功能可通过命令行使用。
 
 ### 本地运行
 
 需要 Python 3.13。
 
 ```bash
-python src/main.py
+python -m pip install -r requirements.txt
+python -m src.image_checker "图片目录" --ratio 16:9
+python -m src.delivery_checker "交付包.zip"
+python -m pytest -q
 ```
+
+验收完整故事板组时，指定解压后的顶层交付目录，以及当前已安装工作流中可信的 `scripts/validate_storyboard_package.py`。如当前 Python 环境缺少 NumPy，请先安装。传入 `--zip` 后，会检查最终包成员与已验目录之间的逐文件 SHA-256。
+
+```bash
+python -m src.delivery_checker "交付目录" --storyboard-validator "工作流路径/scripts/validate_storyboard_package.py" --zip "交付包.zip"
+```
+
+默认严格验收。历史包复核可显式添加 `--allow-legacy`。`--rules` 可为交付目录追加项目专用的文件规则。人物身份、真实机位、画面可读性、动作连续性及成片仍需人工复核。
 
 ---
 
