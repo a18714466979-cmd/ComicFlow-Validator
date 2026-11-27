@@ -65,6 +65,8 @@ python -m src.delivery_checker "path/to/delivery" --storyboard-validator "path/t
 
 Strict mode is the default. Use `--allow-legacy` for historical packages. `--rules` can add project-specific preflight rules to the delivery directory. Visual identity, actual camera geometry, readability, action continuity, and video still require review.
 
+When reviewing a package from another workspace, add `--review-missing-sources` to report inaccessible local reuse sources as unverified. Exit code `3` means that source availability was the only outstanding check. Exit code `1` still indicates errors such as missing deliverables, mismatched file bytes, or invalid panel counts. Code `0` indicates that the automated checks ran without errors.
+
 ---
 
 ## 简体中文
@@ -122,6 +124,8 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 ```
 
 默认严格验收。历史包复核可显式添加 `--allow-legacy`。`--rules` 可为交付目录追加项目专用的文件规则。人物身份、真实机位、画面可读性、动作连续性及成片仍需人工复核。
+
+跨工作区复验时，可加 `--review-missing-sources`，把本地路径失效的复用原图报告为「未验证」。只有原图不可访问时退出码为 `3`，缺件、文件字节不符或格数不符等错误仍退出 `1`。退出码 `0` 表示自动校验无错误。
 
 ---
 

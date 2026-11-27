@@ -104,3 +104,29 @@ def test_storyboard_zip_rejects_non_zip_before_validator(tmp_path):
     assert result.returncode == 1
     assert "BadZipFile" in result.stdout
     assert "SCRIPT INVOKED" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("extra_errors", "summary_errors", "expected_code"),
+    [([], 1, 3), (["ERROR: SB01: SD2_prompt.txt is missing"], 2, 1), ([], 2, 1)],
+)
+def test_storyboard_source_review(tmp_path, extra_errors, summary_errors, expected_code):
+    source = tmp_path / "delivery.zip"
+    with ZipFile(source, "w") as package:
+        package.writestr("README.txt", "notes")
+    missing = "ERROR: SB01: 资产复用核对 approved local source is missing: /old/source.png"
+    report = "\n".join([missing, *extra_errors, f"RESULT: {summary_errors} error(s), 0 warning(s)"])
+    validator = tmp_path / "validator.py"
+    validator.write_text(f"print({report!r})\nraise SystemExit(1)\n", encoding="utf-8")
+
+    strict = run_delivery(source, "--storyboard-validator", validator)
+    review = run_delivery(source, "--storyboard-validator", validator, "--review-missing-sources")
+
+    assert strict.returncode == 1 and strict.stdout == report + "\n"
+    assert review.returncode == expected_code
+    if summary_errors == 1 + len(extra_errors):
+        assert "未验证: SB01: 复用原图不可访问：/old/source.png" in review.stdout
+        assert f"{len(extra_errors)} 错误，1 条复用未验证" in review.stdout
+        assert all(error in review.stdout for error in extra_errors)
+    else:
+        assert review.stdout == strict.stdout
