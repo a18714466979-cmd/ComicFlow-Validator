@@ -1,5 +1,6 @@
 """Exercise the batch file and real Tk widgets with a synthetic local ZIP."""
 
+import faulthandler
 import json
 import os
 import subprocess
@@ -84,6 +85,7 @@ def run_inside_launcher():
 
     def fail(reason):
         print(reason, file=sys.stderr, flush=True)
+        faulthandler.dump_traceback()
         if mode == "shell-project":
             marker.write_text(str(reason), encoding="utf-8")
         os._exit(10)
@@ -178,8 +180,6 @@ def run_inside_launcher():
             self.exercise_chinese_layout(dialog, tabs)
             dialog.destroy()
             self.inspect_home_workflow(chinese, validator, scripts[1])
-            click(self, "开始验收")
-            self.after(100, self.inspect_chinese_report)
 
         def inspect_home_workflow(self, chinese, validator, script):
             from src.production_project import ProductionProject
@@ -197,44 +197,58 @@ def run_inside_launcher():
             for name in home_actions:
                 button = next(w for w in walk(self, ttk.Button) if w.cget("text") == name)
                 assert button.winfo_viewable() and button.winfo_rooty() + button.winfo_height() <= self.winfo_rooty() + 700
+            print("Verified bilingual home controls at the minimum window size", flush=True)
             original_picker = filedialog.askopenfilename
-            try:
-                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
-                for shortcut, tab_name, modal_name, modal_tab in (
-                    ("Plan shots", "Shot list", "", ""),
-                    ("Prepare assets", "Approved images", "", ""),
-                    ("Arrange storyboard", "Approved images", "ComicFlow Layout & Handoff", "16:9 layout"),
-                    ("Write prompts", "Shot list", "ComicFlow Text Production", "Text model & history"),
-                    ("Review & export", "Text, layout & delivery", "", ""),
-                ):
-                    def verify_view():
-                        panel = next(walk(self, tk.Toplevel))
-                        tabs = next(walk(panel, ttk.Notebook))
-                        assert tabs.tab(tabs.select(), "text") == tab_name
-                        if modal_name:
-                            tool = next(walk(panel, tk.Toplevel))
-                            tool_tabs = next(walk(tool, ttk.Notebook))
-                            assert tool.title() == modal_name and tool_tabs.tab(tool_tabs.select(), "text") == modal_tab
-                            if shortcut == "Write prompts":
-                                assert any(w.get() == "SD2 prompts" for w in walk(tool, ttk.Combobox))
-                            tool.destroy()
-                            self.after_idle(panel.destroy)
-                        else:
-                            panel.destroy()
+            filedialog.askopenfilename = lambda **_kwargs: str(project_path)
+            routes = iter((
+                ("Plan shots", "Shot list", "", ""),
+                ("Prepare assets", "Approved images", "", ""),
+                ("Arrange storyboard", "Approved images", "ComicFlow Layout & Handoff", "16:9 layout"),
+                ("Write prompts", "Shot list", "ComicFlow Text Production", "Text model & history"),
+                ("Review & export", "Text, layout & delivery", "", ""),
+            ))
 
-                    click(self, shortcut)
-                    self.after(130, verify_view)
-                    self.wait_window(next(walk(self, tk.Toplevel)))
+            def next_route():
+                route = next(routes, None)
+                if route is None:
+                    finish()
+                    return
+                print(f"Opening home route {route[0]}", flush=True)
+                click(self, route[0])
+                self.after(120, lambda: verify_view(route))
+
+            def verify_view(route):
+                shortcut, tab_name, modal_name, modal_tab = route
+                panel = next(walk(self, tk.Toplevel))
+                tabs = next(walk(panel, ttk.Notebook))
+                assert tabs.tab(tabs.select(), "text") == tab_name
+                if modal_name:
+                    tool = next(walk(panel, tk.Toplevel))
+                    tool_tabs = next(walk(tool, ttk.Notebook))
+                    assert tool.title() == modal_name and tool_tabs.tab(tool_tabs.select(), "text") == modal_tab
+                    if shortcut == "Write prompts":
+                        assert any(w.get() == "SD2 prompts" for w in walk(tool, ttk.Combobox))
+                    tool.destroy()
+                self.after(30, lambda: close_route(panel))
+
+            def close_route(panel):
+                panel.destroy()
+                next_route()
+
+            def finish():
                 assert ProductionProject.open(project_path).rules == CHINESE
                 click(self, "Assets & repairs")
                 panel = next(walk(self, tk.Toplevel))
                 assert panel.title() == "ComicFlow Assets & Repairs"
                 panel.destroy()
-            finally:
                 filedialog.askopenfilename = original_picker
-            click(self, "中文 / English")
-            assert chinese.cget("text") == "中文制作" and chinese.instate(["selected"])
-            print("Verified five home routes and bilingual UI independent from production rules", flush=True)
+                click(self, "中文 / English")
+                assert chinese.cget("text") == "中文制作" and chinese.instate(["selected"])
+                print("Verified five home routes and bilingual UI independent from production rules", flush=True)
+                click(self, "开始验收")
+                self.after(100, self.inspect_chinese_report)
+
+            next_route()
 
         def exercise_chinese_text(self, dialog, tabs):
             from src.production_project import SHOT_FIELDS, ProductionProject, Shot
