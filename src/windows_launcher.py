@@ -15,6 +15,7 @@ from PIL import Image, ImageTk
 
 from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
+from .production_dialog import open_production_dialog
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
@@ -278,6 +279,9 @@ def open_workbench(initial_zip: str) -> int:
     ttk.Label(options, textvariable=status).grid(row=4, column=0, columnspan=2, sticky="w", padx=12)
     actions = ttk.Frame(options)
     actions.grid(row=4, column=2, sticky="e", pady=(0, 2))
+    ttk.Button(actions, text="单组制片", command=lambda: open_production_dialog(
+        window, entries[1][1].get().strip(), registry_path,
+    )).pack(side="left", padx=(0, 5))
     ttk.Button(actions, text="生图前预检", command=lambda: open_preflight_dialog(window, entries[1][1].get().strip())).pack(side="left")
     ttk.Button(actions, text="资产与返修", command=lambda: open_asset_repair(
         window, registry_path, entries[1][1].get().strip(), result,

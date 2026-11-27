@@ -20,6 +20,7 @@ def run_inside_launcher():
 
     archive = os.environ["COMICFLOW_SMOKE_ZIP"]
     empty = os.environ["COMICFLOW_SMOKE_MODE"] == "empty"
+    project_path = Path(archive).with_name(f"制片-{os.environ['COMICFLOW_SMOKE_MODE']}.cfproject")
 
     def walk(root, kind):
         for child in root.winfo_children():
@@ -81,6 +82,8 @@ def run_inside_launcher():
             next(walk(self, tk.Toplevel)).destroy()
             self.after(50, self.inspect_asset_dialog)
             click(self, "资产与返修")
+            click(self, "单组制片")
+            self.inspect_production_dialog()
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
 
@@ -116,6 +119,27 @@ def run_inside_launcher():
             assert [tabs.tab(index, "text") for index in range(2)] == ["资产登记", "返修打包"]
             tabs.select(1)
             dialog.destroy()
+
+        def inspect_production_dialog(self):
+            original = filedialog.askopenfilename
+            try:
+                filedialog.asksaveasfilename = lambda **_kwargs: str(project_path)
+                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
+                dialog = next(walk(self, tk.Toplevel))
+                tabs = next(walk(dialog, ttk.Notebook))
+                assert [tabs.tab(index, "text") for index in range(4)] == ["项目与组", "镜头清单", "批准图像", "复核与交付"]
+                click(dialog, "新建单组项目")
+                assert project_path.is_file()
+                assert tabs.tab(1, "state") == "normal"
+                name = next(walk(dialog, ttk.Entry))
+                name.delete(0, "end")
+                name.insert(0, "制片窗口验收")
+                click(dialog, "保存项目")
+                click(dialog, "打开单组项目")
+                assert name.get() == "制片窗口验收"
+                dialog.destroy()
+            finally:
+                filedialog.askopenfilename = original
 
     tk.Tk = SmokeWindow
     filedialog.askopenfilename = lambda **_kwargs: archive

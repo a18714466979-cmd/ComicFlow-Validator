@@ -6,8 +6,9 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import copyfileobj
 from tempfile import TemporaryDirectory
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from .asset_registry import sha256_file
 from .delivery_checker import validate_delivery
@@ -52,9 +53,24 @@ class PackageResult:
     removed: tuple[str, ...] = ()
 
 
+def write_delivery_zip(folder: Path, target: Path) -> None:
+    """Write stable member metadata so an approved draft hash binds its final ZIP."""
+    with ZipFile(target, "x") as package:
+        for file in sorted(folder.rglob("*"), key=lambda path: path.relative_to(folder).as_posix()):
+            if file.is_symlink():
+                raise ValueError(f"交付目录包含符号链接：{file.relative_to(folder)}")
+            if file.is_file():
+                item = ZipInfo(file.relative_to(folder).as_posix())
+                item.compress_type = ZIP_DEFLATED
+                item.create_system = 3
+                item.external_attr = 0o100644 << 16
+                with file.open("rb") as source, package.open(item, "w") as destination:
+                    copyfileobj(source, destination)
+
+
 def pack_repair(
     folder: Path, output: Path, validator: Path, baseline: Path | None = None,
-    registry: Path | None = None,
+    registry: Path | None = None, panel_exception: Path | None = None,
 ) -> PackageResult:
     folder, output, validator = (path.expanduser().resolve() for path in (folder, output, validator))
     if not folder.is_dir() or not validator.is_file():
@@ -75,15 +91,13 @@ def pack_repair(
         before = zip_fingerprints(baseline)
     with TemporaryDirectory(prefix="comicflow-repair-", dir=output.parent) as temporary:
         draft = Path(temporary) / output.name
-        with ZipFile(draft, "w", compression=ZIP_DEFLATED) as package:
-            for file in sorted(folder.rglob("*")):
-                if file.is_symlink():
-                    raise ValueError(f"交付目录包含符号链接：{file.relative_to(folder)}")
-                if file.is_file():
-                    package.write(file, file.relative_to(folder).as_posix())
-
-        command = [sys.executable, "-m", "src.delivery_checker", str(folder), "--storyboard-validator",
-                   str(validator), "--zip", str(draft)]
+        write_delivery_zip(folder, draft)
+        command = [sys.executable, "-m", "src.delivery_checker"]
+        if panel_exception:
+            command.extend((str(draft), "--panel-exception", str(panel_exception.resolve())))
+        else:
+            command.extend((str(folder), "--zip", str(draft)))
+        command.extend(("--storyboard-validator", str(validator)))
         if registry:
             command.extend(("--asset-registry", str(registry.resolve())))
         run = subprocess.run(command, check=False, capture_output=True, encoding="utf-8", errors="replace",
