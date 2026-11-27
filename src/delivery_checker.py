@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ntpath
 import re
 import stat
 import subprocess
@@ -9,7 +10,9 @@ import sys
 import zipfile
 
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from shutil import copyfile, copyfileobj
+from tempfile import TemporaryDirectory
 
 
 # ============================================================
@@ -538,6 +541,82 @@ def print_report(report: DeliveryReport) -> None:
 # 命令行
 # ============================================================
 
+def print_warnings(report: DeliveryReport) -> None:
+    for issue in report.issues:
+        print(f"[{issue.level}] {issue.path} | {issue.message}", flush=True)
+
+
+def run_storyboard_validator(
+    script: Path, source: Path, archive: Path | None, allow_legacy: bool,
+) -> int:
+    command = [sys.executable, str(script), str(source.resolve())]
+    if archive is not None:
+        command.extend(("--zip", str(archive)))
+    if allow_legacy:
+        command.append("--allow-legacy")
+    return subprocess.run(command, check=False).returncode
+
+
+def extract_storyboard_root(archive: Path, staging: Path) -> Path:
+    """Unpack a preflighted ZIP into an empty directory using portable member names."""
+    is_reserved = getattr(ntpath, "isreserved", None)
+    with zipfile.ZipFile(archive) as package:
+        for member in package.infolist():
+            relative = normalize_archive_path(member.filename)
+            if relative is None or relative != member.orig_filename.rstrip("/"):
+                raise ValueError(f"故事板 ZIP 成员路径不是规范相对路径：{member.filename}")
+
+            parts = PurePosixPath(relative).parts
+            if any(
+                (is_reserved(part) if is_reserved else PureWindowsPath(part).is_reserved())
+                or part.endswith((" ", "."))
+                or re.search(r'[<>:"\\|?*\x00-\x1f]', part)
+                for part in parts
+            ):
+                raise ValueError(f"故事板 ZIP 成员路径无法跨平台解包：{member.filename}")
+
+            target = staging.joinpath(*parts)
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with package.open(member) as source, target.open("xb") as output:
+                    copyfileobj(source, output)
+
+    entries = list(staging.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        wrapper = entries[0]
+        if (wrapper / "README.txt").is_file() or any(
+            child.is_dir() and child.name.startswith("SB") for child in wrapper.iterdir()
+        ):
+            return wrapper
+    return staging
+
+
+def validate_storyboard_zip(
+    source: Path, script: Path, rules: DeliveryRules, allow_legacy: bool,
+) -> int:
+    with TemporaryDirectory(prefix="comicflow-") as temporary:
+        workspace = Path(temporary)
+        snapshot = workspace / source.name
+        copyfile(source, snapshot)
+        archive_report = validate_delivery(snapshot)
+        archive_report.source = str(source)
+        if not archive_report.passed:
+            print_report(archive_report)
+            return 1
+        staging = workspace / "delivery"
+        staging.mkdir()
+        root = extract_storyboard_root(snapshot, staging)
+        report = validate_delivery(root, rules)
+        report.source = str(source)
+        if not report.passed:
+            print_report(report)
+            return 1
+        print_warnings(report)
+        return run_storyboard_validator(script, root, snapshot, allow_legacy)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="ComicFlow Validator - 交付包验收工具"
@@ -565,25 +644,26 @@ def main() -> int:
         parser.error("--zip 和 --allow-legacy 需要 --storyboard-validator")
 
     source = Path(args.source).expanduser()
-    if args.storyboard_validator is not None and not source.is_dir():
-        parser.error("故事板验收需提供解压后的完整交付目录，并可用 --zip 指定最终包")
+    if args.zip is not None and not source.is_dir():
+        parser.error("--zip 用于比对独立交付目录。直接验收 ZIP 时将其作为 source")
 
     try:
         rules = load_rules(args.rules)
+        script = None
+        if args.storyboard_validator is not None:
+            script = args.storyboard_validator.expanduser().resolve()
+            if not script.is_file():
+                parser.error(f"找不到故事板校验脚本：{script}")
+            if source.is_file() and source.suffix.lower() == ".zip":
+                return validate_storyboard_zip(source, script, rules, args.allow_legacy)
+
         report = validate_delivery(source, rules)
-        if args.storyboard_validator is None or not report.passed:
+        if script is None or not report.passed:
             print_report(report)
             return 0 if report.passed else 1
+        print_warnings(report)
 
-        if report.warning_count:
-            for issue in report.issues:
-                print(f"[{issue.level}] {issue.path} | {issue.message}", flush=True)
-
-        script = args.storyboard_validator.expanduser().resolve()
-        if not script.is_file():
-            parser.error(f"找不到故事板校验脚本：{script}")
-
-        command = [sys.executable, str(script), str(source.resolve())]
+        archive = None
         if args.zip is not None:
             archive = args.zip.expanduser().resolve()
             if not archive.is_file() or archive.suffix.lower() != ".zip":
@@ -592,15 +672,9 @@ def main() -> int:
             if not archive_report.passed:
                 print_report(archive_report)
                 return 1
-            for issue in archive_report.issues:
-                print(f"[{issue.level}] {issue.path} | {issue.message}", flush=True)
-            command.extend(("--zip", str(archive)))
+            print_warnings(archive_report)
 
-        if args.allow_legacy:
-            command.append("--allow-legacy")
-
-        completed = subprocess.run(command, check=False)
-        return completed.returncode
+        return run_storyboard_validator(script, source, archive, args.allow_legacy)
     except Exception as exc:
         print(f"\n[验收失败] {type(exc).__name__}: {exc}")
         return 1

@@ -51,7 +51,13 @@ python -m src.delivery_checker "path/to/delivery.zip"
 python -m pytest -q
 ```
 
-For a complete storyboard package, provide the extracted delivery directory and the trusted `scripts/validate_storyboard_package.py` from your installed storyboard workflow. Install NumPy in the same Python environment if needed. Pass the final ZIP to compare the archived files with the delivery directory by SHA-256.
+For a complete storyboard package, provide the final ZIP and the trusted `scripts/validate_storyboard_package.py` from your installed storyboard workflow. Install NumPy in the same Python environment if needed. ComicFlow checks the ZIP and unpacks it temporarily for storyboard validation.
+
+```bash
+python -m src.delivery_checker "path/to/delivery.zip" --storyboard-validator "path/to/workflow/scripts/validate_storyboard_package.py"
+```
+
+When you also have an independently validated delivery folder, provide both paths to compare its files with the final ZIP by SHA-256.
 
 ```bash
 python -m src.delivery_checker "path/to/delivery" --storyboard-validator "path/to/workflow/scripts/validate_storyboard_package.py" --zip "path/to/delivery.zip"
@@ -103,7 +109,13 @@ python -m src.delivery_checker "交付包.zip"
 python -m pytest -q
 ```
 
-验收完整故事板组时，指定解压后的顶层交付目录，以及当前已安装工作流中可信的 `scripts/validate_storyboard_package.py`。如当前 Python 环境缺少 NumPy，请先安装。传入 `--zip` 后，会检查最终包成员与已验目录之间的逐文件 SHA-256。
+验收完整故事板组时，可直接指定最终 ZIP，以及当前已安装工作流中可信的 `scripts/validate_storyboard_package.py`。如当前 Python 环境缺少 NumPy，请先安装。ComicFlow 会先检查 ZIP，再临时解包执行故事板验收。
+
+```bash
+python -m src.delivery_checker "交付包.zip" --storyboard-validator "工作流路径/scripts/validate_storyboard_package.py"
+```
+
+若手上另有独立验收过的交付目录，可以同时提供该目录和最终 ZIP，逐文件比对 SHA-256。
 
 ```bash
 python -m src.delivery_checker "交付目录" --storyboard-validator "工作流路径/scripts/validate_storyboard_package.py" --zip "交付包.zip"
