@@ -242,7 +242,9 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
         if selected := selection.curselection():
             identity, zh_name, en_name, digest = visible_costumes[selected[0]]
             filename = f"costume_{identity}_front.webp"
-            show(COSTUME_ROOT / filename, tr(zh_name, en_name), SHISEI_SOURCE + filename, digest)
+            source = COSTUME_ROOT / filename
+            if chosen is None or chosen[0] != source:
+                show(source, tr(zh_name, en_name), SHISEI_SOURCE + filename, digest)
 
     def show_category():
         nonlocal visible_costumes
@@ -266,6 +268,8 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
             show(source, source.name)
 
     def apply():
+        if costume:
+            pick_costume()
         if chosen is None:
             return
         source, seen_digest, origin = chosen
