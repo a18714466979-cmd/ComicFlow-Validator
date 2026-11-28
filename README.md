@@ -4,13 +4,13 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46085986030/artifacts/15239171657) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46087817639/artifacts/15239728194) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
 
 ## 工作台有什么
 
 | 页面 | 功能 |
 | --- | --- |
-| **故事板制作** | 剧本创作 → 分镜拆分 → 资产分析，可带着同一原稿和镜头接续。支持资产图、黑白故事板和彩色净板、角色服装与动作参考、Seedance 2.0 提示词、排版、相邻组交接和 ZIP 交付。已有稿件或素材可从对应工序直接导入。 |
+| **故事板制作** | 剧本创作 → 分镜拆分 → 资产分析，可带着同一原稿和镜头接续。支持资产图、黑白故事板和彩色净板、23 套内置服装参考、角色动作参考、Seedance 2.0 提示词、排版、相邻组交接和 ZIP 交付。已有稿件或素材可从对应工序直接导入。 |
 | **检查验收** | 检查图片尺寸、比例和文件大小，复核 ZIP 成员、CRC 和文件指纹，逐格对照故事板、净板、制作记录和提示词，查看同组、跨页与跨组的镜头衔接。 |
 | **API 接入** | 为文本创作、AI 审图和图像生成分别配置模型。预览并确认发送后调用所选服务。预检、排版、人工核图和打包可在本机进行。 |
 
@@ -57,4 +57,4 @@ ComicFlow is designed to reduce avoidable regenerations by checking approved dia
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46085986030/artifacts/15239171657) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46087817639/artifacts/15239728194) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
