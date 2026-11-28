@@ -50,7 +50,7 @@ def build(destination, checkout=None):
             run(["git", "init", "-q", str(checkout)], check=True)
             run(["git", "fetch", "-q", "--depth=1", UPSTREAM, REVISION], check=True, cwd=checkout)
         archive_path = scratch / "source.tar"
-        run(["git", "archive", "--format=tar", "-o", str(archive_path), REVISION, *SOURCE_PATHS],
+        run(["git", "-c", "core.autocrlf=false", "archive", "--format=tar", "-o", str(archive_path), REVISION, *SOURCE_PATHS],
             check=True, cwd=checkout)
         source = scratch / "source"
         source.mkdir()
