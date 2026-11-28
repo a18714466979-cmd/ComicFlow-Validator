@@ -27,6 +27,7 @@ class ActionCard:
     hand_end: str = ""
     reference: str = ""
     shot_id: str = ""
+    route_notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ class ContinuityIssue:
 
 
 CARD_FIELDS = {entry.name for entry in fields(ActionCard)}
-DESCRIPTIVE_FIELDS = {"start", "movement", "end"}
+DESCRIPTIVE_FIELDS = {"start", "movement", "end", "route_notes"}
 UNKNOWN = {"", "待核对", "待确认", "未知", "unknown", "tbd", "n/a"}
 EMPTY_PROP = {"无", "none"}
 HANDS = {
@@ -165,6 +166,8 @@ def plan_action_handoff(project, cards, selected_ids, *, source_id="", anchor=""
     planned, additions, updated, summaries = {}, [], {}, {}
     for card in selected:
         if not card.movement.strip():
+            if card.route_notes:
+                raise ValueError(f"请先把「{card.title}」的导演台轨迹写成分镜动作，再带入镜头。")
             raise ValueError(f"「{card.title or card.id}」缺少可带入分镜的动作内容。")
         if card.shot_id:
             shot = formal.get(card.shot_id)

@@ -496,6 +496,18 @@ def run_inside_launcher():
                 assert cards.set(second, "actor") == "试用演员"
                 click(workbench, "上移")
                 assert cards.get_children() == (second, first)
+
+                def edit_route():
+                    editor = next(walk(workbench, tk.Toplevel))
+                    start, action, end, notes = walk(editor, tk.Text)
+                    assert not action.get("1.0", "end-1c") and "路线点" in notes.get("1.0", "end-1c")
+                    start.insert("1.0", "演员在门口")
+                    action.insert("1.0", "演员走到桌边")
+                    end.insert("1.0", "演员在桌边停住")
+                    click(editor, "确认")
+
+                self.after(60, edit_route)
+                click(workbench, "编辑")
                 tabs = next(walk(workbench, ttk.Notebook))
                 tabs.select(1)
                 self.update()
@@ -518,7 +530,8 @@ def run_inside_launcher():
                 saved = ProductionProject.open(project_path)
                 assert len(saved.shots) == 1 and saved.shots[0].source == source.id
                 assert saved.action_cards[0]["shot_id"] == saved.shots[0].id
-                assert "路线点" in saved.shots[0].fields["动作起止"]
+                assert "演员走到桌边" in saved.shots[0].fields["动作起止"]
+                assert "路线点" not in saved.shots[0].fields["动作起止"]
                 print("Verified action card presets, director JSON, reordering, panel counts and formal shot handoff", flush=True)
                 print("COMICFLOW_GUI_OK", flush=True)
                 workbench.tk.eval(workbench.protocol("WM_DELETE_WINDOW"))

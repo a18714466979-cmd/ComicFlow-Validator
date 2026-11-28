@@ -168,7 +168,7 @@ class ActionSequenceDialog:
             self.detail.set(self.t("拖动或用上移／下移排序。按住 Ctrl 可选多张卡带入分镜。",
                                    "Drag or use Move up/down to reorder. Hold Ctrl to select multiple cards."))
             return
-        parts = (card.start, card.movement, card.end)
+        parts = (card.start, card.movement, card.end) if card.movement else (card.route_notes,)
         self.detail.set("  →  ".join(value[:150] for value in parts if value))
 
     def selection(self, *, single=False):
@@ -251,11 +251,13 @@ class ActionSequenceDialog:
             if key in {"start", "movement", "end"}:
                 control = tk.Text(form, height=2, width=45, wrap="word")
                 control.insert("1.0", getattr(card, key))
-            else:
-                variable = tk.StringVar(panel, getattr(card, key))
+            elif key.startswith("hand_"):
                 hands = self.t(("", "左手", "右手", "双手", "无"), ("", "Left", "Right", "Both", "None"))
-                control = (ttk.Combobox(form, textvariable=variable, values=hands) if key.startswith("hand_")
-                           else ttk.Entry(form, textvariable=variable))
+                control = ttk.Combobox(form, values=hands)
+                control.set(getattr(card, key))
+            else:
+                control = ttk.Entry(form)
+                control.insert(0, getattr(card, key))
             control.grid(row=row, column=1, sticky="ew", pady=3)
             values[key] = control
 
@@ -276,6 +278,15 @@ class ActionSequenceDialog:
         ttk.Label(ref, textvariable=label).pack(side="left", padx=(0, 7))
         preview = ttk.Label(form)
         preview.grid(row=11, column=1, sticky="w")
+        if card.route_notes:
+            route = ttk.Frame(form)
+            route.grid(row=12, column=0, columnspan=2, sticky="ew", pady=3)
+            ttk.Label(route, text=self.t("导演台轨迹参考 · 请填入成片动作",
+                                        "Director route reference · Write a shot action above")).pack(anchor="w")
+            notes = tk.Text(route, height=3, wrap="word")
+            notes.insert("1.0", card.route_notes)
+            notes.configure(state="disabled")
+            notes.pack(fill="x")
 
         def choose():
             nonlocal local_selection
@@ -323,7 +334,7 @@ class ActionSequenceDialog:
             self.refresh((card.id,))
 
         ttk.Button(form, text=self.t("确认", "Confirm"), command=lambda: self.guard(commit, panel)).grid(
-            row=12, column=1, sticky="e", pady=(8, 0))
+            row=13, column=1, sticky="e", pady=(8, 0))
         self.wait(panel)
 
     def wait(self, panel):
@@ -383,12 +394,13 @@ class ActionSequenceDialog:
         ttk.Label(frame, text=title, wraplength=145 if compact else 320).pack(anchor="w", padx=5, pady=3)
         reference = ttk.Label(frame, text=self.t("待挂图", "No reference"))
         reference.pack(anchor="center", pady=2)
-        text = card.movement.replace("\n", " ")[:64] if compact else "\n\n".join(
+        action = card.movement or card.route_notes
+        text = action.replace("\n", " ")[:64] if compact else "\n\n".join(
             f"{caption}  {value}" for caption, value in (
                 (self.t("人物", "Actor"), card.actor), (self.t("道具", "Prop"), card.prop),
                 (self.t("起点", "Start"), card.start), (self.t("动作", "Movement"), card.movement),
                 (self.t("终点", "End"), card.end), (self.t("起始持物手", "Starting hand"), card.hand_start),
-                (self.t("结束持物手", "Ending hand"), card.hand_end),
+                (self.t("结束持物手", "Ending hand"), card.hand_end), (self.t("轨迹参考", "Route"), card.route_notes),
             ) if value
         )
         ttk.Label(frame, text=text, justify="left", wraplength=145 if compact else 320).pack(anchor="w", padx=5, pady=3)
@@ -483,7 +495,8 @@ class ActionSequenceDialog:
             return
         path = Path(location)
         if director:
-            incoming = [ActionCard(**entry)
+            incoming = [ActionCard(title=entry["title"], actor=entry["actor"], prop=entry["prop"],
+                                   route_notes="\n".join(entry[key] for key in ("start", "movement", "end")))
                         for entry in import_director_cards(path, language=self.t("zh", "en"))]
         else:
             imported = load_action_cards(path)
@@ -526,6 +539,9 @@ class ActionSequenceDialog:
     def handoff(self):
         selected = self.selection()
         picks = [card for card in self.cards if card.id in selected]
+        if any(card.route_notes and not card.movement for card in picks):
+            raise ValueError(self.t("请先编辑导入的轨迹卡，填写实际成片动作，再带入分镜。",
+                                    "Edit imported route cards and write their shot action before sending them."))
         needs_source = any(not card.shot_id for card in picks)
         if needs_source and not self.owner.project.sources:
             raise ValueError(self.t(

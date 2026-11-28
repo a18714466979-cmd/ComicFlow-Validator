@@ -70,3 +70,16 @@ def test_older_sequences_drop_only_unavailable_links_and_reject_wrong_scene_on_a
         replace(old, reference="", shot_id="")]
     with pytest.raises(ValueError, match="地点与目标分镜不同"):
         plan_action_handoff(project, [old], [old.id])
+
+
+def test_director_route_is_retained_for_previs_without_leaking_into_formal_actions():
+    project = ProductionProject("试用", "EP01", "SB01")
+    target = Shot()
+    project.shots.append(target)
+    route = ActionCard(title="导演台场景", shot_id=target.id, route_notes="XYZ (0, 1, 2)")
+    with pytest.raises(ValueError, match="导演台轨迹写成分镜动作"):
+        plan_action_handoff(project, [route], [route.id])
+    ready = replace(route, movement="从门口走到桌边")
+    shots, cards = plan_action_handoff(project, [ready], [ready.id])
+    assert cards[0].route_notes == route.route_notes
+    assert shots[0].fields["成片动作"] == "动作与反应为从门口走到桌边"
