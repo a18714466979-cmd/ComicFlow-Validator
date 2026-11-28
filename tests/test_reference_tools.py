@@ -4,7 +4,9 @@ import pytest
 from PIL import Image
 
 from src.production_project import ProductionProject
-from src.reference_tools_dialog import COSTUMES, COSTUME_ROOT, SHISEI_SOURCE, import_reference, read_reference
+from src.reference_tools_dialog import (
+    COSTUME_GROUPS, COSTUMES, COSTUME_ROOT, SHISEI_SOURCE, filter_costumes, import_reference, read_reference,
+)
 
 
 def test_pose_png_reuses_exact_bytes(tmp_path):
@@ -51,6 +53,14 @@ def test_bundled_costumes_match_pinned_upstream_and_convert_to_reference_png(tmp
 
     with pytest.raises(ValueError, match="SHA-256"):
         read_reference(source, "0" * 64)
+
+
+def test_costume_search_matches_chinese_english_and_ids_within_selected_category():
+    assert filter_costumes(COSTUMES, "   ") == COSTUMES
+    assert [outfit[0] for outfit in filter_costumes(COSTUMES, "护士")] == ["C259"]
+    assert [outfit[0] for outfit in filter_costumes(COSTUMES, "BLUE  Nurse")] == ["C259"]
+    assert [outfit[0] for outfit in filter_costumes(COSTUMES, "c259")] == ["C259"]
+    assert filter_costumes(COSTUME_GROUPS[0][2], "护士") == ()
 
 
 def test_local_jpeg_can_be_used_as_a_pose_reference(tmp_path):

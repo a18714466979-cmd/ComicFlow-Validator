@@ -1,3 +1,4 @@
 Pillow>=11.0
 numpy>=1.24
 imageio-ffmpeg>=0.6.0,<0.7
+pywebview>=6.2,<7; sys_platform == "win32"

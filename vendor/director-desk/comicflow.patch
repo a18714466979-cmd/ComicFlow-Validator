@@ -1,0 +1,49 @@
+diff --git a/src/editor/runtime/CharacterModel.tsx b/src/editor/runtime/CharacterModel.tsx
+index d7770b2..82359f2 100644
+--- a/src/editor/runtime/CharacterModel.tsx
++++ b/src/editor/runtime/CharacterModel.tsx
+@@ -2,7 +2,6 @@ import { Component, type ReactNode } from "react";
+ import type { CharacterRigState, DirectorModelFormat, DirectorObject } from "../schema/directorProject";
+ import type { DirectorCharacterBoneMap } from "../schema/semanticBody";
+ import { PrimitiveMannequin } from "./PrimitiveMannequin";
+-import { UE4MannequinModel } from "./UE4MannequinModel";
+ import type { CharacterBodyType } from "./mannequin/bodyTypes";
+ import { MixamoCharacterModel, type ExternalCharacterAnimation } from "./MixamoCharacterModel";
+
+@@ -86,19 +85,5 @@ export function CharacterModel({
+     );
+   }
+
+-  if (rigState?.rigType !== "ue4-mannequin") {
+-    return fallback;
+-  }
+-
+-  return (
+-    <CharacterModelBoundary fallback={fallback}>
+-      <UE4MannequinModel
+-        bodyType={bodyType}
+-        color={color}
+-        onLabelAnchorYChange={onLabelAnchorYChange}
+-        rigState={rigState}
+-        runtimeMotion={runtimeMotion}
+-      />
+-    </CharacterModelBoundary>
+-  );
++  return fallback;
+ }
+diff --git a/vite.config.ts b/vite.config.ts
+index f9fbb71..258936b 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -35,11 +35,6 @@ export default defineConfig({
+     rollupOptions: {
+       input: {
+         main: resolve(process.cwd(), "index.html"),
+-        actionRuntimeSmoke: resolve(process.cwd(), "examples/experiments/action-runtime-smoke.html"),
+-        characterImportSmoke: resolve(process.cwd(), "examples/experiments/character-import-smoke.html"),
+-        panoramaExportSmoke: resolve(process.cwd(), "examples/experiments/panorama-export-smoke.html"),
+-        routeActionSmoke: resolve(process.cwd(), "examples/experiments/route-action-smoke.html"),
+-        gaussianSplatExperiment: resolve(process.cwd(), "examples/experiments/gaussian-splat-experiment.html"),
+       },
+     },
+   },

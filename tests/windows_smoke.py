@@ -3,6 +3,7 @@
 import faulthandler
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -1047,15 +1048,22 @@ def run_inside_launcher():
 
                     gallery = next(walk(chooser, tk.Listbox))
                     categories = next(walk(chooser, ttk.Combobox))
+                    search = next(widget for widget in walk(chooser, ttk.Entry)
+                                  if widget.winfo_name() == "costume_search")
                     assert gallery.size() == len(COSTUMES)
+                    assert not any("PoseWear" in widget.cget("text") for widget in walk(chooser, ttk.Button))
                     categories.set("通勤与职业")
                     categories.event_generate("<<ComboboxSelected>>")
                     assert gallery.get(0, "end") == ("石色风衣与九分裤", "黑色三件套西装",
                                                      "医生白大褂与浅蓝衬衫", "白底浅蓝边护士服")
-                    gallery.selection_clear(0, "end")
-                    gallery.selection_set(3)
-                    assert gallery.curselection() == (3,)
-                    gallery.event_generate("<<ListboxSelect>>")
+                    confirm = next(widget for widget in walk(chooser, ttk.Button)
+                                   if widget.cget("text") == "使用参考图进入生图")
+                    search.insert(0, "no matching item")
+                    assert gallery.size() == 0 and confirm.instate(["disabled"])
+                    search.delete(0, "end")
+                    search.insert(0, "c259")
+                    assert gallery.get(0, "end") == ("白底浅蓝边护士服",)
+                    assert gallery.curselection() == (0,) and confirm.instate(["!disabled"])
                 else:
                     filedialog.askopenfilename = lambda **_kwargs: str(reference_png)
                     click(chooser, "导入本地参考图")
@@ -1743,6 +1751,50 @@ def run_inside_launcher():
     messagebox.showerror = lambda title, message, **_kwargs: fail(f"{title}: {message}")
 
 
+def verify_embedded_director(root, folder, env):
+    """Exercise the real installed WebView, its renderer, and both file handoffs."""
+    sys.path.insert(0, str(root))
+    from src.director_action_import import import_director_cards
+
+    for mode, language in (("pose", "zh"), ("action", "en")):
+        output = folder / f"director-{mode}"
+        output.mkdir()
+        with socket.socket() as endpoint:
+            endpoint.bind(("127.0.0.1", 0))
+            debug_port = endpoint.getsockname()[1]
+        browser_args = " ".join((f"--remote-debugging-port={debug_port}", "--use-angle=swiftshader",
+                                 "--enable-unsafe-swiftshader", "--disable-background-networking"))
+        webview_env = {**env, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": browser_args}
+        with subprocess.Popen(
+            [sys.executable, "-m", "src.director_desk", str(output), "windows-smoke", language, mode],
+            cwd=root, env=webview_env,
+        ) as helper:
+            try:
+                browser = subprocess.run(
+                    ["node", str(Path(__file__).with_name("director_browser_smoke.mjs")), str(debug_port), mode],
+                    cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=35,
+                )
+                print(browser.stdout, end="")
+                error_file = output / "error.txt"
+                assert not error_file.is_file(), error_file.read_text(encoding="utf-8")
+                assert browser.returncode == 0, browser.stderr
+                assert helper.wait(timeout=22) == 0, f"The native {mode} window did not complete the handoff"
+                assert (output / "ready").is_file(), "No real protocol initialization was received"
+            finally:
+                if helper.poll() is None:
+                    helper.kill()
+                    helper.wait(timeout=5)
+        if mode == "pose":
+            with Image.open(output / "frame.png") as frame:
+                frame.load()
+                assert frame.format == "PNG" and frame.size == (1280, 720)
+                assert any(lo < hi for lo, hi in frame.convert("RGB").getextrema()), "The rendered PNG was blank"
+        else:
+            cards = import_director_cards(output / "project.json", language="en")
+            assert len(cards) == 1 and cards[0]["actor"] == "角色01" and cards[0]["movement"]
+        print(f"Verified native offline 3D director {mode} handoff from the packaged upstream renderer", flush=True)
+
+
 def verify_windows_launcher(root=ROOT):
     if os.name != "nt":
         raise SystemExit("This smoke test requires Windows.")
@@ -1783,6 +1835,7 @@ def verify_windows_launcher(root=ROOT):
             "LOCALAPPDATA": str(folder / "AppData"),
         }
         env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
+        verify_embedded_director(root, folder, env)
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),

@@ -6,17 +6,15 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from tkinter import filedialog, messagebox, ttk
-import webbrowser
 
 from PIL import Image, ImageOps, ImageTk
 
+from .director_desk import open_director
 from .image_api import MAX_IMAGE_BYTES
 from .production_images import FORMATS
 from .production_project import ACTIONS
 
 
-COSTUME_GALLERY = "https://posewear.pages.dev/#costume"
-DIRECTOR_DESK = "https://xiaozangao.github.io/3d-director-desk/"
 COSTUME_ROOT = Path(__file__).resolve().parents[1] / "assets" / "costume_references"
 SHISEI_SOURCE = ("https://github.com/wquguru/shisei/blob/8f61ceab10e45f8d3afd254900903733a0ba76ee/"
                  "images/costume/grey/w900/")
@@ -79,6 +77,13 @@ COSTUME_GROUPS = (
     )),
 )
 COSTUMES = tuple(outfit for _, _, group in COSTUME_GROUPS for outfit in group)
+
+
+def filter_costumes(outfits, query):
+    words = query.casefold().split()
+    return tuple(outfit for outfit in outfits if all(
+        word in " ".join(outfit[:3]).casefold() for word in words
+    ))
 
 
 def read_reference(path, expected_digest=""):
@@ -158,8 +163,12 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
     previous_grab = parent.grab_current()
     window.grab_set()
 
+    capture_folder = None
+
     def close():
         window.destroy()
+        if capture_folder is not None:
+            capture_folder.cleanup()
         if previous_grab is not None and previous_grab.winfo_exists():
             previous_grab.grab_set()
 
@@ -167,23 +176,34 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
     content = ttk.Frame(window, padding=14)
     content.pack(fill="both", expand=True)
     note = (
-        tr("按分类浏览服装，或导入有权使用的本地参考图。内置服装来自 Shisei（CC0）。",
-           "Browse costumes by category or import a licensed reference. Built-in outfits are from Shisei (CC0).")
-        if costume else tr("在在线 3D 导演台摆放角色、动作和机位，保存画面截图后导入。也可直接使用已有的姿态参考。",
-                           "Arrange characters, poses and cameras in the online 3D Director Desk, then import a still or use an existing pose image.")
+        tr("在本机按分类或关键词找服装，也可导入有权使用的参考图。内置服装来自 Shisei（CC0）。",
+           "Find outfits by category or keyword on this device, or import a licensed reference. Built-in outfits are from Shisei (CC0).")
+        if costume else tr("用内置 3D 导演台摆放角色和机位，把当前画面直接带回预览。也可导入已有的姿态参考图。",
+                           "Set up characters and cameras in the built-in 3D Director Desk and send a still to this preview, or import an existing pose image.")
     )
     ttk.Label(content, text=note, wraplength=780).pack(anchor="w", pady=(0, 9))
 
     tools = ttk.Frame(content)
     tools.pack(fill="x", pady=(0, 9))
 
-    def browse():
-        url = COSTUME_GALLERY if costume else DIRECTOR_DESK
-        if not webbrowser.open_new_tab(url):
-            messagebox.showinfo(title, url, parent=window)
+    def use_capture(source):
+        nonlocal capture_folder
+        if capture_folder is None:
+            capture_folder = TemporaryDirectory(prefix="comicflow-pose-")
+        target = Path(capture_folder.name) / "director-frame.png"
+        target.write_bytes(source.read_bytes())
+        show(target, tr("3D 导演台取景", "3D Director Desk still"),
+             tr("ComicFlow 内置 3D 导演台取景", "ComicFlow built-in 3D Director Desk still"))
 
-    ttk.Button(tools, text=(tr("打开 PoseWear 服装图库", "Open PoseWear costume gallery") if costume else
-                           tr("打开在线 3D 导演台", "Open online 3D Director Desk")), command=browse).pack(side="left")
+    def launch_director():
+        try:
+            open_director(window, path, "pose", use_capture, language=tr("zh", "en"))
+        except (OSError, RuntimeError) as error:
+            messagebox.showerror(title, str(error), parent=window)
+
+    if not costume:
+        ttk.Button(tools, text=tr("打开内置 3D 导演台", "Open built-in 3D Director Desk"),
+                   command=launch_director).pack(side="left")
 
     body = ttk.Frame(content)
     body.pack(fill="both", expand=True)
@@ -202,6 +222,10 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
         ))
         categories.pack(fill="x", pady=(3, 7))
         categories.current(0)
+        query = tk.StringVar(window)
+        ttk.Label(catalogue, text=tr("搜索服装名称或编号", "Search outfit name or ID")).pack(anchor="w")
+        ttk.Entry(catalogue, name="costume_search", textvariable=query).pack(fill="x", pady=(3, 7))
+        query.trace_add("write", lambda *_args: show_category())
         listing = ttk.Frame(catalogue)
         listing.pack(fill="both", expand=True)
         selection = tk.Listbox(listing, width=36, exportselection=False, selectmode="browse", activestyle="dotbox")
@@ -218,13 +242,17 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
     ttk.Button(footer, text=tr("取消", "Cancel"), command=close).pack(side="right", padx=(8, 0))
     chosen = None
 
-    def show(source, caption, origin="", expected_digest=""):
+    def clear_preview():
         nonlocal chosen
         chosen = None
         confirm.state(["disabled"])
         picture.configure(image="", text=tr("请选择参考图", "Select a reference image"))
         picture.image = None
         status.set("")
+
+    def show(source, caption, origin="", expected_digest=""):
+        nonlocal chosen
+        clear_preview()
         try:
             data, _, image = read_reference(source, expected_digest)
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
@@ -249,8 +277,13 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
     def show_category():
         nonlocal visible_costumes
         group = categories.current()
-        visible_costumes = COSTUMES if group == 0 else COSTUME_GROUPS[group - 1][2]
+        outfits = COSTUME_GROUPS[group - 1][2] if group > 0 else COSTUMES
+        visible_costumes = filter_costumes(outfits, query.get())
         selection.delete(0, "end")
+        if not visible_costumes:
+            clear_preview()
+            status.set(tr("当前分类没有符合的服装。", "No matching outfits in this category."))
+            return
         selection.insert("end", *(tr(zh_name, en_name) for _, zh_name, en_name, _ in visible_costumes))
         selection.selection_set(0)
         selection.activate(0)
@@ -282,7 +315,7 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
         on_confirm(asset.id)
 
     ttk.Button(tools, text=tr("导入本地参考图", "Import local reference"), command=select_local).pack(
-        side="left", padx=8
+        side="left", padx=(0, 8) if costume else 8
     )
     confirm = ttk.Button(footer, text=tr("使用参考图进入生图", "Use reference in image generation"),
                          command=apply, state="disabled")

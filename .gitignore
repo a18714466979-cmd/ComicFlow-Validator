@@ -6,3 +6,4 @@ __pycache__/
 test_images/
 .coverage
 htmlcov/
+assets/director_desk/

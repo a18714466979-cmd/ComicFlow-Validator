@@ -7,7 +7,6 @@ from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import webbrowser
 
 from PIL import Image, ImageTk
 
@@ -17,7 +16,8 @@ from .action_sequence import (
     plan_action_handoff, rebind_action_cards, save_action_cards,
 )
 from .director_action_import import import_director_cards
-from .reference_tools_dialog import DIRECTOR_DESK, import_reference, read_reference
+from .director_desk import open_director
+from .reference_tools_dialog import import_reference, read_reference
 from .ui_language import translate
 
 
@@ -50,8 +50,8 @@ class ActionSequenceDialog:
         self.button(top, "导出动作卡", "Export cards", self.export_cards).pack(side="left", padx=3)
         self.button(top, "导入 3D 导演台工程", "Import 3D Director project",
                     lambda: self.import_cards(director=True)).pack(side="left", padx=3)
-        self.button(top, "打开 3D 导演台", "Open 3D Director Desk",
-                    lambda: webbrowser.open(DIRECTOR_DESK)).pack(side="left", padx=3)
+        self.button(top, "打开内置 3D 导演台", "Open built-in 3D Director Desk",
+                    self.open_director).pack(side="left", padx=3)
         resources = ttk.Frame(self.window, padding=(12, 0, 12, 6))
         resources.pack(fill="x")
         self.button(resources, "动作参考库", "Action reference library", self.open_reference_library).pack(side="right")
@@ -508,24 +508,35 @@ class ActionSequenceDialog:
         render()
         self.wait(panel)
 
+    def open_director(self):
+        open_director(self.window, self.owner.path, "action", self.add_director_cards, language=self.t("zh", "en"))
+
+    def add_director_cards(self, path):
+        incoming = [
+            ActionCard(title=entry["title"], actor=entry["actor"], prop=entry["prop"],
+                       route_notes="\n".join(entry[key] for key in ("start", "movement", "end")))
+            for entry in import_director_cards(path, language=self.t("zh", "en"))
+        ]
+        if incoming:
+            self.add(incoming)
+            self.status.set(self.t(f"已导入 {len(incoming)} 条人物或道具轨迹。",
+                                   f"Imported {len(incoming)} actor or prop tracks."))
+        else:
+            self.status.set(self.t("工程中没有可导入的动作轨迹。", "The project contains no usable action tracks."))
+
     def import_cards(self, *, director=False):
         location = filedialog.askopenfilename(parent=self.window, filetypes=(("JSON", "*.json"),))
         if not location:
             return
         path = Path(location)
         if director:
-            incoming = [ActionCard(title=entry["title"], actor=entry["actor"], prop=entry["prop"],
-                                   route_notes="\n".join(entry[key] for key in ("start", "movement", "end")))
-                        for entry in import_director_cards(path, language=self.t("zh", "en"))]
-        else:
-            imported = load_action_cards(path)
-            incoming = rebind_action_cards(imported, replace(self.owner.project, images=self.images))
+            self.add_director_cards(path)
+            return
+        imported = load_action_cards(path)
+        incoming = rebind_action_cards(imported, replace(self.owner.project, images=self.images))
         if incoming:
             self.add(incoming)
-            if director:
-                self.status.set(self.t(f"已导入 {len(incoming)} 条人物或道具轨迹。",
-                                       f"Imported {len(incoming)} actor or prop tracks."))
-            elif imported != incoming:
+            if imported != incoming:
                 self.status.set(self.t("已导入卡片。当前项目里找不到的镜头或参考图链接需要重新绑定。",
                                        "Cards imported. Relink shot or reference IDs missing from this project."))
         else:

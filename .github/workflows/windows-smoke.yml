@@ -18,6 +18,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build the bundled 3D Director Desk
+        run: python -m scripts.build_director_desk
       - name: Install desktop dependencies
         run: python -m pip install -r requirements.txt
       - name: Run automated tests

@@ -10,6 +10,7 @@ from zipfile import ZipFile
 from PIL import Image, ImageDraw
 
 from src.bundled_validators import ENGLISH_VALIDATOR_DIRECTORY, ENGLISH_VALIDATOR_FILES
+from src.director_desk import DIRECTOR_BUNDLE, DIRECTOR_HOST
 from src.image_api import EDIT, IMAGE_PROVIDERS, ImageReply, ImageSettings
 from src.production_export import build_batch, project_registry
 from src.production_images import local_patch, prepare_job, store_reply
@@ -171,6 +172,10 @@ def build(output, revision):
         (folder / "src").mkdir()
         for path in sorted((ROOT / "src").glob("*.py")):
             copy2(path, folder / "src" / path.name)
+        if not (ROOT / DIRECTOR_BUNDLE / "index.html").is_file():
+            raise FileNotFoundError("Build the bundled 3D Director Desk first: python -m scripts.build_director_desk")
+        copytree(ROOT / DIRECTOR_BUNDLE, folder / DIRECTOR_BUNDLE)
+        copytree(ROOT / DIRECTOR_HOST, folder / DIRECTOR_HOST)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
         copytree(ROOT / TUTORIAL_IMAGES, folder / TUTORIAL_IMAGES)
         copytree(ROOT / ECOMMERCE_VALIDATOR_DIRECTORY, folder / ECOMMERCE_VALIDATOR_DIRECTORY)
@@ -192,7 +197,9 @@ def build(output, revision):
         ecommerce_validator = (ECOMMERCE_VALIDATOR_DIRECTORY / "validate_storyboard_package.py").as_posix()
         tutorial = tuple((TUTORIAL_IMAGES / f"{section[0]}_{language}.png").as_posix()
                          for section in SECTIONS for language in TUTORIAL_LOCALES)
-        for name in (*INSTALL_FILES, *samples, *references, *validators, ecommerce_validator, *tutorial):
+        director = tuple(path.relative_to(ROOT).as_posix() for directory in (DIRECTOR_BUNDLE, DIRECTOR_HOST)
+                         for path in (ROOT / directory).rglob("*") if path.is_file())
+        for name in (*INSTALL_FILES, *samples, *references, *validators, ecommerce_validator, *tutorial, *director):
             archive.getinfo(f"ComicFlow-Windows/{name}")
         if any(".sqlite3" in name for name in archive.namelist()):
             raise ValueError("The portable archive must rebuild machine-local asset paths.")

@@ -42,6 +42,8 @@ Open **Batch production center** from **Storyboard production** to plan one epis
 
 ### Action sequencing
 
+**Character costume design** includes 23 CC0 outfit reference images from [Shisei](https://github.com/wquguru/shisei). Browse or search the local collection by category, outfit name or ID. Choose a reference or import your own, then pass it to the image generation preview.
+
 Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. ComicFlow action-card JSON can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
 
 In **Action reference library**, pick a starter link or paste a YouTube, Youku or Tencent Video playback link from the rights holder. Open it in your browser, mark the start and end of a passage, and write what you want to try in your own scene. For example, a wide shot might establish both characters before a close-up reveals one character’s reaction. Save the reference with the project. Choose **Create card from notes** to start a sequence, or append your note to a selected card. Playback stays on the platform, and the delivery ZIP leaves out the reference library.
@@ -173,7 +175,9 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 同一项目可接续「剧本创作 → 分镜拆分 → 资产分析」。剧本编辑器可把选定的原稿写入新项目或作为已有项目中的剧本版本。镜头清单与已采纳的 AI 分镜都可进入下一步，资产分析带入该版本的原文与已保存镜头。从各页入口仍可打开已有项目或从本地导入稿件。
 
-服装设计内置 23 套 CC0 服装参考，可按现代日常、通勤与职业、婚礼与宴会、古装与民国、动作与幻想筛选，也可导入有权使用的图。「角色动作设计」提供 3D 姿势参考入口，可用在线导演台摆姿势和机位。服装图与姿势取景图都可导入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
+「角色服装设计」内置 23 套 CC0 服装原图，可离线按分类、名称或编号筛选，也可导入有权使用的本地图。选好后可直接把参考图带入生图预览。[Shisei 素材来源](https://github.com/wquguru/shisei)
+
+「角色动作设计」内置离线 3D 导演台。摆好人物和机位后，点「取当前画面作为参考」把 PNG 送回生图预览。在「人物动作编排」打开同一组的导演台，可把角色和道具路线带入动作卡。3D 编辑器复用 MIT 授权的上游实现，并随 Windows 试用包附上代码来源和许可。[上游 3D 导演台](https://github.com/xiaozangao/3d-director-desk)
 
 「人物动作编排」可从新建或已有项目开始。内置 53 张中英双语动作卡，覆盖日常表演、双人互动、救援、走位和刀、长枪、剑、戟等影视道具。可自建卡片、添加本地姿势参考图，或从 3D 导演台工程 JSON 导入人物和道具轨迹作为预演参考。调整顺序后，用 12 格或 15 格视图对照前后动作、持物手和道具交接。动作卡可另存为本地 JSON。确认成片动作后，选择要接入的正式分镜，或按批准剧本与实际源段位置新建分镜。
 

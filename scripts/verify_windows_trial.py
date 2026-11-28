@@ -79,7 +79,7 @@ def verify(archive_path, validator=None, install=False, chinese_validator=None):
             assert result.returncode == 0 and "COMICFLOW_SETUP_OK" in result.stdout, result.stderr
             python = str(folder / ".venv" / "Scripts" / "python.exe")
             smoke = Path(__file__).resolve().parents[1] / "tests" / "windows_smoke.py"
-            subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=150)
+            subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=230)
         chinese_validator = chinese_validator or fixture_validator(base)
         run_in_kit = (
             "import runpy, sys; from pathlib import Path; "
