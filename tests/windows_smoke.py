@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PRODUCTION_TAB, ECOMMERCE_TAB, REVIEW_TAB, API_TAB, TUTORIAL_TAB = range(5)
 
 
 def make_ecommerce_video(folder):
@@ -100,6 +101,10 @@ def run_inside_launcher():
         assert button.instate(["!disabled"]), title
         button.invoke()
 
+    def page_at(root, index):
+        navigation = next(walk(root, ttk.Notebook))
+        return navigation.nametowidget(navigation.tabs()[index])
+
     def show_page(root, index):
         navigation = next(walk(root, ttk.Notebook))
         navigation.select(index)
@@ -143,7 +148,10 @@ def run_inside_launcher():
                 self.destroy()
                 marker.write_text("COMICFLOW_GUI_OK", encoding="utf-8")
                 return
-            field, validator, *_ = walk(self, ttk.Entry)
+            navigation = next(walk(self, ttk.Notebook))
+            initial_page = PRODUCTION_TAB if mode == "empty" else REVIEW_TAB
+            assert navigation.index(navigation.select()) == initial_page
+            field, validator, *_ = walk(page_at(self, REVIEW_TAB), ttk.Entry)
             assert field.get() == ("" if mode == "empty" else archive), field.get()
             if mode == "api-settings":
                 self.inspect_api_settings()
@@ -180,7 +188,7 @@ def run_inside_launcher():
                 self.after(100, self.inspect_file_only)
                 return
             if mode == "empty":
-                production = show_page(self, 0)
+                production = show_page(self, PRODUCTION_TAB)
                 guidance = [label.cget("text") for label in walk(production, tk.Label)]
                 assert any("软件会创建 .cfproject" in text for text in guidance)
                 assert any("Examples/SB01.cfproject" in text for text in guidance)
@@ -189,7 +197,7 @@ def run_inside_launcher():
                     click(production, "验收已有 ZIP")
                     assert picker.call_args.kwargs["filetypes"][0] == ("ZIP 交付包", "*.zip")
                 navigation = next(walk(self, ttk.Notebook))
-                assert navigation.index(navigation.select()) == 1
+                assert navigation.index(navigation.select()) == REVIEW_TAB
                 assert field.get() == archive
                 print("Verified beginner guidance and the direct ZIP review route", flush=True)
             click(self, "开始验收")
@@ -211,9 +219,9 @@ def run_inside_launcher():
             assert any("Seedance 2.0" in widget.cget("text") for widget in walk(self, tk.Label))
             navigation = next(walk(self, ttk.Notebook))
             assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
-                "故事板制作", "检查验收", "API 接入", "使用教程", "电商信息流视频复刻",
+                "故事板制作", "电商信息流视频复刻", "检查验收", "API 接入", "使用教程",
             ]
-            tabs = next(walk(show_page(self, 2), ttk.Notebook))
+            tabs = next(walk(show_page(self, API_TAB), ttk.Notebook))
             assert [tabs.tab(i, "text") for i in range(3)] == ["文本创作", "AI 审图", "图像生成"]
             text, vision, image = (tabs.nametowidget(tab) for tab in tabs.tabs())
             key = "synthetic-shared-provider-key"
@@ -252,14 +260,14 @@ def run_inside_launcher():
 
             click(self, "中文 / English")
             assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
-                "Storyboard production", "Inspection & validation", "API connections", "Tutorial",
-                "E-commerce video recreation",
+                "Storyboard production", "E-commerce video recreation", "Inspection & validation",
+                "API connections", "Tutorial",
             ]
             assert [tabs.tab(i, "text") for i in range(3)] == ["Text drafting", "AI image review", "Image generation"]
             assert input_field(image, "Model ID").get() == "image-generation-test"
             self.inspect_tutorial(navigation)
             assert input_field(image, "模型 ID").get() == "image-generation-test"
-            production = show_page(self, 0)
+            production = show_page(self, PRODUCTION_TAB)
             guidance = [label.cget("text") for label in walk(production, tk.Label)]
             assert any("Examples/SB01.cfproject" in text for text in guidance)
             assert any("开始验收" in text for text in guidance)
@@ -289,12 +297,12 @@ def run_inside_launcher():
                 self.after(60, lambda: check_panel(project, "图像模型 ID", "image-generation-test", "synthetic-image-key"))
                 click(project, "图像制片")
                 project.destroy()
-                show_page(self, 1)
+                show_page(self, REVIEW_TAB)
                 click(self, "开始验收")
                 self.after(100, check_review)
 
             def check_review():
-                selector = next(walk(self, ttk.Combobox))
+                selector = next(walk(page_at(self, REVIEW_TAB), ttk.Combobox))
                 if not selector["values"]:
                     self.after(100, check_review)
                     return
@@ -328,15 +336,15 @@ def run_inside_launcher():
             from src import workbench_tutorial
 
             self.geometry("900x700")
-            tutorial = show_page(self, 3)
+            tutorial = show_page(self, TUTORIAL_TAB)
             for topic in ("Quick start", "Script to delivery", "Check a delivery ZIP", "Connect an API"):
                 click(tutorial, topic)
                 images = [widget for widget in walk(tutorial, tk.Label) if widget.cget("image")]
                 assert images and images[0].winfo_viewable(), topic
             click(tutorial, "Open API connections")
             self.update_idletasks()
-            assert navigation.index(navigation.select()) == 2
-            show_page(self, 3)
+            assert navigation.index(navigation.select()) == API_TAB
+            show_page(self, TUTORIAL_TAB)
             click(self, "中文 / English")
             for topic in ("快速开始", "从剧本到交付", "检查交付 ZIP", "配置 API"):
                 click(tutorial, topic)
@@ -346,11 +354,11 @@ def run_inside_launcher():
                 filedialog.askopenfilename = lambda **options: archive if options["filetypes"][0][1] == "*.zip" else ""
                 click(tutorial, "检查交付 ZIP")
                 click(tutorial, "选择要验收的 ZIP")
-                assert navigation.index(navigation.select()) == 1
-                assert next(walk(self, ttk.Entry)).get() == archive
+                assert navigation.index(navigation.select()) == REVIEW_TAB
+                assert next(walk(page_at(self, REVIEW_TAB), ttk.Entry)).get() == archive
             finally:
                 filedialog.askopenfilename = original_picker
-            show_page(self, 3)
+            show_page(self, TUTORIAL_TAB)
             click(tutorial, "快速开始")
             examples = Path(workbench_tutorial.__file__).resolve().parents[1] / "Examples"
             if (examples / "SB01.cfproject").is_file():
@@ -375,7 +383,7 @@ def run_inside_launcher():
             group.import_source(title, "R2", alternate)
             group.save(project_path)
             original = project_path.read_bytes()
-            show_page(self, 0)
+            show_page(self, PRODUCTION_TAB)
             click(self, "剧本创作")
             editor = next(walk(self, tk.Toplevel))
             title_box = next(walk(editor, ttk.Entry))
@@ -496,7 +504,7 @@ def run_inside_launcher():
                     }],
                 },
             }), encoding="utf-8")
-            gallery = show_page(self, 0)
+            gallery = show_page(self, PRODUCTION_TAB)
             click(gallery, "人物动作编排")
             picker = next(w for w in walk(self, tk.Toplevel) if w.title() == "人物动作编排")
             with patch.object(filedialog, "askopenfilename", return_value=str(project_path)):
@@ -563,7 +571,7 @@ def run_inside_launcher():
             from src.ecommerce_delivery import PRODUCT_FILE, label_board_sheet
             from src.ecommerce_project import EcommerceProject, EcommerceShot, render_shots
 
-            page = show_page(self, 4)
+            page = show_page(self, ECOMMERCE_TAB)
             navigation = next(walk(self, ttk.Notebook))
             assert navigation.tab(navigation.select(), "text") == "电商信息流视频复刻"
             video = make_ecommerce_video(project_path.parent)
@@ -749,7 +757,7 @@ def run_inside_launcher():
             draft = parent / "本地剧本草稿.md"
             reference_png = parent / "动作参考.png"
             Image.new("RGB", (640, 360), "tan").save(reference_png)
-            show_page(self, 0)
+            show_page(self, PRODUCTION_TAB)
             click(self, "剧本创作")
             script = next(walk(self, tk.Toplevel))
             assert script.title() == "剧本创作"
@@ -825,7 +833,7 @@ def run_inside_launcher():
                 assert "costume_C259_front.webp | WEBP SHA-256 " in saved.images[0].origin, saved.images[0].origin
                 assert saved.checked_image(project_path, saved.images[-1]).read_bytes() == reference_png.read_bytes()
                 assert not saved.image_jobs
-                show_page(self, 1)
+                show_page(self, REVIEW_TAB)
                 filedialog.askopenfilename = lambda **_kwargs: str(reference_png)
                 click(self, "图片大小与比例")
                 check = next(walk(self, tk.Toplevel))
@@ -837,7 +845,7 @@ def run_inside_launcher():
                 self.after(150, verify_cut)
 
             def verify_cut():
-                selector = next(walk(self, ttk.Combobox))
+                selector = next(walk(page_at(self, REVIEW_TAB), ttk.Combobox))
                 if not selector["values"]:
                     self.after(100, verify_cut)
                     return
@@ -877,7 +885,7 @@ def run_inside_launcher():
             chinese.invoke()
             assert Path(validator.get()).resolve() == scripts[1].resolve()
 
-            show_page(self, 0)
+            show_page(self, PRODUCTION_TAB)
             click(self, "单组制片")
             dialog = next(walk(self, tk.Toplevel))
             filedialog.asksaveasfilename = lambda **_kwargs: str(project_path)
@@ -906,7 +914,7 @@ def run_inside_launcher():
             assert self.title() == "ComicFlow Storyboard Workbench"
             assert chinese.instate(["selected"]) and chinese.cget("text") == "Chinese film production"
             assert Path(validator.get()).resolve() == script.resolve()
-            assert next(walk(self, ttk.Entry)).get() == archive
+            assert next(walk(page_at(self, REVIEW_TAB), ttk.Entry)).get() == archive
             self.geometry("900x700")
             self.update_idletasks()
             home_actions = ("Script writing", "Shot planning", "Asset analysis", "Asset image generation",
@@ -968,13 +976,13 @@ def run_inside_launcher():
 
             def finish():
                 assert ProductionProject.open(project_path).rules == CHINESE
-                show_page(self, 1)
+                show_page(self, REVIEW_TAB)
                 self.after(80, verify_repair)
                 click(self, "Assets & repairs")
                 filedialog.askopenfilename = original_picker
                 click(self, "中文 / English")
                 assert chinese.cget("text") == "中文影片制作" and chinese.instate(["selected"])
-                print("Verified seven production routes and the bilingual four-page workbench", flush=True)
+                print("Verified seven production routes and the bilingual five-page workbench", flush=True)
                 click(self, "开始验收")
                 self.after(100, self.inspect_chinese_report)
 
@@ -1137,7 +1145,7 @@ def run_inside_launcher():
             print("Verified Chinese strict single ZIP publish through Tk with the fixture validator", flush=True)
 
         def inspect_chinese_report(self):
-            table = next(walk(self, ttk.Treeview))
+            table = next(walk(page_at(self, REVIEW_TAB), ttk.Treeview))
             if not table.get_children():
                 self.after(100, self.inspect_chinese_report)
                 return
@@ -1162,13 +1170,13 @@ def run_inside_launcher():
             self.after(100, self.inspect_file_only)
 
         def inspect_result(self):
-            table = next(walk(self, ttk.Treeview))
+            table = next(walk(page_at(self, REVIEW_TAB), ttk.Treeview))
             if not table.get_children():
                 self.after(100, self.inspect_result)
                 return
             assert len(table.get_children()) == 1
             assert table.item("0", "values")[1:4] == ("SB01", "SB01-01", "SB01_shot_details.txt")
-            selector = next(walk(self, ttk.Combobox))
+            selector = next(walk(page_at(self, REVIEW_TAB), ttk.Combobox))
             table.selection_set("0")
             self.update()
             assert selector.get() == "SB01/SB01_shot_details.txt"
@@ -1180,7 +1188,7 @@ def run_inside_launcher():
             click(self, "逐格复核")
             self.after(50, self.inspect_asset_dialog)
             click(self, "资产与返修")
-            show_page(self, 0)
+            show_page(self, PRODUCTION_TAB)
             click(self, "对白与九图预算")
             next(walk(self, tk.Toplevel)).destroy()
             click(self, "单组制片")
@@ -1392,7 +1400,7 @@ def run_inside_launcher():
 
             from src.production_project import ProductionProject
 
-            show_page(self, 0)
+            show_page(self, PRODUCTION_TAB)
             with patch.object(filedialog, "askopenfilename", return_value="") as picker:
                 click(self, "资产图生成")
                 assert picker.call_args.kwargs["parent"] is self

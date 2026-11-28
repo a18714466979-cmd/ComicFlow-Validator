@@ -85,7 +85,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
         switch_rules=lambda rules: switch_rules(rules),
     )
-    production_page, review_page, api_page, tutorial_page, ecommerce_page = pages
+    production_page, ecommerce_page, review_page, api_page, tutorial_page = pages
     if initial_zip and initial_project is None:
         navigation.select(review_page)
 

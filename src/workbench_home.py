@@ -13,7 +13,7 @@ MUTED = "#435c70"
 ACCENT = "#23617f"
 
 
-PAGE_CAPTIONS = ("故事板制作", "检查验收", "API 接入", "使用教程", "电商信息流视频复刻")
+PAGE_CAPTIONS = ("故事板制作", "电商信息流视频复刻", "检查验收", "API 接入", "使用教程")
 
 
 def build_navigation(window, label_text, change_language, selected_rules, switch_rules):

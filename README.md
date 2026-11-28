@@ -42,7 +42,7 @@ Open **Action sequencing** under **Storyboard production** and create or reopen 
 
 ### E-commerce video recreation
 
-Import a local reference video and enter your product name. Add your product photos and check that they show every side and state needed in the shots, such as packaging or the product held in a hand. ComicFlow uses the supplied images to assemble one separate 16:9 product sheet.
+Open the second top-level tab, **E-commerce video recreation**. Import a local reference video and enter your product name. Add your product photos and check that they show every side and state needed in the shots, such as packaging or the product held in a hand. ComicFlow uses the supplied images to assemble one separate 16:9 product sheet.
 
 Review the suggested cut points and, optionally, use the configured vision model to help describe selected frames. Confirm each shot's timing, scene, action and performance. Check dialogue against the source audio and retain its original wording and language. Mark any words you cannot make out. Once the shots are approved, import usable assets or use a configured image model to create missing character, scene, prop and storyboard assets. Design new faces for any performers shown in the reference.
 
@@ -160,10 +160,10 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 | 一级页面 | 功能 |
 | --- | --- |
 | 故事板制作 | 剧本创作、分镜拆分、人物动作编排、资产分析、资产及故事板生图、提示词、服装与姿势参考、排版与交接、单组 ZIP 交付。 |
+| 电商信息流视频复刻 | 导入参考视频和自有产品图，拆分镜、重做资产和竖屏彩色故事板，预览提示词并验收导出。 |
 | 检查验收 | 图片像素、比例和文件大小、ZIP 完整性与规则验收、逐格核图、跨页和跨组镜头对照、资产返修。 |
 | API 接入 | 分用途配置文本、审图和生图。 |
 | 使用教程 | 用界面截图和步骤介绍快速开始、剧本到交付、检查交付 ZIP 和配置 API，支持直接打开示例或对应工具。 |
-| 电商信息流视频复刻 | 导入参考视频和自有产品图，拆分镜、重做资产和竖屏彩色故事板，预览提示词并验收导出。 |
 
 同一项目可接续「剧本创作 → 分镜拆分 → 资产分析」。剧本编辑器可把选定的原稿写入新项目或作为已有项目中的剧本版本。镜头清单与已采纳的 AI 分镜都可进入下一步，资产分析带入该版本的原文与已保存镜头。从各页入口仍可打开已有项目或从本地导入稿件。
 
@@ -173,7 +173,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 ### 电商信息流视频复刻
 
-导入本地参考视频，填写自己的产品名称并添加产品图。确认照片覆盖镜头中需要出现的角度、包装和使用状态后再拆分镜。软件用你提供的产品原图拼成一张独立的 16:9 产品资产图。
+打开第二个一级标签「电商信息流视频复刻」，导入本地参考视频，填写自己的产品名称并添加产品图。确认照片覆盖镜头中需要出现的角度、包装和使用状态后再拆分镜。软件用你提供的产品原图拼成一张独立的 16:9 产品资产图。
 
 本地切镜可以给出候选时间点，也可选用「AI 审图」配置辅助看图。复核场景切换、景别、机位、表演、动作衔接和原声对白，确认镜头清单后再重做资产。可导入已有图片，或用已配置的生图模型补齐角色、场景、道具和故事板。人物资产逐人制作，重新设计参考片演员的面貌。
 
