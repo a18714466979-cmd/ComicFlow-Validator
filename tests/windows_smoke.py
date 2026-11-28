@@ -302,6 +302,8 @@ def run_inside_launcher():
             self.after(120, check_project_tools)
 
         def inspect_tutorial(self, navigation):
+            from src import workbench_tutorial
+
             self.geometry("900x700")
             tutorial = show_page(self, 3)
             for topic in ("Quick start", "Script to delivery", "Check a delivery ZIP", "Connect an API"):
@@ -327,7 +329,7 @@ def run_inside_launcher():
                 filedialog.askopenfilename = original_picker
             show_page(self, 3)
             click(tutorial, "快速开始")
-            examples = Path(sys.modules["src.windows_launcher"].__file__).resolve().parents[1] / "Examples"
+            examples = Path(workbench_tutorial.__file__).resolve().parents[1] / "Examples"
             if (examples / "SB01.cfproject").is_file():
                 click(tutorial, "打开示例项目")
                 self.update()
