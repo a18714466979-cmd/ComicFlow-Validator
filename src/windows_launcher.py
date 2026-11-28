@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
 
+from .action_workspace import ActionWorkspace
 from .api_settings_dialog import build_api_settings
 from .asset_repair_dialog import open_asset_repair
 from .brand import APP_FOLDER, app_name
@@ -30,7 +31,7 @@ from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_pr
 from .vision import VisionSettings
 from .ui_language import load_language, save_language, translate
 from .vision_dialog import open_vision_dialog
-from .workbench_home import PAGE_CAPTIONS, build_navigation, build_production_page
+from .workbench_home import build_navigation, build_production_page
 from .workbench_tutorial import build_tutorial
 
 
@@ -98,11 +99,12 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             release_window.focus_set()
 
     selected_rules = tk.StringVar(window, ENGLISH)
-    navigation, pages, rule_buttons, help_menu = build_navigation(
+    tasks, rule_buttons, help_menu = build_navigation(
         window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
         switch_rules=lambda rules: switch_rules(rules), show_release_notes=show_release_notes,
     )
-    production_page, ecommerce_page, review_page, api_page, tutorial_page = pages
+    navigation = tasks.notebook
+    production_page, ecommerce_page, review_page, api_page, tutorial_page = tasks.pages
     if initial_zip and initial_project is None:
         navigation.select(review_page)
 
@@ -342,6 +344,15 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         refresh_production(project_title=current_work["title"], project_meta=meta,
                            progress=current_work.get("progress"), next_step=current_work["step"])
 
+    def remember_project(project, path):
+        nonlocal current_work
+        current_work = {
+            "kind": "group", "path": path, "title": project.name or path.stem,
+            "episode": project.episode, "group": project.group, "rules": project.rules,
+            "step": 1 if project.sources else 0,
+        }
+        window.after_idle(refresh_current_work)
+
     def produce(path=None, *, action=None, destination="group", owner=None, loaded_project=None, source_id=""):
         save_validator_choice()
         dialog = open_production_dialog(owner or window, validators, registry_path, text_session, image_session,
@@ -350,17 +361,19 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         if dialog is None:
             return None
 
+        def open_in_workbench():
+            if dialog.allow_leave():
+                location = dialog.path
+                dialog.window.destroy()
+                action_workspace.open(location)
+
+        if owner is None:
+            dialog.action_workspace = open_in_workbench
+
         def remember_group(event):
-            nonlocal current_work
             if event.widget is not dialog.window or dialog.project is None or dialog.path is None:
                 return
-            project = dialog.project
-            current_work = {
-                "kind": "group", "path": dialog.path, "title": project.name or dialog.path.stem,
-                "episode": project.episode, "group": project.group, "rules": project.rules,
-                "step": 1 if project.sources else 0,
-            }
-            window.after_idle(refresh_current_work)
+            remember_project(dialog.project, dialog.path)
 
         dialog.window.bind("<Destroy>", remember_group, add="+")
         return dialog
@@ -496,11 +509,13 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         window.after(100, receive)
 
     def close() -> None:
+        modal = window.grab_current()
+        if modal is not None and modal.winfo_toplevel() != window and (
+            active_batch is None or modal != active_batch.window
+        ):
+            modal.winfo_toplevel().lift()
+            return
         if active_batch is not None and active_batch.window.winfo_exists():
-            modal = window.grab_current()
-            if modal is not None and modal not in (window, active_batch.window):
-                modal.winfo_toplevel().lift()
-                return
             if active_batch.busy:
                 active_batch.close()
                 active_batch.window.lift()
@@ -509,7 +524,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         if busy:
             messagebox.showinfo(tr("验收进行中"), tr("当前正在读取交付包，请等待验收完成。"), parent=window)
             return
-        if ecommerce.allow_close():
+        if tasks.allow_close() and ecommerce.allow_close():
             window.destroy()
 
     def change_language():
@@ -527,9 +542,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         help_menu.entryconfigure(0, label=tr("更新日志"))
         if release_window is not None and release_window.winfo_exists():
             refresh_release()
-        for page, caption in zip(pages, PAGE_CAPTIONS):
-            navigation.tab(page, text=tr(caption))
-        navigation.fit_workbench_tabs()
+        tasks.refresh_language()
         refresh_current_work()
         refresh_api_language()
         refresh_tutorial()
@@ -575,20 +588,11 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         navigation.select(review_page)
         browse(entries[0][1], entries[0][2])
 
-    def choose_action_project():
-        entry = tk.Toplevel(window)
-        entry.title(tr("人物动作编排"))
-        entry.transient(window)
-        row = ttk.Frame(entry, padding=18)
-        row.pack()
-
-        def launch(action):
-            entry.destroy()
-            produce(action=action, destination="action_sequence")
-
-        for caption, action in (("新建单组项目", "new"), ("打开单组项目", "open")):
-            ttk.Button(row, text=tr(caption), command=lambda mode=action: launch(mode)).pack(side="left", padx=4)
-        entry.grab_set()
+    action_workspace = ActionWorkspace(
+        window, tasks, lambda: active_rules,
+        lambda: current_work["path"] if current_work and current_work["kind"] == "group" else None,
+        remember_project, lambda path: produce(path, destination="shots"),
+    )
 
     callbacks = {
         "new": lambda: produce(action="new"),
@@ -600,13 +604,15 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         "group": produce,
         "script": lambda: plan_script("script"),
         "inventory": lambda: plan_script("assets"),
-        "action_sequence": choose_action_project,
+        "action_sequence": action_workspace.show,
         "preflight": lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules),
     }
     for destination in ("shots", "assets", "generate_assets", "generate_board", "layout", "prompts",
                         "costume", "pose", "deliver"):
         callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
-    workflow_buttons, refresh_production = build_production_page(production_page, label_text, callbacks)
+    workflow_buttons, refresh_production = build_production_page(
+        production_page, label_text, callbacks, action_picker=action_workspace,
+    )
     refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
     ecommerce = EcommercePage(ecommerce_page, vision_session, image_session, lambda: navigation.select(api_page))
     examples = Path(__file__).resolve().parents[1] / "Examples"

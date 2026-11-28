@@ -8,7 +8,7 @@ from tkinter import font, messagebox, ttk
 from PIL import Image, ImageTk
 
 from .action_card_catalog import ACTION_PRESETS, action_preview_path, get_preset
-from .workbench_style import BACKGROUND, MUTED, SURFACE, configure_workbench
+from .workbench_style import ACCENT, BACKGROUND, MUTED, SURFACE, configure_workbench
 
 
 STAGES = (("起始", "Start"), ("关键变化", "Key beat"), ("结束", "End"))
@@ -84,16 +84,35 @@ def open_action_presets(parent, *, english: bool, on_add: Callable[[str], None],
     return _ActionPresetGallery(parent, english, on_add, initial_id).window
 
 
+def build_action_presets(
+    parent, *, english: bool, on_add: Callable[[str], None], on_close: Callable[[], None], initial_id: str = "",
+) -> "_PresetGalleryFrame":
+    """Build a gallery and frame preview that can be mounted in a workbench task."""
+    return _ActionPresetGallery(parent, english, on_add, initial_id, on_close=on_close).window
+
+
+class _PresetGalleryFrame(ttk.Frame):
+    def __init__(self, parent, gallery):
+        super().__init__(parent, name="action_presets")
+        self.gallery = gallery
+
+    def set_language(self, english):
+        self.gallery.set_language(english)
+
+
 class _ActionPresetGallery:
-    def __init__(self, parent, english, on_add, initial_id):
+    def __init__(self, parent, english, on_add, initial_id, *, on_close=None):
         self.locale = int(english)
         self.on_add = on_add
-        self.previous_grab = parent.grab_current()
+        self.on_close = on_close
+        self.preview_page = None
+        self.refresh_preview_text = None
         self.selected = None
         self.visible = ()
         self.categories = tuple(dict.fromkeys(preset.category for preset in ACTION_PRESETS))
         self.covers = {}
         self.cover_images = {}
+        self.cover_placeholder = None
         self.stage_images = ()
         self.columns = 1
         self.tile_width = 0
@@ -102,15 +121,21 @@ class _ActionPresetGallery:
         self.cover_job = None
         self.frame_job = None
 
-        self.window = tk.Toplevel(parent, name="action_presets")
-        configure_workbench(self.window)
-        self.window.title(self.t("动作预设图库", "Action preset gallery"))
-        self.window.geometry("1100x700")
-        self.window.minsize(760, 520)
-        self.window.transient(parent.winfo_toplevel())
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.window.bind("<Escape>", lambda _event: self.close())
+        if on_close is None:
+            self.previous_grab = parent.grab_current()
+            self.window = tk.Toplevel(parent, name="action_presets")
+            configure_workbench(self.window)
+            self.window.title(self.t("动作预设图库", "Action preset gallery"))
+            self.window.geometry("1100x700")
+            self.window.minsize(760, 520)
+            self.window.transient(parent.winfo_toplevel())
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+            self.window.bind("<Escape>", lambda _event: self.close())
+        else:
+            self.window = _PresetGalleryFrame(parent, self)
         self.window.bind("<Destroy>", self.release)
+        self.window.rowconfigure(0, weight=1)
+        self.window.columnconfigure(0, weight=1)
 
         self.caption_font = font.nametofont("TkDefaultFont", root=self.window)
         self.title_font = self.caption_font.copy()
@@ -121,21 +146,26 @@ class _ActionPresetGallery:
         initial = get_preset(initial_id)
         self.category.current(self.categories.index(initial.category) + 1 if initial else 0)
         self.filter(initial_id)
-        self.window.grab_set()
-        self.category.focus_set()
+        if on_close is None:
+            self.window.grab_set()
+            self.category.focus_set()
 
     def t(self, zh, en):
         return (zh, en)[self.locale]
 
     def build(self):
-        view = ttk.Frame(self.window, padding=(16, 12))
-        view.pack(fill="both", expand=True)
+        self.view = view = ttk.Frame(self.window, padding=(16, 12))
+        view.grid(row=0, column=0, sticky="nsew")
+        if self.on_close is not None:
+            self.gallery_heading = ttk.Label(view, text=self.t("动作预设图库", "Action preset gallery"),
+                                             font=self.title_font)
+            self.gallery_heading.pack(anchor="w", pady=(0, 10))
         filter_bar = ttk.Frame(view)
         filter_bar.pack(fill="x", pady=(0, 10))
-        ttk.Label(filter_bar, text=self.t("类别", "Category")).pack(side="left", padx=(0, 8))
-        values = (self.t("全部类别", "All categories"), *(category[self.locale] for category in self.categories))
-        self.category = ttk.Combobox(filter_bar, name="preset_category", state="readonly", values=values,
-                                     width=31, exportselection=False)
+        self.category_heading = ttk.Label(filter_bar, text=self.t("类别", "Category"))
+        self.category_heading.pack(side="left", padx=(0, 8))
+        self.category = ttk.Combobox(filter_bar, name="preset_category", state="readonly",
+                                     values=self.category_names(), width=31, exportselection=False)
         self.category.pack(side="left")
         self.category.bind("<<ComboboxSelected>>", lambda _event: self.filter())
         self.count = ttk.Label(filter_bar, name="preset_count", foreground=MUTED)
@@ -164,6 +194,7 @@ class _ActionPresetGallery:
         stages = ttk.Frame(content, style="A.Card.TFrame")
         stages.pack(fill="x")
         self.stage_widgets = []
+        self.stage_headings = []
         self.preview.attach_scroll(content, self.title, self.metadata, stages)
         for index, (key, caption) in enumerate(zip(STAGE_KEYS, STAGES)):
             stages.columnconfigure(index, weight=1, uniform="preset_stage")
@@ -171,6 +202,7 @@ class _ActionPresetGallery:
             frame.grid(row=0, column=index, sticky="nsew", padx=(0, 7 if index < len(STAGES) - 1 else 0))
             heading = ttk.Label(frame, text=caption[self.locale], anchor="w", style="A.CardMuted.TLabel")
             heading.pack(fill="x", pady=(0, 4))
+            self.stage_headings.append(heading)
             image = ttk.Button(frame, name=f"frame_{key}", style="ActionPreview.TButton", compound="none",
                                command=lambda position=index: self.enlarge(position))
             image.pack(fill="x")
@@ -187,11 +219,46 @@ class _ActionPresetGallery:
         footer = ttk.Frame(view)
         footer.pack(side="bottom", before=body, fill="x", pady=(12, 0))
         footer.columnconfigure(0, weight=1)
-        ttk.Button(footer, name="close_preset", text=self.t("关闭", "Close"), command=self.close,
-                   style="Workbench.TButton").grid(row=0, column=1, padx=(0, 8))
+        back_text = self.t("返回编排", "Back to sequence") if self.on_close is not None else self.t("关闭", "Close")
+        self.back_button = ttk.Button(footer, name="close_preset", text=back_text, command=self.close,
+                                      style="Workbench.TButton")
+        self.back_button.grid(row=0, column=1, padx=(0, 8))
         self.add_button = ttk.Button(footer, name="add_preset", text=self.t("加入动作编排", "Add to sequence"),
                                      style="Primary.Workbench.TButton", command=self.add)
         self.add_button.grid(row=0, column=2)
+        self.error = ttk.Label(footer, foreground=ACCENT, justify="left", name="preset_error")
+        footer.bind("<Configure>", lambda event: self.error.configure(wraplength=max(80, event.width - 285)))
+
+    def category_names(self):
+        return (self.t("全部类别", "All categories"), *(category[self.locale] for category in self.categories))
+
+    def set_language(self, english):
+        locale = int(english)
+        if self.locale == locale:
+            return
+        self.locale = locale
+        category_index = self.category.current()
+        self.gallery_heading.configure(text=self.t("动作预设图库", "Action preset gallery"))
+        self.category_heading.configure(text=self.t("类别", "Category"))
+        self.category.configure(values=self.category_names())
+        self.category.current(category_index)
+        self.back_button.configure(text=self.t("返回编排", "Back to sequence"))
+        self.add_button.configure(text=self.t("加入动作编排", "Add to sequence"))
+        for heading, caption in zip(self.stage_headings, STAGES):
+            heading.configure(text=caption[self.locale])
+        self.update_count()
+        self.update_selected_text()
+        for preset in self.visible:
+            self.covers[preset.id].configure(
+                text=self.cover_caption(preset.title[self.locale], max(72, self.tile_width - 24)))
+        self.frame_width = 0
+        self.schedule_frames()
+        if self.refresh_preview_text is not None:
+            self.refresh_preview_text()
+
+    def update_count(self):
+        count = len(self.visible)
+        self.count.configure(text=self.t(f"{count} 张预设", f"{count} preset" if count == 1 else f"{count} presets"))
 
     def filter(self, preferred=""):
         if self.cover_job is not None:
@@ -214,8 +281,7 @@ class _ActionPresetGallery:
                 button.bind(f"<{direction}>", lambda _event, step=direction, i=index: self.move(i, step))
             self.library.attach_scroll(button)
             self.covers[preset.id] = button
-        count = len(self.visible)
-        self.count.configure(text=self.t(f"{count} 张预设", f"{count} preset" if count == 1 else f"{count} presets"))
+        self.update_count()
         selected_id = preferred or (self.selected.id if self.selected else "")
         item = next((card for card in self.visible if card.id == selected_id), self.visible[0] if self.visible else None)
         self.tile_width = 0
@@ -224,19 +290,25 @@ class _ActionPresetGallery:
         self.schedule_covers()
 
     def select(self, item):
+        self.error.grid_remove()
         if self.selected and self.selected.id in self.covers:
             self.covers[self.selected.id].configure(style="Workbench.TButton")
         self.selected = item
         if item:
             self.covers[item.id].configure(style="A.Current.Step.TButton")
-            self.title.configure(text=item.title[self.locale])
-            details = " · ".join(value for value in (item.category[self.locale], item.prop[self.locale]) if value)
-            self.metadata.configure(text=details)
-            self.description.configure(text=item.movement[self.locale])
+        self.update_selected_text()
         self.add_button.state(["!disabled"] if item else ["disabled"])
         self.frame_width = 0
         self.preview.canvas.yview_moveto(0)
         self.schedule_frames()
+
+    def update_selected_text(self):
+        item = self.selected
+        if item:
+            self.title.configure(text=item.title[self.locale])
+            details = " · ".join(value for value in (item.category[self.locale], item.prop[self.locale]) if value)
+            self.metadata.configure(text=details)
+            self.description.configure(text=item.movement[self.locale])
 
     def move(self, index, direction):
         step = {"Left": -1, "Right": 1, "Up": -self.columns, "Down": self.columns}[direction]
@@ -261,10 +333,15 @@ class _ActionPresetGallery:
         if self.cover_job is not None:
             self.window.after_cancel(self.cover_job)
             self.cover_job = None
+        cover_width = max(72, tile_width - 24)
+        self.cover_placeholder = tk.PhotoImage(
+            master=self.window, width=cover_width, height=round(cover_width * 3 / 4))
         for index, preset in enumerate(self.visible):
             row, column = divmod(index, columns)
             button = self.covers[preset.id]
-            button.configure(text=self.cover_caption(preset.title[self.locale], tile_width - 24))
+            cached_cover = self.cover_images.get(preset.id)
+            image = cached_cover if cached_cover and cached_cover.width() == cover_width else self.cover_placeholder
+            button.configure(text=self.cover_caption(preset.title[self.locale], tile_width - 24), image=image)
             button.grid(row=row, column=column, sticky="nsew", padx=(0, 8 if column < columns - 1 else 0),
                         pady=(0, 8))
         self.load_covers(iter(self.visible))
@@ -296,7 +373,7 @@ class _ActionPresetGallery:
                 return
             frames = _preview_frames(preset.id)
             if frames:
-                image = self.photo(frames[1], max(72, self.tile_width - 24), self.library.canvas)
+                image = self.photo(frames[1], self.cover_placeholder.width(), self.library.canvas)
                 self.cover_images[preset.id] = image
                 self.covers[preset.id].configure(image=image)
         self.cover_job = self.window.after(8, self.load_covers, iterator)
@@ -330,6 +407,9 @@ class _ActionPresetGallery:
         frames = _preview_frames(self.selected.id) if self.selected else ()
         if not frames:
             return "break"
+        if self.on_close is not None:
+            self.show_preview_page(frames, position)
+            return "break"
         title = f"{self.selected.title[self.locale]} · {STAGES[position][self.locale]}"
         window = tk.Toplevel(self.window, name="enlarged_action_frame", bg=BACKGROUND)
         window.title(title)
@@ -356,16 +436,98 @@ class _ActionPresetGallery:
         close.focus_set()
         return "break"
 
+    def show_preview_page(self, frames, position):
+        if self.preview_page is not None:
+            return
+        page = ttk.Frame(self.window, name="enlarged_action_frame", padding=(16, 12))
+        self.preview_page = page
+        page.columnconfigure(0, weight=1)
+        page.rowconfigure(1, weight=1)
+        heading = ttk.Frame(page)
+        heading.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        title = ttk.Label(heading, font=self.title_font)
+        title.pack(side="left", fill="x", expand=True)
+        stage = ttk.Frame(page, style="A.Card.TFrame")
+        stage.grid(row=1, column=0, sticky="nsew")
+        image = ttk.Label(stage, style="A.Card.TLabel")
+        image.place(relx=.5, rely=.5, anchor="center")
+        choices = ttk.Frame(page)
+        choices.grid(row=2, column=0, pady=(8, 0))
+
+        current = position
+        rendered = None
+
+        def render(_event=None):
+            nonlocal rendered
+            width_limit = stage.winfo_width() - 16
+            height_limit = stage.winfo_height() - 16
+            if min(width_limit, height_limit) < 1:
+                return
+            frame = frames[current]
+            width = min(800, width_limit, max(1, height_limit * frame.width // frame.height))
+            if (current, width) != rendered:
+                image.photo = self.photo(frame, width, stage)
+                image.configure(image=image.photo)
+                rendered = current, width
+
+        def select_frame(index):
+            nonlocal current
+            current = index
+            title.configure(text=f"{self.selected.title[self.locale]} · {STAGES[index][self.locale]}")
+            for i, button in enumerate(buttons):
+                button.configure(style="A.Current.Step.TButton" if i == index else "Workbench.TButton")
+            render()
+
+        def back():
+            page.destroy()
+            self.preview_page = None
+            self.refresh_preview_text = None
+            self.view.grid()
+            self.stage_widgets[current].focus_set()
+            return "break"
+
+        back_button = ttk.Button(heading, name="back_to_presets", command=back,
+                                 text=self.t("返回图库", "Back to gallery"), style="Workbench.TButton")
+        back_button.pack(side="right", padx=(8, 0))
+        buttons = []
+        for index, (key, caption) in enumerate(zip(STAGE_KEYS, STAGES)):
+            choice = ttk.Button(choices, name=f"show_{key}", text=caption[self.locale],
+                                command=lambda i=index: select_frame(i))
+            choice.pack(side="left", padx=4)
+            buttons.append(choice)
+        for button in (back_button, *buttons):
+            button.bind("<Escape>", lambda _event: back())
+
+        def refresh_preview_text():
+            back_button.configure(text=self.t("返回图库", "Back to gallery"))
+            for button, caption in zip(buttons, STAGES):
+                button.configure(text=caption[self.locale])
+            select_frame(current)
+
+        self.refresh_preview_text = refresh_preview_text
+        stage.bind("<Configure>", render)
+        self.view.grid_remove()
+        page.grid(row=0, column=0, sticky="nsew")
+        select_frame(position)
+        back_button.focus_set()
+
     def add(self):
         if self.selected:
             try:
                 self.on_add(self.selected.id)
             except (OSError, ValueError, RuntimeError, tk.TclError) as error:
-                messagebox.showerror(self.window.title(), str(error), parent=self.window)
+                if self.on_close is None:
+                    messagebox.showerror(self.window.title(), str(error), parent=self.window)
+                else:
+                    self.error.configure(text=str(error))
+                    self.error.grid(row=0, column=0, sticky="w", padx=(0, 8))
                 return
             self.close()
 
     def close(self):
+        if self.on_close is not None:
+            self.on_close()
+            return
         self.window.destroy()
         if self.previous_grab is not None and self.previous_grab.winfo_exists():
             self.previous_grab.grab_set()
@@ -376,4 +538,7 @@ class _ActionPresetGallery:
                 if job is not None:
                     self.window.after_cancel(job)
             self.cover_images.clear()
+            self.cover_placeholder = None
+            self.preview_page = None
+            self.refresh_preview_text = None
             self.stage_images = ()

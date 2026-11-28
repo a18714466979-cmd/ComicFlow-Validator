@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.4.0 · 2026-11-28
+
+### 简体中文
+
+- 五个一级入口固定在主窗口。人物动作编排在右侧打开为任务标签。同一个项目重复打开时回到原标签，窄窗口可从「已打开任务」找回其他标签。
+- 动作卡图库和单帧放大预览在任务页内切换。可并排打开不同单组项目，切去检查验收再返回时保留编辑状态。未保存的任务提供继续编辑、放弃更改并关闭和保存并关闭三个选项。
+- 试点覆盖故事板制作首页及单组镜头清单的人物动作编排入口。3D 导演台继续使用独立窗口。
+
+### English
+
+- Keep the five main workspaces in view and open action sequencing as a task tab. Opening the same project again selects its existing tab. The Open tasks menu lists tabs that do not fit.
+- Browse cards and enlarge individual frames within the task. Switching workspaces preserves each project's editing state. When closing a draft, choose Keep editing, Discard and close, or Save and close.
+- The pilot covers the action sequencing entry points on the production home and the single-group shot list. The 3D Director Desk opens in its own window.
+
 ## 2.3.0 · 2026-11-28
 
 ### 简体中文

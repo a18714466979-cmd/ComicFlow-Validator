@@ -104,6 +104,19 @@ def run_inside_launcher():
         assert button.instate(["!disabled"]), title
         button.invoke()
 
+    def named(root, kind, name, *, mapped=False):
+        return next(widget for widget in walk(root, kind)
+                    if widget.winfo_name() == name and (not mapped or widget.winfo_ismapped()))
+
+    def wait_for(root, ready, reason):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            root.update()
+            if (result := ready()):
+                return result
+            time.sleep(0.015)
+        raise AssertionError(reason)
+
     def page_at(root, index):
         navigation = next(walk(root, ttk.Notebook))
         return navigation.nametowidget(navigation.tabs()[index])
@@ -184,6 +197,9 @@ def run_inside_launcher():
                 return
             if mode == "action-sequence":
                 self.inspect_action_sequence()
+                return
+            if mode == "task-navigation":
+                self.inspect_task_navigation()
                 return
             if mode == "batch-center":
                 self.inspect_batch_center()
@@ -542,7 +558,7 @@ def run_inside_launcher():
                 click(form, "保存参考")
 
             def inspect_library():
-                library = next(w for w in walk(workbench, tk.Toplevel) if w.title() == "动作参考库")
+                library = next(w for w in walk(self, tk.Toplevel) if w.title() == "动作参考库")
                 listing = named(library, ttk.Treeview, "references")
                 self.after(60, lambda: fill_reference(library))
                 click(library, "新增参考")
@@ -581,7 +597,7 @@ def run_inside_launcher():
             from src.production_project import ProductionProject
 
             def inspect_library():
-                library = next(w for w in walk(workbench, tk.Toplevel) if w.title() == "动作参考库")
+                library = next(w for w in walk(self, tk.Toplevel) if w.title() == "动作参考库")
 
                 def edit_range():
                     form = next(walk(library, tk.Toplevel))
@@ -614,12 +630,12 @@ def run_inside_launcher():
                 callback(director_path)
             gallery = show_page(self, PRODUCTION_TAB)
             click(gallery, "人物动作编排")
-            picker = next(w for w in walk(self, tk.Toplevel) if w.title() == "人物动作编排")
+            picker = named(self, ttk.Frame, "action_project_picker")
             with patch.object(filedialog, "askopenfilename", return_value=str(project_path)):
-                click(picker, "打开单组项目")
+                named(picker, ttk.Button, "open_project").invoke()
 
             def inspect_sequence():
-                workbench = next((w for w in walk(self, tk.Toplevel) if w.title() == "人物动作编排"), None)
+                workbench = next((w for w in walk(self, ttk.Frame) if w.winfo_name() == "action_sequence_editor"), None)
                 if workbench is None:
                     self.after(60, inspect_sequence)
                     return
@@ -635,7 +651,7 @@ def run_inside_launcher():
                 assert cards.get_children() == (second, first)
 
                 def edit_route():
-                    editor = next(walk(workbench, tk.Toplevel))
+                    editor = named(self, tk.Toplevel, "action_card_editor")
                     start, action, end, notes = walk(editor, tk.Text)
                     assert not action.get("1.0", "end-1c") and "路线点" in notes.get("1.0", "end-1c")
                     start.insert("1.0", "演员在门口")
@@ -659,7 +675,7 @@ def run_inside_launcher():
                 cards.selection_set(second)
 
                 def confirm():
-                    handoff = next(walk(workbench, tk.Toplevel))
+                    handoff = next(w for w in walk(self, tk.Toplevel) if w.title() == "带入正式分镜")
                     entry = next(w for w in walk(handoff, ttk.Entry) if not isinstance(w, ttk.Combobox))
                     entry.insert(0, "场景一 · 进门")
                     click(handoff, "确认带入")
@@ -679,10 +695,185 @@ def run_inside_launcher():
                 print("Verified new cards and notes-only handoff from saved, filtered and timed video references", flush=True)
                 print("Verified action card presets, built-in director handoff, reordering, panel counts and formal shot handoff", flush=True)
                 print("COMICFLOW_GUI_OK", flush=True)
-                workbench.tk.eval(workbench.protocol("WM_DELETE_WINDOW"))
                 self.after_idle(self.destroy)
 
             self.after(60, inspect_sequence)
+
+        def inspect_task_navigation(self):
+            from src.production_project import ProductionProject
+            from src.production_rules import CHINESE, ENGLISH
+
+            nav = named(self, ttk.Frame, "workbench_nav")
+            initial_tabs = tuple(named(nav, ttk.Button, f"primary_{index}") for index in range(5))
+            assert all(not button.winfo_children() for button in initial_tabs)
+            assert all(button.cget("text") for button in initial_tabs)
+            first = project_path.parent / "甲组" / "SB03.cfproject"
+            second = first.with_name("SB04.cfproject")
+            same_group = project_path.parent / "乙组" / first.name
+            first.parent.mkdir()
+            same_group.parent.mkdir()
+            paths = (
+                (first, "庭院制作", "SB03", ENGLISH),
+                (second, "走廊制作", "SB04", CHINESE),
+                (same_group, "另一项目", "SB03", ENGLISH),
+                *((first.with_name(f"SB{number:02d}.cfproject"), f"视窗测试 {number}", f"SB{number:02d}", ENGLISH)
+                  for number in range(5, 11)),
+            )
+            for path, name, group, rules in paths:
+                ProductionProject(name, "EP01", group, rules=rules).save(path)
+
+            def visible_editor():
+                return next((w for w in walk(self, ttk.Frame)
+                             if w.winfo_name() == "action_sequence_editor" and w.winfo_ismapped()), None)
+
+            def task_controls():
+                return {w.winfo_name(): w for w in walk(nav, ttk.Frame)
+                        if w.winfo_name().startswith("task_") and
+                        any(child.winfo_name() == "select" for child in w.winfo_children())}
+
+            def buttons_for(name):
+                frame = task_controls()[name]
+                return named(frame, ttk.Button, "select"), named(frame, ttk.Button, "close")
+
+            def open_task(path):
+                initial_tabs[PRODUCTION_TAB].invoke()
+                before = task_controls()
+                click(page_at(self, PRODUCTION_TAB), "人物动作编排")
+                self.update_idletasks()
+                picker = named(self, ttk.Frame, "action_project_picker", mapped=True)
+                assert not list(walk(self, tk.Toplevel))
+                with patch.object(filedialog, "askopenfilename", return_value=str(path)):
+                    named(picker, ttk.Button, "open_project").invoke()
+                editor = wait_for(self, visible_editor, f"{path} did not open in a task page")
+                assert not list(walk(self, tk.Toplevel)) and not self.grab_current()
+                opened = task_controls().keys() - before.keys()
+                return editor, opened
+
+            def cards(editor):
+                return named(editor, ttk.Treeview, "action_cards")
+
+            def titles(editor):
+                table = cards(editor)
+                return [table.set(row, "title") for row in table.get_children()]
+
+            def draft(editor, title, note):
+                def fill():
+                    form = named(self, tk.Toplevel, "action_card_editor", mapped=True)
+                    named(form, ttk.Entry, "title").insert(0, title)
+                    named(form, tk.Text, "movement").insert("1.0", note)
+                    click(form, "确认")
+
+                self.after(60, fill)
+                click(editor, "新建")
+
+            def preview_images_ready(gallery):
+                for part in ("start", "beat", "end"):
+                    value = named(gallery, ttk.Button, f"frame_{part}").cget("image")
+                    photos = self.tk.splitlist(value)
+                    if not photos or int(self.tk.call("image", "width", photos[0])) <= 10:
+                        return False
+                return True
+
+            first_editor, (first_tab,) = open_task(first)
+            draft(first_editor, "甲组保留的备注", "先等对方望过来，然后抬手。")
+            named(first_editor, ttk.Button, "browse_action_cards").invoke()
+            gallery = named(first_editor, ttk.Frame, "action_presets")
+            category = named(gallery, ttk.Combobox, "preset_category")
+            category.current(tuple(category.cget("values")).index("日常与表演"))
+            category.event_generate("<<ComboboxSelected>>")
+            named(gallery, ttk.Button, "cover_performance-03").invoke()
+            wait_for(self, lambda: preview_images_ready(gallery), "Selected card did not render all three preview frames")
+            named(gallery, ttk.Button, "frame_beat").invoke()
+            self.update_idletasks()
+            picture = named(gallery, ttk.Frame, "enlarged_action_frame", mapped=True)
+            assert not list(walk(self, tk.Toplevel)) and not self.grab_current()
+
+            initial_tabs[REVIEW_TAB].invoke()
+            self.update_idletasks()
+            assert not picture.winfo_ismapped() and page_at(self, REVIEW_TAB).winfo_ismapped()
+            buttons_for(first_tab)[0].invoke()
+            self.update_idletasks()
+            assert picture.winfo_ismapped()
+            click(self, "中文 / English")
+            self.update_idletasks()
+            assert picture.winfo_ismapped() and initial_tabs[REVIEW_TAB].cget("text") == "Inspection & validation"
+            assert "Action sequencing" in buttons_for(first_tab)[0].cget("text")
+            click(self, "中文 / English")
+            named(picture, ttk.Button, "back_to_presets").invoke()
+            assert named(gallery, ttk.Label, "preset_title").cget("text") == "递出后松手"
+            named(gallery, ttk.Button, "add_preset").invoke()
+            assert titles(first_editor) == ["甲组保留的备注", "递出后松手"]
+            assert not ProductionProject.open(first).action_cards
+
+            second_editor, (second_tab,) = open_task(second)
+            draft(second_editor, "乙组待丢弃的备注", "站到门内。")
+            duplicate, opened = open_task(first)
+            assert duplicate is first_editor and not opened
+            assert titles(duplicate) == ["甲组保留的备注", "递出后松手"]
+            assert titles(second_editor) == ["乙组待丢弃的备注"]
+            alternate, (alternate_tab,) = open_task(same_group)
+            assert titles(alternate) == [] and alternate is not first_editor
+            buttons_for(alternate_tab)[1].invoke()
+            assert not alternate.winfo_exists() and len(task_controls()) == 2
+
+            def close_with(name, decision):
+                buttons_for(name)[1].invoke()
+                self.update_idletasks()
+                confirm = named(self, tk.Frame, "task_close_confirmation", mapped=True)
+                assert not list(walk(self, tk.Toplevel)) and not self.grab_current()
+                named(confirm, ttk.Button, decision).invoke()
+                self.update_idletasks()
+
+            close_with(first_tab, "keep_editing")
+            assert first_editor.winfo_exists() and titles(first_editor)[0] == "甲组保留的备注"
+            assert not ProductionProject.open(first).action_cards
+            updated = ProductionProject.open(first)
+            approved = updated.import_source("另一编辑器已批准的段落", "R2", "A character puts down a letter.")
+            updated.save(first)
+            close_with(first_tab, "save_and_close")
+            assert not first_editor.winfo_exists()
+            saved = ProductionProject.open(first)
+            assert saved.action_cards[0]["movement"] == "先等对方望过来，然后抬手。"
+            assert saved.action_cards[1]["preset_id"] == "performance-03" and saved.rules == ENGLISH
+            assert approved in saved.sources
+            assert titles(second_editor) == ["乙组待丢弃的备注"]
+            close_with(second_tab, "discard_changes")
+            assert not second_editor.winfo_exists()
+            discarded = ProductionProject.open(second)
+            assert not discarded.action_cards and discarded.rules == CHINESE
+            assert not ProductionProject.open(same_group).action_cards
+
+            reopened, _ = open_task(first)
+            assert titles(reopened) == ["甲组保留的备注", "递出后松手"]
+            initial_tabs[PRODUCTION_TAB].invoke()
+            with patch.object(filedialog, "askopenfilename", return_value=str(first)):
+                click(page_at(self, PRODUCTION_TAB), "继续已有项目")
+                self.update()
+            production = next(walk(self, tk.Toplevel))
+            next(walk(production, ttk.Notebook)).select(1)
+            click(production, "人物动作编排")
+            assert wait_for(self, visible_editor, "The shot-list action button did not return to the existing task") is reopened
+            assert not production.winfo_exists() and len(task_controls()) == 1
+            self.geometry("900x700")
+            for path, *_ in paths[3:]:
+                open_task(path)
+            self.update_idletasks()
+            overflow = named(nav, ttk.Menubutton, "open_tasks", mapped=True)
+            menu = overflow.nametowidget(overflow.cget("menu"))
+            index = next(index for index in range(menu.index("end") + 1)
+                         if menu.type(index) == "command" and "SB03" in menu.entrycget(index, "label"))
+            menu.invoke(index)
+            self.update_idletasks()
+            assert visible_editor() is reopened and all(button.winfo_ismapped() for button in initial_tabs)
+            click(self, "中文 / English")
+            self.update_idletasks()
+            right = self.winfo_rootx() + self.winfo_width()
+            assert all(button.winfo_rootx() + button.winfo_width() <= right and
+                       button.winfo_width() >= button.winfo_reqwidth() for button in initial_tabs)
+            click(self, "中文 / English")
+            print("Verified fixed pages, independent groups and projects, duplicate reuse, retained gallery preview, save/discard/cancel and narrow task navigation", flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
 
         def inspect_release_notes(self):
             from tkinter.scrolledtext import ScrolledText
@@ -2297,13 +2488,14 @@ def verify_windows_launcher(root=ROOT):
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("image-entry", ""),
-                               ("action-sequence", f' "{archive}"'), ("ecommerce", f' "{archive}"'),
+                               ("action-sequence", f' "{archive}"'), ("task-navigation", f' "{archive}"'),
+                               ("ecommerce", f' "{archive}"'),
                                ("batch-center", f' "{archive}"'),
                                ("batch-file", f' "{folder / "制片-batch-center.cfbatch"}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
-            if mode.startswith("a-layout-"):
+            if mode.startswith("a-layout-") or mode == "task-navigation":
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(
                 f'cmd.exe /d /c .\\Comic-Sequence-Studio.bat{argument}', cwd=root, env=launch_env,

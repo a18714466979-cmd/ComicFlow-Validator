@@ -19,6 +19,7 @@ from .director_action_import import import_director_cards
 from .director_desk import open_director
 from .reference_tools_dialog import import_reference, read_reference
 from .ui_language import translate
+from .workbench_home import _adaptive_grid
 
 
 def clear_preview_image(event):
@@ -27,16 +28,30 @@ def clear_preview_image(event):
 
 
 class ActionSequenceDialog:
-    def __init__(self, owner):
+    def __init__(self, owner, parent=None):
         self.owner = owner
         self.cards = cards_from_records(owner.project.action_cards)
-        self.window = tk.Toplevel(owner.window)
-        self.window.title(translate(self.window, "人物动作编排"))
-        self.window.geometry("1080x745")
-        self.window.minsize(830, 600)
-        self.window.transient(owner.window)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.embedded = parent is not None
+        if self.embedded:
+            self.window = parent.winfo_toplevel()
+            self.frame = ttk.Frame(parent, name="action_sequence_editor")
+            self.frame.pack(fill="both", expand=True)
+        else:
+            self.window = tk.Toplevel(owner.window)
+            self.frame = self.window
+            self.window.title(translate(self.window, "人物动作编排"))
+            self.window.geometry("1080x745")
+            self.window.minsize(830, 600)
+            self.window.transient(owner.window)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.content = ttk.Frame(self.frame, name="sequence_content")
+        self.content.pack(fill="both", expand=True)
+        self.gallery = None
         self.language = int(getattr(self.window._root(), "ui_language", "zh") == "en")
+        self.captions = []
+        self.building = True
+        self.fit_toolbars = []
+        self.status_pair = ("", "")
         self.images = list(owner.project.images)
         self.saved_cards, self.saved_images = list(self.cards), list(self.images)
         self.drag = None
@@ -48,24 +63,24 @@ class ActionSequenceDialog:
         self.grid_size = tk.StringVar(self.window, "12")
         self.page_label = tk.StringVar(self.window)
 
-        top = ttk.Frame(self.window, padding=(10, 10, 10, 4))
+        top = ttk.Frame(self.content, padding=(10, 10, 10, 4))
         top.pack(fill="x")
-        self.button(top, "保存动作编排", "Save sequence", self.save).pack(side="left", padx=3)
-        self.button(top, "导入动作卡", "Import cards", self.import_cards).pack(side="left", padx=3)
-        self.button(top, "导出动作卡", "Export cards", self.export_cards).pack(side="left", padx=3)
-        self.button(top, "导入 3D 导演台工程", "Import 3D Director project",
-                    lambda: self.import_cards(director=True)).pack(side="left", padx=3)
-        self.button(top, "打开内置 3D 导演台", "Open built-in 3D Director Desk",
-                    self.open_director).pack(side="left", padx=3)
-        resources = ttk.Frame(self.window, padding=(12, 0, 12, 6))
+        self.toolbar(top, (
+            ("保存动作编排", "Save sequence", self.save),
+            ("导入动作卡", "Import cards", self.import_cards),
+            ("导出动作卡", "Export cards", self.export_cards),
+            ("导入 3D 导演台工程", "Import 3D Director project", lambda: self.import_cards(director=True)),
+            ("打开内置 3D 导演台", "Open built-in 3D Director Desk", self.open_director),
+        ))
+        resources = ttk.Frame(self.content, padding=(12, 0, 12, 6))
         resources.pack(fill="x")
         self.button(resources, "动作参考库", "Action reference library", self.open_reference_library).pack(side="right")
-        ttk.Label(resources, text=self.t(
+        self.caption(ttk.Label(resources, wraplength=565, justify="left"),
             "选卡或新建 → 核对格间动作 → 带入分镜。",
             "Add cards → review adjacent beats → send to shots.",
-        ), wraplength=565, justify="left").pack(side="left")
+        ).pack(side="left")
 
-        self.tabs = ttk.Notebook(self.window)
+        self.tabs = ttk.Notebook(self.content)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(0, 6))
         editor = ttk.Frame(self.tabs, padding=8)
         board = ttk.Frame(self.tabs, padding=8)
@@ -74,14 +89,56 @@ class ActionSequenceDialog:
         self.build_editor(editor)
         self.build_board(board)
         self.tabs.bind("<<NotebookTabChanged>>", self.tab_changed)
-        ttk.Label(self.window, textvariable=self.status, wraplength=790, padding=(12, 2, 12, 8)).pack(anchor="w")
+        ttk.Label(self.content, textvariable=self.status, wraplength=790, padding=(12, 2, 12, 8)).pack(anchor="w")
+        self.building = False
         self.refresh()
 
     def t(self, zh, en):
         return en if self.language else zh
 
     def button(self, parent, zh, en, command):
-        return ttk.Button(parent, text=self.t(zh, en), command=lambda: self.guard(command))
+        return self.caption(ttk.Button(parent, command=lambda: self.guard(command)), zh, en)
+
+    def caption(self, widget, zh, en):
+        widget.configure(text=self.t(zh, en))
+        if self.embedded and self.building:
+            self.captions.append((widget, zh, en))
+        return widget
+
+    def toolbar(self, parent, entries):
+        buttons = [self.button(parent, *entry) for entry in entries]
+        if self.embedded:
+            self.fit_toolbars.append(_adaptive_grid(parent, buttons, len(buttons), spacing=4))
+        else:
+            for button in buttons:
+                button.pack(side="left", padx=(0, 4))
+
+    def set_status(self, zh, en):
+        self.status_pair = (zh, en)
+        self.status.set(self.t(zh, en))
+
+    def set_language(self, language):
+        if not self.embedded or self.language == int(language == "en"):
+            return
+        self.language = int(language == "en")
+        for widget, zh, en in self.captions:
+            widget.configure(text=self.t(zh, en))
+        for key, zh, en, _width in self.table_columns:
+            self.table.heading(key, text=self.t(zh, en))
+        for index, captions in enumerate((("动作卡", "Cards"), ("预演格", "Preview panels"))):
+            self.tabs.tab(index, text=self.t(*captions))
+        category, preset = self.category_box.current(), self.preset_box.current()
+        self.category_box.configure(values=self.category_names())
+        self.category_box.current(category)
+        self.update_presets(preset)
+        self.status.set(self.t(*self.status_pair))
+        position = self.table.yview()[0]
+        self.refresh(self.table.selection())
+        self.table.yview_moveto(position)
+        for fit in self.fit_toolbars:
+            self.window.after_idle(lambda callback=fit: callback() if self.frame.winfo_exists() else None)
+        if self.gallery is not None:
+            self.gallery.set_language(english=bool(self.language))
 
     def guard(self, command, parent=None):
         try:
@@ -92,17 +149,20 @@ class ActionSequenceDialog:
     def build_editor(self, parent):
         browse = ttk.Frame(parent)
         browse.pack(fill="x", pady=(0, 6))
-        ttk.Button(browse, name="browse_action_cards", style="Primary.Workbench.TButton",
-                   text=self.t("浏览动作卡", "Browse action cards"),
-                   command=lambda: self.guard(self.browse_presets)).pack(side="left", padx=(0, 10))
-        ttk.Label(browse, style="A.Muted.TLabel",
-                  text=self.t(f"{len(ACTION_PRESETS)} 张内置卡 · 起始、关键变化、结束",
-                              f"{len(ACTION_PRESETS)} built-in cards · Start, key beat, end")).pack(side="left")
+        self.browse_button = self.caption(
+            ttk.Button(browse, name="browse_action_cards", style="Primary.Workbench.TButton",
+                       command=lambda: self.guard(self.browse_presets)),
+            "浏览动作卡", "Browse action cards",
+        )
+        self.browse_button.pack(side="left", padx=(0, 10))
+        self.caption(ttk.Label(browse, style="A.Muted.TLabel"),
+                     f"{len(ACTION_PRESETS)} 张内置卡 · 起始、关键变化、结束",
+                     f"{len(ACTION_PRESETS)} built-in cards · Start, key beat, end").pack(side="left")
         catalog = ttk.Frame(parent)
         catalog.pack(fill="x", pady=(0, 6))
-        names = [name[self.language] for name in PRESETS]
-        ttk.Label(catalog, text=self.t("快速选择", "Quick add")).pack(side="left", padx=(0, 6))
-        self.category_box = ttk.Combobox(catalog, state="readonly", values=names, textvariable=self.category, width=22)
+        self.caption(ttk.Label(catalog), "快速选择", "Quick add").pack(side="left", padx=(0, 6))
+        self.category_box = ttk.Combobox(catalog, state="readonly", values=self.category_names(),
+                                         textvariable=self.category, width=22)
         self.category_box.pack(side="left", padx=4)
         self.category_box.bind("<<ComboboxSelected>>", lambda _event: self.update_presets())
         self.preset_box = ttk.Combobox(catalog, state="readonly", textvariable=self.preset, width=31)
@@ -113,7 +173,7 @@ class ActionSequenceDialog:
 
         actions = ttk.Frame(parent)
         actions.pack(fill="x", pady=4)
-        for zh, en, command in (
+        self.toolbar(actions, (
             ("新建", "New", lambda: self.edit(ActionCard())),
             ("编辑", "Edit", self.edit_selected),
             ("上移", "Move up", lambda: self.move(-1)),
@@ -121,22 +181,22 @@ class ActionSequenceDialog:
             ("删除", "Remove", self.remove_selected),
             ("前后格对照", "Compare adjacent panels", self.compare),
             ("带入正式分镜", "Send to formal shots", self.handoff),
-        ):
-            self.button(actions, zh, en, command).pack(side="left", padx=(0, 4))
+        ))
 
         listing = ttk.Frame(parent)
         listing.pack(fill="both", expand=True, pady=(4, 0))
-        columns = (
+        self.table_columns = (
             ("number", "序号", "#", 52), ("title", "动作卡", "Card", 215),
             ("actor", "人物", "Actor", 120), ("prop", "道具", "Prop", 125),
             ("reference", "参考图", "Reference", 88), ("shot", "目标镜号", "Target shot", 95),
         )
-        self.table = ttk.Treeview(listing, columns=[row[0] for row in columns], show="headings", selectmode="extended")
+        self.table = ttk.Treeview(listing, name="action_cards", columns=[row[0] for row in self.table_columns],
+                                  show="headings", selectmode="extended")
         scroll = ttk.Scrollbar(listing, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scroll.set)
         scroll.pack(side="right", fill="y")
         self.table.pack(side="left", fill="both", expand=True)
-        for key, zh, en, width in columns:
+        for key, zh, en, width in self.table_columns:
             self.table.heading(key, text=self.t(zh, en))
             self.table.column(key, width=width, minwidth=50, stretch=key in {"title", "actor", "prop"})
         self.table.bind("<Double-1>", lambda _event: self.guard(self.edit_selected))
@@ -166,8 +226,8 @@ class ActionSequenceDialog:
         header = ttk.Frame(parent)
         header.pack(fill="x")
         for size in ("12", "15"):
-            ttk.Radiobutton(header, text=self.t(f"{size} 格", f"{size} panels"), value=size,
-                            variable=self.grid_size, command=self.reset_page).pack(side="left", padx=(0, 10))
+            self.caption(ttk.Radiobutton(header, value=size, variable=self.grid_size, command=self.reset_page),
+                         f"{size} 格", f"{size} panels").pack(side="left", padx=(0, 10))
         self.button(header, "上一页", "Previous page", lambda: self.step_page(-1)).pack(side="left", padx=3)
         self.button(header, "下一页", "Next page", lambda: self.step_page(1)).pack(side="left", padx=3)
         ttk.Label(header, textvariable=self.page_label).pack(side="left", padx=8)
@@ -193,6 +253,8 @@ class ActionSequenceDialog:
         self.update_detail()
         if self.tabs.index(self.tabs.select()) == 1:
             self.render_board()
+        if self.embedded:
+            self.owner.changed()
 
     def update_detail(self):
         selected = self.table.selection()
@@ -222,10 +284,13 @@ class ActionSequenceDialog:
                                     "Select one action card." if single else "Select action cards first."))
         return ids
 
-    def update_presets(self):
+    def category_names(self):
+        return [name[self.language] for name in PRESETS]
+
+    def update_presets(self, preferred=0):
         cards = self.categories[self.category_box.current()]
         self.preset_box.configure(values=[card.title[self.language] for card in cards])
-        self.preset_box.current(0)
+        self.preset_box.current(max(0, preferred))
 
     def add_preset(self):
         self.add_preset_by_id(self.categories[self.category_box.current()][self.preset_box.current()].id)
@@ -238,15 +303,28 @@ class ActionSequenceDialog:
                              prop=preset.prop[self.language], preset_id=preset.id)])
 
     def browse_presets(self):
-        from .action_preset_gallery import open_action_presets
+        from .action_preset_gallery import build_action_presets, open_action_presets
 
         selected = self.table.selection()
         current = None
         if len(selected) == 1:
             card = next(item for item in self.cards if item.id == selected[0])
             current = preset_for_card(card)
-        open_action_presets(self.window, english=bool(self.language), on_add=self.add_preset_by_id,
-                            initial_id=current.id if current else "")
+        options = {"english": bool(self.language), "on_add": self.add_preset_by_id,
+                   "initial_id": current.id if current else ""}
+        if self.embedded:
+            self.gallery = build_action_presets(self.frame, on_close=self.return_to_sequence, **options)
+            self.content.pack_forget()
+            self.gallery.pack(fill="both", expand=True)
+            self.gallery.focus_set()
+        else:
+            open_action_presets(self.window, **options)
+
+    def return_to_sequence(self):
+        self.gallery.destroy()
+        self.gallery = None
+        self.content.pack(fill="both", expand=True)
+        self.browse_button.focus_set()
 
     def open_reference_library(self):
         from .action_reference_dialog import ActionReferenceDialog
@@ -263,8 +341,8 @@ class ActionSequenceDialog:
         updated = replace(card, movement=movement, preset_id=preset.id if preset else card.preset_id)
         self.cards = [updated if item.id == identity else item for item in self.cards]
         self.refresh((identity,))
-        self.status.set(self.t(f"笔记已加入「{card.title}」。可打开预演格查看，或保存动作编排。",
-                               f"Notes added to “{card.title}”. Open Preview panels or save the sequence."))
+        self.set_status(f"笔记已加入「{card.title}」。可打开预演格查看，或保存动作编排。",
+                        f"Notes added to “{card.title}”. Open Preview panels or save the sequence.")
 
     def add(self, incoming):
         ids = {card.id for card in self.cards}
@@ -272,7 +350,7 @@ class ActionSequenceDialog:
         cards_to_records(self.cards + cards)
         self.cards.extend(cards)
         self.refresh(tuple(card.id for card in cards))
-        self.status.set(self.t(f"已加入 {len(cards)} 张动作卡。", f"Added {len(cards)} action card(s)."))
+        self.set_status(f"已加入 {len(cards)} 张动作卡。", f"Added {len(cards)} action card(s).")
 
     def edit_selected(self):
         (identity,) = self.selection(single=True)
@@ -310,7 +388,7 @@ class ActionSequenceDialog:
             self.refresh()
 
     def edit(self, card):
-        panel = tk.Toplevel(self.window)
+        panel = tk.Toplevel(self.window, name="action_card_editor")
         panel.title(self.t("编辑动作卡", "Edit action card"))
         panel.geometry("720x650")
         panel.transient(self.window)
@@ -327,14 +405,14 @@ class ActionSequenceDialog:
         for row, (key, zh, en) in enumerate(labels):
             ttk.Label(form, text=self.t(zh, en)).grid(row=row, column=0, sticky="nw", padx=(0, 8), pady=3)
             if key in {"start", "movement", "end"}:
-                control = tk.Text(form, height=2, width=45, wrap="word")
+                control = tk.Text(form, name=key, height=2, width=45, wrap="word")
                 control.insert("1.0", getattr(card, key))
             elif key.startswith("hand_"):
                 hands = self.t(("", "左手", "右手", "双手", "无"), ("", "Left", "Right", "Both", "None"))
-                control = ttk.Combobox(form, values=hands)
+                control = ttk.Combobox(form, name=key, values=hands)
                 control.set(getattr(card, key))
             else:
-                control = ttk.Entry(form)
+                control = ttk.Entry(form, name=key)
                 control.insert(0, getattr(card, key))
             control.grid(row=row, column=1, sticky="ew", pady=3)
             values[key] = control
@@ -418,10 +496,13 @@ class ActionSequenceDialog:
         self.wait(panel)
 
     def wait(self, panel):
+        previous = panel.grab_current()
         panel.grab_set()
-        self.window.wait_window(panel)
-        if self.window.winfo_exists():
-            self.window.grab_set()
+        try:
+            self.window.wait_window(panel)
+        finally:
+            if previous is not None and previous.winfo_exists():
+                previous.grab_set()
 
     def tab_changed(self, _event):
         if self.tabs.index(self.tabs.select()) == 1:
@@ -522,7 +603,7 @@ class ActionSequenceDialog:
             results.put(None)
 
         def receive():
-            while self.window.winfo_exists():
+            while self.frame.winfo_exists():
                 try:
                     result = results.get_nowait()
                 except Empty:
@@ -587,7 +668,7 @@ class ActionSequenceDialog:
         self.wait(panel)
 
     def open_director(self):
-        open_director(self.window, self.owner.path, "action", self.add_director_cards, language=self.t("zh", "en"))
+        open_director(self.frame, self.owner.path, "action", self.add_director_cards, language=self.t("zh", "en"))
 
     def add_director_cards(self, path):
         incoming = [
@@ -597,10 +678,10 @@ class ActionSequenceDialog:
         ]
         if incoming:
             self.add(incoming)
-            self.status.set(self.t(f"已导入 {len(incoming)} 条人物或道具轨迹。",
-                                   f"Imported {len(incoming)} actor or prop tracks."))
+            self.set_status(f"已导入 {len(incoming)} 条人物或道具轨迹。",
+                            f"Imported {len(incoming)} actor or prop tracks.")
         else:
-            self.status.set(self.t("工程中没有可导入的动作轨迹。", "The project contains no usable action tracks."))
+            self.set_status("工程中没有可导入的动作轨迹。", "The project contains no usable action tracks.")
 
     def import_cards(self, *, director=False):
         location = filedialog.askopenfilename(parent=self.window, filetypes=(("JSON", "*.json"),))
@@ -615,10 +696,10 @@ class ActionSequenceDialog:
         if incoming:
             self.add(incoming)
             if imported != incoming:
-                self.status.set(self.t("已导入卡片。当前项目里找不到的镜头或参考图链接需要重新绑定。",
-                                       "Cards imported. Relink shot or reference IDs missing from this project."))
+                self.set_status("已导入卡片。当前项目里找不到的镜头或参考图链接需要重新绑定。",
+                                "Cards imported. Relink shot or reference IDs missing from this project.")
         else:
-            self.status.set(self.t("文件中没有可编排的动作。", "The file contains no usable action cards."))
+            self.set_status("文件中没有可编排的动作。", "The file contains no usable action cards.")
 
     def export_cards(self):
         if not self.cards:
@@ -626,23 +707,27 @@ class ActionSequenceDialog:
         path = filedialog.asksaveasfilename(parent=self.window, defaultextension=".json", filetypes=(("JSON", "*.json"),))
         if path:
             save_action_cards(Path(path), self.cards)
-            self.status.set(self.t("已导出动作卡 JSON，参考图片保存在原项目中。",
-                                   "Action cards exported to JSON. Reference images stay in the source project."))
+            self.set_status("已导出动作卡 JSON，参考图片保存在原项目中。",
+                            "Action cards exported to JSON. Reference images stay in the source project.")
 
     def save(self, shots=None, cards=None):
-        self.owner.update_group()
         cards = self.cards if cards is None else cards
-        fields = {"action_cards": cards_to_records(cards), "images": list(self.images)}
+        if self.embedded:
+            project, images = self.owner.prepare_action_save(self.saved_cards, self.saved_images, self.images)
+        else:
+            self.owner.update_group()
+            project, images = self.owner.project, list(self.images)
+        fields = {"action_cards": cards_to_records(cards), "images": images}
         if shots is not None:
             fields["shots"] = shots
-        candidate = replace(self.owner.project, **fields)
+        candidate = replace(project, **fields)
         candidate.save(self.owner.path)
         self.owner.project = candidate
-        self.cards = list(cards)
+        self.cards, self.images = list(cards), list(images)
         self.saved_cards, self.saved_images = list(cards), list(self.images)
         self.owner.refresh()
         self.refresh(tuple(self.table.selection()))
-        self.status.set(self.t("已保存到当前项目。", "Saved to the current project."))
+        self.set_status("已保存到当前项目。", "Saved to the current project.")
 
     def handoff(self):
         selected = self.selection()
@@ -651,7 +736,9 @@ class ActionSequenceDialog:
             raise ValueError(self.t("请先编辑导入的轨迹卡，填写实际成片动作，再带入分镜。",
                                     "Edit imported route cards and write their shot action before sending them."))
         needs_source = any(not card.shot_id for card in picks)
-        if needs_source and not self.owner.project.sources:
+        project = self.owner.latest_project() if self.embedded else self.owner.project
+        sources = project.sources
+        if needs_source and not sources:
             raise ValueError(self.t(
                 "新增镜头需要批准剧本。请先保存动作卡，再使用镜头清单的「导入批准剧本」。",
                 "New shots require an approved script. Save the cards, then import an approved script in the shot list.",
@@ -669,27 +756,31 @@ class ActionSequenceDialog:
         if needs_source:
             ttk.Label(form, text=self.t("批准剧本", "Approved script")).pack(anchor="w")
             source = ttk.Combobox(form, state="readonly", width=52,
-                                  values=[f"{item.name} · {item.version}" for item in self.owner.project.sources])
+                                  values=[f"{item.name} · {item.version}" for item in sources])
             source.current(0)
             source.pack(fill="x", pady=(0, 8))
             ttk.Label(form, text=self.t("新增镜头对应的实际源段", "Actual source passage for new shots")).pack(anchor="w")
             ttk.Entry(form, width=52, textvariable=anchor).pack(fill="x")
 
         def confirm():
-            source_id = self.owner.project.sources[source.current()].id if source is not None else ""
-            shots, cards = plan_action_handoff(self.owner.project, self.cards, selected,
+            source_id = sources[source.current()].id if source is not None else ""
+            latest = self.owner.latest_project() if self.embedded else self.owner.project
+            shots, cards = plan_action_handoff(latest, self.cards, selected,
                                               source_id=source_id, anchor=anchor.get())
             self.save(shots, cards)
             panel.destroy()
-            self.status.set(self.t(f"已将 {len(selected)} 张动作卡带入镜头清单。",
-                                   f"Sent {len(selected)} card(s) to the shot list."))
+            self.set_status(f"已将 {len(selected)} 张动作卡带入镜头清单。",
+                            f"Sent {len(selected)} card(s) to the shot list.")
 
         ttk.Button(form, text=self.t("确认带入", "Confirm handoff"), command=lambda: self.guard(confirm, panel)).pack(
             anchor="e", pady=(10, 0))
         self.wait(panel)
 
+    def dirty(self):
+        return self.cards != self.saved_cards or self.images != self.saved_images
+
     def close(self):
-        if self.cards != self.saved_cards or self.images != self.saved_images:
+        if self.dirty():
             answer = messagebox.askyesnocancel(self.t("尚未保存", "Unsaved changes"),
                                                 self.t("离开前保存动作编排？", "Save the sequence before closing?"),
                                                 parent=self.window)
@@ -697,6 +788,6 @@ class ActionSequenceDialog:
                 return
             if answer:
                 self.guard(self.save)
-                if self.cards != self.saved_cards or self.images != self.saved_images:
+                if self.dirty():
                     return
-        self.window.destroy()
+        self.frame.destroy()

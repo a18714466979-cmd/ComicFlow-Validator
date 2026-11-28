@@ -59,6 +59,23 @@ ENGLISH = {
     "制作规则": "Production rules",
     "英文影片制作": "English film production",
     "使用教程": "Tutorial",
+    "已打开任务（{count}）": "Open tasks ({count})",
+    "关闭当前任务": "Close current task",
+    "为人物动作编排选择单组项目": "Choose a storyboard group for action sequencing",
+    "使用当前项目": "Use current project",
+    "保存失败": "Save failed",
+    "当前任务有未保存更改。": "This task has unsaved changes.",
+    "继续编辑": "Keep editing",
+    "放弃更改并关闭": "Discard and close",
+    "保存并关闭": "Save and close",
+    "项目的集次、组号或制作规则已变化。请先导出动作卡草稿，再重新打开项目。":
+        "The episode, group or production rules changed. Export the draft cards, then reopen the project.",
+    "此项目的动作编排已在别处修改。请先导出这份草稿，再重新打开项目。":
+        "Another editor changed this sequence. Export your draft, then reopen the project.",
+    "动作卡引用的图片已从项目移除。请解除或更换该引用后再保存。":
+        "A referenced image was removed from the project. Unlink or replace it before saving.",
+    "项目已有同 ID 的图像，请重新选择动作参考图。":
+        "An image already uses this ID. Choose the action reference again.",
     "软件锁定规则": "Locked workbench rules",
     "用户资料": "User material",
     "本次补充需求": "Additional request",

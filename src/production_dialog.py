@@ -88,6 +88,7 @@ class ProductionDialog:
         self.project = None
         self.path = None
         self.previewed = None
+        self.action_workspace = None
         self.window = tk.Toplevel(parent)
         self.window.title(window_title(self.window, "单组制片"))
         self.window.geometry("1050x745")
@@ -601,6 +602,9 @@ class ProductionDialog:
 
         if self.project is None:
             raise ValueError("请先新建或打开项目。")
+        if self.action_workspace is not None:
+            self.action_workspace()
+            return
         self.wait(ActionSequenceDialog(self).window)
 
     def open_layout(self, *, adjacent_path=None):

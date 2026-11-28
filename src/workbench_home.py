@@ -1,11 +1,12 @@
 """Build the desktop workbench navigation and the guided production home."""
 
 import tkinter as tk
-from tkinter import font, ttk
+from tkinter import ttk
 
 from .brand import APP_NAME_ZH, VERSION
 from .production_rules import DELIVERY_TARGET, OTHER_VIDEO_MODELS, RULE_LABELS
 from .workbench_style import ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, SURFACE, TINT, configure_workbench
+from .workbench_tasks import WorkbenchTasks
 
 
 PAGE_CAPTIONS = ("故事板制作", "电商信息流视频复刻", "检查验收", "API 接入", "使用教程")
@@ -98,41 +99,7 @@ def build_navigation(window, label_text, change_language, selected_rules, switch
     detail_note.pack(side="top", anchor="w")
     _wrap_to_parent(notice, (model_note, detail_note), inset=44)
 
-    tab_font = font.nametofont("TkDefaultFont", root=window).copy()
-    default_size = tab_font.cget("size")
-    styles.configure("Navigation.TNotebook.Tab", font=tab_font, padding=(13, 6))
-    navigation = ttk.Notebook(window, style="Navigation.TNotebook")
-    navigation.pack(fill="both", expand=True, padx=12, pady=(0, 8))
-    pages = tuple(ttk.Frame(navigation) for _ in PAGE_CAPTIONS)
-    for page in pages:
-        navigation.add(page)
-    navigation.enable_traversal()
-
-    tab_geometry = None
-
-    def fit_tabs(_event=None):
-        nonlocal tab_geometry
-        width = navigation.winfo_width() - 20
-        if width <= 0:
-            return
-        captions = [navigation.tab(tab, "text") for tab in navigation.tabs()]
-        minimum_size = 7 if default_size > 0 else -10
-        direction = 1 if default_size > 0 else -1
-        fitted_size = default_size
-        tab_font.configure(size=fitted_size)
-        measure = sum(tab_font.measure(caption) + 4 for caption in captions)
-        while abs(fitted_size) > abs(minimum_size) and measure + 2 * len(captions) > width:
-            fitted_size -= direction
-            tab_font.configure(size=fitted_size)
-            measure = sum(tab_font.measure(caption) + 4 for caption in captions)
-        pad = max(1, min(13, (width - measure) // (2 * len(captions))))
-        if tab_geometry != (pad, fitted_size):
-            styles.configure("Navigation.TNotebook.Tab", padding=(pad, 6))
-            tab_geometry = (pad, fitted_size)
-
-    navigation.bind("<Configure>", fit_tabs, add="+")
-    navigation.fit_workbench_tabs = fit_tabs
-    return navigation, pages, rules_buttons, help_menu
+    return WorkbenchTasks(window, PAGE_CAPTIONS), rules_buttons, help_menu
 
 
 def _adaptive_grid(parent, widgets, maximum, *, spacing=7):
@@ -167,7 +134,7 @@ def _adaptive_grid(parent, widgets, maximum, *, spacing=7):
     return fit
 
 
-def build_production_page(page, label_text, callbacks):
+def build_production_page(page, label_text, callbacks, *, action_picker=None):
     window = page._root()
     controls = []
     ttk.Style(window).configure("A.Home.Tool.TButton", padding=(8, 5))
@@ -180,6 +147,9 @@ def build_production_page(page, label_text, callbacks):
             label_text(control, caption)
         controls.append(control)
         return control
+
+    if action_picker is not None:
+        action_picker.mount(page, label_text)
 
     viewport = tk.Frame(page, bg=BACKGROUND)
     viewport.pack(fill="both", expand=True)
