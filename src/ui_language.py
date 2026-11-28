@@ -226,6 +226,8 @@ ENGLISH = {
     "{rules} · {verdict} · {count} 条结果": "{rules} · {verdict} · {count} result(s)",
     "{rules} · SB 规则 v{version}": "{rules} · Storyboard rules v{version}",
     "正在验收 {archive}…": "Validating {archive}…",
+    "已准备练习包。请选择英文影片制作，然后开始验收。":
+        "Practice ZIP ready. Select English film production, then start validation.",
     "请选择有效的{label}。": "Select a valid {label}.",
     "无法预览 {path}": "Unable to preview {path}",
     "景别与角度预检": "Check shot size and angle",

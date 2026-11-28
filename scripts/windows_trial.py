@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageDraw
 
+from scripts.workbench_guide_examples import build_workbench_examples
 from src.action_card_catalog import ACTION_PRESETS, ACTION_PREVIEW_DIRECTORY
 from src.brand import APP_FOLDER, VERSION
 from src.bundled_validators import ENGLISH_VALIDATOR_DIRECTORY, ENGLISH_VALIDATOR_FILES
@@ -20,7 +21,7 @@ from src.production_layout import apply_layout, bind_window, render_layout, wind
 from src.production_project import ProductionProject, Shot
 from src.production_rules import CHINESE, ENGLISH
 from src.repair_package import write_delivery_zip
-from src.storyboard_guide import STORYBOARD_GUIDE_IMAGES, STORYBOARD_TOPICS
+from src.storyboard_guide import STORYBOARD_GUIDE_IMAGES, STORYBOARD_TOPICS, WORKBENCH_GUIDE_IMAGES, WORKBENCH_TOPICS
 from src.workbench_tutorial import SECTIONS, TUTORIAL_IMAGES, TUTORIAL_LOCALES
 from src.dialogue_blocking import DIALOGUE_CARDS, DIALOGUE_PREVIEW_DIRECTORY, dialogue_preview_path
 
@@ -31,6 +32,8 @@ LAUNCH_SCRIPT = f"{APP_FOLDER}.bat"
 INSTALL_FILES = (SETUP_SCRIPT, LAUNCH_SCRIPT, "requirements-runtime.txt", "WINDOWS-TRYOUT.md", "CHANGELOG.md", "LICENSE")
 COSTUME_REFERENCES = Path("assets/costume_references")
 ECOMMERCE_VALIDATOR_DIRECTORY = Path("assets/workflow_validators/ecommerce")
+PRACTICE_BATCH = "Examples/Workbench/Batch/Signal-Station"
+PRACTICE_BATCH_INDEX = f"{PRACTICE_BATCH}.batch/index.sqlite3"
 CONTINUITY = "门保持关闭，右侧绿灯稳定，左侧柜体仍在原位"
 ENGLISH_EXAMPLE_FRAMING = ("全景", "中景", "近景", "特写", "全景", "中景", "近景", "特写", "全景")
 
@@ -185,10 +188,14 @@ def build(output, revision):
         copytree(ROOT / DIRECTOR_HOST, folder / DIRECTOR_HOST)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
         copytree(ROOT / TUTORIAL_IMAGES, folder / TUTORIAL_IMAGES)
-        guide_images = tuple(STORYBOARD_GUIDE_IMAGES / f"{topic}_{locale}.webp"
-                             for topic in STORYBOARD_TOPICS for locale in TUTORIAL_LOCALES)
-        (folder / STORYBOARD_GUIDE_IMAGES).mkdir(parents=True)
+        guide_images = tuple(
+            directory / f"{topic}_{locale}.webp"
+            for directory, topics in ((STORYBOARD_GUIDE_IMAGES, STORYBOARD_TOPICS),
+                                      (WORKBENCH_GUIDE_IMAGES, WORKBENCH_TOPICS))
+            for topic in topics for locale in TUTORIAL_LOCALES
+        )
         for relative in guide_images:
+            (folder / relative.parent).mkdir(parents=True, exist_ok=True)
             copy2(ROOT / relative, folder / relative)
         previews = tuple(ACTION_PREVIEW_DIRECTORY / f"{preset.id}.webp" for preset in ACTION_PRESETS)
         (folder / ACTION_PREVIEW_DIRECTORY).mkdir(parents=True)
@@ -208,12 +215,18 @@ def build(output, revision):
             (folder / name).write_bytes(content.encode("utf-8"))
         make_examples(folder / "Examples", scratch / "en", ENGLISH, "预览_信号站_相邻两组.zip")
         make_examples(folder / "Examples" / "中文制作", scratch / "zh", CHINESE, "预览_相邻两组.zip")
+        build_workbench_examples(folder / "Examples")
         write_delivery_zip(staging, output)
     with ZipFile(output) as archive:
         if archive.testzip() is not None:
             raise ValueError("The trial archive contains unreadable data.")
         samples = ("Examples/SB01.cfproject", "Examples/SB02.cfproject", "Examples/预览_信号站_相邻两组.zip",
-                   "Examples/中文制作/SB01.cfproject", "Examples/中文制作/SB02.cfproject", "Examples/中文制作/预览_相邻两组.zip")
+                   "Examples/中文制作/SB01.cfproject", "Examples/中文制作/SB02.cfproject", "Examples/中文制作/预览_相邻两组.zip",
+                   "Examples/Workbench/Ecommerce/Reference.mp4", "Examples/Workbench/Ecommerce/Product.png",
+                   "Examples/Workbench/Ecommerce/Shots.json", "Examples/Workbench/Ecommerce/Scene.png",
+                   "Examples/Workbench/Ecommerce/SB01-Board.png",
+                   "Examples/Workbench/Batch/EP01.txt", "Examples/Workbench/Batch/EP02.txt",
+                   "Examples/Workbench/Batch/Shared-Station-Door.png", f"{PRACTICE_BATCH}.cfbatch", PRACTICE_BATCH_INDEX)
         references = tuple(path.relative_to(ROOT).as_posix() for path in (ROOT / COSTUME_REFERENCES).iterdir())
         validators = tuple((ENGLISH_VALIDATOR_DIRECTORY / name).as_posix() for name in ENGLISH_VALIDATOR_FILES)
         ecommerce_validator = (ECOMMERCE_VALIDATOR_DIRECTORY / "validate_storyboard_package.py").as_posix()
@@ -227,7 +240,7 @@ def build(output, revision):
             with Image.open(BytesIO(archive.read(f"{APP_FOLDER}/{relative.as_posix()}"))) as screenshot:
                 screenshot.load()
                 if screenshot.format != "WEBP" or screenshot.n_frames != 1 or screenshot.width < 600 or screenshot.height < 250:
-                    raise ValueError(f"Expected a readable storyboard guide screenshot: {relative.name}")
+                    raise ValueError(f"Expected a readable guide screenshot: {relative}")
         for relative in previews:
             with Image.open(BytesIO(archive.read(f"{APP_FOLDER}/{relative.as_posix()}"))) as strip:
                 strip.load()
@@ -243,8 +256,9 @@ def build(output, revision):
                 raise ValueError(f"The trial archive has mismatched metadata in {name}.")
         if archive.read(f"{APP_FOLDER}/CHANGELOG.md") != (ROOT / "CHANGELOG.md").read_bytes():
             raise ValueError("The trial archive does not match the repository changelog.")
-        if any(".sqlite3" in name for name in archive.namelist()):
-            raise ValueError("The portable archive must rebuild machine-local asset paths.")
+        indexes = {name for name in archive.namelist() if ".sqlite3" in name}
+        if indexes != {f"{APP_FOLDER}/{PRACTICE_BATCH_INDEX}"}:
+            raise ValueError("Only the portable practice batch index belongs in the archive.")
 
 
 def main():

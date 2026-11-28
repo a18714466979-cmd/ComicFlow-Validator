@@ -12,6 +12,7 @@ from .batch_planning import coverage_issues, trace_rows
 from .batch_workspace import BatchWorkspace
 from .batch_runner import BatchQueue
 from .batch_delivery import publish_episode, publish_series
+from .guide_links import guide_button
 from .production_handoff import reviewed_boundary
 from .production_project import ProductionProject
 from .production_rules import CHINESE, rule_revision
@@ -108,6 +109,9 @@ class BatchDialog:
 
     def title(self):
         return self.t("批量制作中心", "Batch production center")
+
+    def help_topic(self):
+        return f"batch_{self.stage}"
 
     def label(self, widget, zh, en, *, heading=None):
         self.labels.append((widget, zh, en, heading))
@@ -277,6 +281,9 @@ class BatchDialog:
         body.pack(fill="both", expand=True)
         header = self.toolbar(body)
         self.button(header, "关闭", "Close", self.close, "always", side="right")
+        help_button = guide_button(header, self.help_topic)
+        if help_button is not None:
+            help_button.pack(side="right", padx=(0, 6))
         self.label(ttk.Label(header, style="A.TLabel", font=("TkDefaultFont", 17, "bold")),
                    "批量制作中心", "Batch production center").pack(anchor="w")
         heading = ttk.Label(body, textvariable=self.heading, style="A.Muted.TLabel", wraplength=850)
@@ -1030,6 +1037,9 @@ class BatchDialog:
                 self.guarded(accept)
             ttk.Button(bar, text=self.t("采纳候选", "Adopt candidate"), command=use).pack(side="left", padx=8)
         ttk.Button(bar, text=self.t("关闭", "Close"), command=panel.destroy).pack(side="right", padx=8)
+        help_button = guide_button(bar, self.help_topic())
+        if help_button is not None:
+            help_button.pack(side="right")
         self.wait_panel(panel)
 
     def show_script(self):
@@ -1069,6 +1079,9 @@ class BatchDialog:
         bar = self.toolbar(panel)
         ttk.Button(bar, text=self.t("保存拆镜", "Save cuts"), command=accept).pack(side="right", padx=6)
         ttk.Button(bar, text=self.t("取消", "Cancel"), command=panel.destroy).pack(side="right")
+        help_button = guide_button(bar, "batch_plan")
+        if help_button is not None:
+            help_button.pack(side="right", padx=(0, 6))
         editor.focus_set()
         self.wait_panel(panel)
         if result:
@@ -1184,6 +1197,9 @@ class BatchDialog:
         bar = self.toolbar(form)
         ttk.Button(bar, text=self.t("确认", "Confirm"), command=submit).pack(side="right")
         ttk.Button(bar, text=self.t("取消", "Cancel"), command=panel.destroy).pack(side="right", padx=5)
+        help_button = guide_button(bar, self.help_topic())
+        if help_button is not None:
+            help_button.pack(side="right")
         self.wait_panel(panel)
         return result
 

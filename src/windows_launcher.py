@@ -20,7 +20,7 @@ from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
 from .bundled_validators import bundled_validator
 from .ecommerce_page import EcommercePage
-from .guide_links import refresh_guide_buttons
+from .guide_links import guide_button, refresh_guide_buttons
 from .practice_project import make_practice, practice_example
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
@@ -35,6 +35,9 @@ from .ui_language import load_language, save_language, translate
 from .vision_dialog import open_vision_dialog, vision_job_key
 from .workbench_jobs import JobOutcome, WorkbenchJobs, build_job_center
 from .workbench_home import build_navigation, build_production_page
+from .workbench_practice import (
+    PRACTICE_SOURCES, REVIEW_GROUPS, REVIEW_REGISTRY, available_practices, make_workbench_practice,
+)
 from .workbench_tutorial import build_tutorial
 
 
@@ -255,7 +258,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         if result is not None:
             group = selected_issue.group if selected_issue else file_selector.get().partition("/")[0]
             shot = selected_issue.shot if selected_issue else ""
-            open_shot_review(window, result, group, shot)
+            open_shot_review(window, result, group, shot, help_topic="review_cuts")
 
     inspect = label_text(ttk.Button(file_row, command=inspect_shots, state="disabled"), "逐格复核")
     inspect.pack(side="right", padx=(8, 0))
@@ -683,50 +686,59 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             return
         holder, status, focus, ancestors = suspended_help
         suspended_help = None
-        for dialog in reversed(ancestors):
+        for dialog, state in reversed(ancestors):
             if dialog.winfo_exists():
-                dialog.deiconify()
+                dialog.state(state)
                 dialog.lift()
-        if holder.winfo_exists():
-            window.update_idletasks()
+        window.update_idletasks()
+        if holder is not None and holder.winfo_exists():
             if status == "global":
                 holder.grab_set_global()
             else:
                 holder.grab_set()
-            if focus is not None and focus.winfo_exists():
-                focus.focus_set()
+        if focus is not None and focus.winfo_exists() and focus.winfo_viewable():
+            focus.focus_set()
 
-    def show_storyboard_help(topic="home", *, contextual=True):
+    def show_storyboard_help(topic="home", *, contextual=True, source=None):
         nonlocal help_origin, suspended_help
         selected = navigation.select()
         if selected != str(tutorial_page):
             help_origin = selected if contextual else ""
         elif not contextual:
             help_origin = ""
-        holder = window.grab_current()
-        if contextual and holder is not None and holder.winfo_toplevel() != window:
-            status, focus, ancestors = holder.grab_status(), holder.focus_get(), []
-            dialog = holder.winfo_toplevel()
-            holder.grab_release()
-            while dialog != window:
-                if dialog.state() == "normal":
-                    ancestors.append(dialog)
-                    dialog.withdraw()
-                dialog = dialog.master.winfo_toplevel()
-            suspended_help = holder, status, focus, ancestors
+        if contextual:
+            holder = window.grab_current()
+            grabbed = holder.winfo_toplevel() if holder is not None else window
+            originating = source.winfo_toplevel() if source is not None else window
+            focus, status, ancestors = window.focus_get(), None, []
+            if grabbed != window:
+                status = holder.grab_status()
+                holder.grab_release()
+            for dialog in (grabbed, originating):
+                while dialog != window:
+                    state = dialog.state()
+                    if state in ("normal", "zoomed"):
+                        ancestors.append((dialog, state))
+                        dialog.withdraw()
+                    dialog = dialog.master.winfo_toplevel()
+            if ancestors:
+                suspended_help = holder if status else None, status, focus, ancestors
         tutorial_overview.pack_forget()
         storyboard_guide.frame.pack(fill="both", expand=True)
         storyboard_guide.show(
             topic, contextual=bool(help_origin or suspended_help),
             can_practice=not suspended_help and practice_example(examples, active_rules).is_file(),
             allow_overview=suspended_help is None,
+            workbench_practices=available_practices(examples) if suspended_help is None else (),
         )
         tasks.select(tutorial_page)
 
     def return_from_help():
-        nonlocal help_origin
+        nonlocal help_origin, api_explicit
         origin = help_origin
         help_origin = ""
+        if origin == str(api_page):
+            api_explicit = True
         tasks.select(origin if origin in navigation.tabs() and origin != str(tutorial_page) else production_page)
         restore_help_modal()
 
@@ -797,6 +809,9 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             callbacks["open"]()
 
     def start_practice(kind):
+        if kind == "review" and busy:
+            messagebox.showinfo(tr("验收进行中"), tr("当前正在读取交付包，请等待验收完成。"), parent=window)
+            return
         directory = filedialog.askdirectory(
             parent=window,
             title="Choose a folder for practice files" if window.ui_language == "en" else "选择练习文件的保存位置",
@@ -805,6 +820,9 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         if not directory:
             return
         try:
+            if kind in PRACTICE_SOURCES:
+                open_workbench_practice(kind, make_workbench_practice(examples, directory, kind))
+                return
             path = make_practice(examples, directory, active_rules, existing=kind == "existing")
             if kind == "existing":
                 production_workspace.open("assets", path)
@@ -812,6 +830,21 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
                 production_workspace.open("script", practice_script=path)
         except (OSError, ValueError, RuntimeError, tk.TclError) as error:
             production_workspace.show_error(error)
+
+    def open_workbench_practice(kind, path):
+        if kind == "ecommerce":
+            if ecommerce.open_path(path):
+                tasks.select(ecommerce_page)
+        elif kind == "batch":
+            batch_center(path, stage="plan")
+        else:
+            entries[0][1].set(str(path))
+            entries[2][1].set("")
+            registry_path.set(str(path.with_name(REVIEW_REGISTRY)))
+            known_projects.update(path.with_name(filename) for filename in REVIEW_GROUPS)
+            clear_review()
+            set_status("已准备练习包。请选择英文影片制作，然后开始验收。")
+            tasks.select(review_page)
 
     tutorial_overview = ttk.Frame(tutorial_page, name="tutorial_overview")
     tutorial_overview.pack(fill="both", expand=True)
@@ -821,6 +854,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
          "review": choose_delivery_zip, "api": go_to_api},
         sample_action=open_tutorial_sample if sample_available else None,
         open_storyboard_guide=lambda: show_storyboard_help(contextual=False),
+        open_workbench_guide=lambda: show_storyboard_help("general", contextual=False),
     )
     storyboard_guide = StoryboardGuide(tutorial_page, on_return=return_from_help, on_overview=show_tutorial_overview,
                                       on_practice=start_practice)
@@ -850,6 +884,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             side="left", padx=(0, 7))
     label_text(ttk.Button(checks, name="workbench_jobs", command=open_jobs, style="Workbench.TButton"),
                "任务中心").pack(side="left", padx=(0, 7))
+    guide_button(checks, "review_zip").pack(side="right")
     options.pack(fill="x", padx=16, pady=(1, 4))
     for row, (label, value, kind) in enumerate(entries):
         caption = ttk.Label(options, textvariable=validator_label) if row == 1 else label_text(ttk.Label(options), label)

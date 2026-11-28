@@ -1,4 +1,4 @@
-"""Offline, context-sensitive guide to the storyboard workspace."""
+"""Offline, context-sensitive guides for the workbench."""
 
 from functools import lru_cache
 from pathlib import Path
@@ -8,11 +8,15 @@ from tkinter import font, ttk
 from PIL import Image, ImageTk
 
 from .storyboard_guide_topics import STORYBOARD_TOPICS
+from .workbench_guide_topics import WORKBENCH_TOPICS
 from .workbench_style import BACKGROUND, INK, LINE, MUTED, SURFACE
 
 
 STORYBOARD_GUIDE_IMAGES = Path("assets/storyboard_guide")
+WORKBENCH_GUIDE_IMAGES = Path("assets/workbench_guide")
+GUIDE_TOPICS = {**STORYBOARD_TOPICS, **WORKBENCH_TOPICS}
 TOPIC_GROUPS = (
+    (("工作台入门", "Workbench basics"), ("general", "guide_navigation")),
     (("开始制作", "Getting started"), ("home", "project")),
     (("制作流程", "Production steps"), (
         "script", "shots", "drafts", "inventory", "generate_assets", "generate_board", "prompts",
@@ -22,12 +26,26 @@ TOPIC_GROUPS = (
         "action_preview", "dialogue", "pose", "director", "layout",
     )),
     (("交付", "Delivery"), ("deliver",)),
+    (("电商信息流复刻", "E-commerce recreation"), (
+        "ecommerce_import", "ecommerce_shots", "ecommerce_assets", "ecommerce_delivery",
+    )),
+    (("批量制片", "Batch production"), (
+        "batch_import", "batch_plan", "batch_assets", "batch_queue", "batch_delivery",
+    )),
+    (("检查与返修", "Validation & repair"), ("review_zip", "review_images", "review_cuts", "review_repair")),
+    (("任务与 API", "Jobs & API"), ("jobs", "api")),
 )
+WORKBENCH_PRACTICE_LABELS = {
+    "ecommerce": ("打开电商练习", "Open e-commerce practice"),
+    "batch": ("打开多集练习", "Open multiple-episode practice"),
+    "review": ("打开验收练习", "Open delivery review practice"),
+}
 
 
 @lru_cache(maxsize=6)
 def screenshot(topic, locale):
-    path = Path(__file__).resolve().parents[1] / STORYBOARD_GUIDE_IMAGES / f"{topic}_{locale}.webp"
+    images = WORKBENCH_GUIDE_IMAGES if topic in WORKBENCH_TOPICS else STORYBOARD_GUIDE_IMAGES
+    path = Path(__file__).resolve().parents[1] / images / f"{topic}_{locale}.webp"
     try:
         with Image.open(path) as image:
             return image.convert("RGB")
@@ -41,6 +59,7 @@ class StoryboardGuide:
         self.current_topic = "home"
         self.on_practice = on_practice
         self.can_practice = bool(on_practice)
+        self.workbench_practices = frozenset()
         self.allow_overview = True
         self.contextual = False
         self.zoomed = False
@@ -83,14 +102,14 @@ class StoryboardGuide:
         outline = ttk.Frame(body)
         outline.grid(row=0, column=0, sticky="nsw", padx=(0, 10))
         self.tree = ttk.Treeview(outline, name="guide_topic_list", show="tree", selectmode="browse", height=18)
-        self.tree.column("#0", width=216, minwidth=172, stretch=False)
+        self.tree.column("#0", width=226, minwidth=172, stretch=False)
         self.tree.pack(side="left", fill="y")
         list_scroll = ttk.Scrollbar(outline, orient="vertical", command=self.tree.yview)
         list_scroll.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=list_scroll.set)
         for index, (_, topics) in enumerate(TOPIC_GROUPS):
             category = f"guide-section-{index}"
-            self.tree.insert("", "end", iid=category, open=True)
+            self.tree.insert("", "end", iid=category)
             for key in topics:
                 self.tree.insert(category, "end", iid=key)
         self.tree.bind("<<TreeviewSelect>>", self.select)
@@ -128,6 +147,12 @@ class StoryboardGuide:
         self.practice_existing = ttk.Button(self.practice, name="practice_existing",
                                             command=lambda: self.on_practice("existing"))
         self.practice_existing.pack(side="left")
+        self.workbench_practice = ttk.Frame(self.article)
+        self.practice_buttons = {
+            kind: ttk.Button(self.workbench_practice, name=f"practice_{kind}",
+                             command=lambda selected=kind: self.on_practice(selected))
+            for kind in WORKBENCH_PRACTICE_LABELS
+        }
         self.wrap_labels = [self.title, self.intro]
         for widget in (self.canvas, self.article, self.title, self.intro, self.picture, self.details, self.zoom):
             self.bind_wheel(widget)
@@ -187,18 +212,20 @@ class StoryboardGuide:
 
     def select(self, _event=None):
         selected = self.tree.selection()
-        if not selected or selected[0] not in STORYBOARD_TOPICS or selected[0] == self.current_topic:
+        if not selected or selected[0] not in GUIDE_TOPICS or selected[0] == self.current_topic:
             return
         self.show(selected[0])
 
-    def show(self, topic, *, contextual=None, can_practice=None, allow_overview=None):
-        self.current_topic = topic if topic in STORYBOARD_TOPICS else "home"
+    def show(self, topic, *, contextual=None, can_practice=None, allow_overview=None, workbench_practices=None):
+        self.current_topic = topic if topic in GUIDE_TOPICS else "home"
         if contextual is not None:
             self.contextual = contextual
         if can_practice is not None:
             self.can_practice = can_practice
         if allow_overview is not None:
             self.allow_overview = allow_overview
+        if workbench_practices is not None:
+            self.workbench_practices = workbench_practices
         self.zoomed = False
         self.refresh(reset=True)
 
@@ -209,7 +236,9 @@ class StoryboardGuide:
         self.layout()
 
     def refresh(self, *, reset=False):
-        self.header.configure(text=self.text("故事板制作教程", "Storyboard production guide"))
+        self.header.configure(text=self.text("工作台操作教程", "Workbench operations guide")
+                              if self.current_topic in WORKBENCH_TOPICS
+                              else self.text("故事板制作教程", "Storyboard production guide"))
         self.overview_button.configure(text=self.text("教程总览", "Tutorial overview"))
         self.return_button.configure(text=self.text("返回发起页", "Return to originating page"))
         self.return_button.state(["!disabled"] if self.contextual else ["disabled"])
@@ -221,12 +250,12 @@ class StoryboardGuide:
         for index, (caption, topics) in enumerate(TOPIC_GROUPS):
             self.tree.item(f"guide-section-{index}", text=self.local(caption))
             for key in topics:
-                self.tree.item(key, text=self.local(STORYBOARD_TOPICS[key].title))
+                self.tree.item(key, text=self.local(GUIDE_TOPICS[key].title))
         if self.tree.selection() != (self.current_topic,):
             self.tree.selection_set(self.current_topic)
             self.tree.see(self.current_topic)
 
-        topic = STORYBOARD_TOPICS[self.current_topic]
+        topic = GUIDE_TOPICS[self.current_topic]
         self.title.configure(text=self.local(topic.title))
         self.intro.configure(text=self.local(topic.intro))
         for widget in self.details.winfo_children():
@@ -246,6 +275,16 @@ class StoryboardGuide:
             self.practice.pack(fill="x", before=self.picture, pady=(9, 3))
         else:
             self.practice.pack_forget()
+        if self.current_topic == "general" and self.workbench_practices and self.on_practice is not None:
+            self.workbench_practice.pack(fill="x", before=self.picture, pady=(7, 0))
+            for kind, button in self.practice_buttons.items():
+                if kind in self.workbench_practices:
+                    button.configure(text=self.local(WORKBENCH_PRACTICE_LABELS[kind]))
+                    button.pack(anchor="w", pady=(0, 3))
+                else:
+                    button.pack_forget()
+        else:
+            self.workbench_practice.pack_forget()
         self.layout()
         if reset:
             self.canvas.xview_moveto(0)

@@ -7,6 +7,7 @@ from threading import Thread
 from tkinter import messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
+from .guide_links import guide_button
 from .production_rules import ENGLISH
 from .ui_language import translate
 from .vision import PROVIDERS, VisionSettings, checked_review_focus, prepare_review_image, review_image, review_instructions
@@ -195,6 +196,9 @@ def open_vision_dialog(
     send = ttk.Button(actions, name="vision_send", text=translate(dialog, "发送图片并分析"), command=confirm_and_send)
     send.pack(side="right")
     labels.append((send, "发送图片并分析"))
+    help_button = guide_button(actions, "review_images")
+    if help_button is not None:
+        help_button.pack(side="right", padx=(0, 6))
 
     def refresh_language():
         for widget, caption in labels:

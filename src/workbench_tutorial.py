@@ -47,7 +47,7 @@ SECTIONS = (
 )
 
 
-def build_tutorial(page, actions, sample_action=None, open_storyboard_guide=None):
+def build_tutorial(page, actions, sample_action=None, open_storyboard_guide=None, open_workbench_guide=None):
     def language():
         return getattr(page._root(), "ui_language", "zh")
 
@@ -70,6 +70,10 @@ def build_tutorial(page, actions, sample_action=None, open_storyboard_guide=None
         detailed = ttk.Button(topics, name="storyboard_guide_open", style="Primary.Workbench.TButton",
                               command=open_storyboard_guide)
         detailed.pack(fill="x", pady=(5, 0))
+    if open_workbench_guide is not None:
+        operations = ttk.Button(topics, name="workbench_guide_open", style="Primary.Workbench.TButton",
+                                command=open_workbench_guide)
+        operations.pack(fill="x", pady=(5, 0))
 
     article = tk.Frame(content, bg=SURFACE, padx=17, pady=13, highlightbackground=LINE, highlightthickness=1)
     article.grid(row=0, column=1, sticky="nsew")
@@ -136,6 +140,8 @@ def build_tutorial(page, actions, sample_action=None, open_storyboard_guide=None
         selected = index
         if open_storyboard_guide is not None:
             detailed.configure(text=local(("故事板制作教程", "Storyboard production guide")))
+        if open_workbench_guide is not None:
+            operations.configure(text=local(("工作台操作教程", "Workbench operations guide")))
         for n, (button, (_, name, _, _)) in enumerate(zip(topic_buttons, SECTIONS)):
             button.configure(text=local(name),
                              style="Primary.Workbench.TButton" if n == selected else "Workbench.TButton")

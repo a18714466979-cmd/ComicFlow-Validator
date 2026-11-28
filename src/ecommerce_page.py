@@ -27,6 +27,7 @@ from .ecommerce_delivery import (
 from .ecommerce_media import catalog_path, linked_image, product_photo, source_clip
 from .ecommerce_project import EcommerceProject, EcommerceShot, parse_shots, render_shots, time_range
 from .ecommerce_video import VIDEO_FILTER, analyze_video, format_timestamp, inspect_video, preview_frame, preview_sheet
+from .guide_links import guide_button
 from .image_api import query_image
 from .media_catalog import MediaCatalog, MediaCatalogError
 from .media_gallery import open_media_gallery
@@ -40,6 +41,7 @@ PHASES = (
     ("导入与产品", "Source & product"), ("分镜分析", "Shot analysis"),
     ("资产与故事板", "Assets & boards"), ("提示词与交付", "Prompts & delivery"),
 )
+PHASE_HELP = ("ecommerce_import", "ecommerce_shots", "ecommerce_assets", "ecommerce_delivery")
 IMAGE_FILTER = ("PNG / JPEG / WebP", "*.png *.jpg *.jpeg *.webp")
 SOURCE_POSTER_SIZE = 108
 SHOT_FIELDS = (
@@ -133,6 +135,9 @@ class EcommercePage:
         self.tables.append((view, columns))
         return view
 
+    def help_topic(self):
+        return PHASE_HELP[self.steps.index(self.steps.select())]
+
     def build(self):
         self.main = ttk.Frame(self.page, name="ecommerce_workflow") if self.inline else self.page
         if self.inline:
@@ -146,6 +151,9 @@ class EcommercePage:
         self.button(actions, "新建电商项目", "New project", self.new)
         self.button(actions, "打开电商项目", "Open project", self.open)
         self.button(actions, "保存电商项目", "Save project", self.save, primary=True)
+        help_button = guide_button(actions, self.help_topic)
+        if help_button is not None:
+            help_button.pack(side="left", padx=(3, 0))
 
         self.steps = ttk.Notebook(self.main, name="ecommerce_steps")
         self.steps.pack(fill="both", expand=True, padx=12, pady=6)
@@ -401,11 +409,16 @@ class EcommercePage:
 
     def open(self):
         source = filedialog.askopenfilename(parent=self.window, filetypes=self.project_filetypes())
-        if not source or not self.allow_close():
-            return
+        return self.open_path(source) if source else False
+
+    def open_path(self, source):
+        if not self.allow_close():
+            return False
         path = Path(source)
         project = EcommerceProject.open(path)
         catalog = MediaCatalog(catalog_path(path, project.project_id))
+        if self.detail is not None:
+            self.detail.destroy()
         self.project, self.media_catalog = project, catalog
         self.media_unsaved = False
         self.path, self.saved, self.info = path, deepcopy(self.project), None
@@ -413,6 +426,7 @@ class EcommercePage:
         self.load_form()
         self.steps.select(0)
         self.status.set(self.t("已打开电商项目。", "Ecommerce project opened."))
+        return True
 
     def save(self):
         self.form()
@@ -524,7 +538,7 @@ class EcommercePage:
         items.extend(product_photo(Path(path), purpose) for path in self.project.product_refs)
         purpose = self.t("已绑定的制作图像", "Linked production image")
         items.extend(linked_image(slot, Path(path), purpose) for slot, path in self.project.assets.items())
-        panel = self.inline_panel(self.t("电商素材库", "Ecommerce media library")) if self.inline else None
+        panel = self.inline_panel(self.t("电商素材库", "Ecommerce media library"), show_help=False) if self.inline else None
         try:
             open_media_gallery(self.window, items, catalog=self.media_catalog, selected=selected,
                                allow_import=True, open_selected=bool(selected), on_change=self.media_changed,
@@ -1236,7 +1250,7 @@ class EcommercePage:
         panel.grab_set()
         return panel
 
-    def inline_panel(self, title):
+    def inline_panel(self, title, *, show_help=True):
         if self.detail is not None:
             raise ValueError(self.t("请先返回当前工序，再打开其他内容。", "Return to the current stage before opening another view."))
         focus = self.window.focus_get()
@@ -1246,6 +1260,10 @@ class EcommercePage:
         stage = self.steps.index(self.steps.select())
         ttk.Button(header, name="ecommerce_detail_back", text=self.t(f"返回{PHASES[stage][0]}", f"Back to {PHASES[stage][1]}"),
                    command=lambda: panel.destroy() if self.allow_leave_detail() else None).pack(side="right")
+        if show_help:
+            help_button = guide_button(header, PHASE_HELP[stage])
+            if help_button is not None:
+                help_button.pack(side="right", padx=(0, 6))
         ttk.Label(header, name="ecommerce_detail_title", text=title, font=("TkDefaultFont", 12, "bold")).pack(
             side="left", padx=(2, 8))
 
@@ -1278,6 +1296,9 @@ class EcommercePage:
             panel.geometry(geometry)
         if minimum:
             panel.minsize(*minimum)
+        help_button = guide_button(panel, self.help_topic())
+        if help_button is not None:
+            help_button.pack(anchor="e", padx=10, pady=(8, 0))
         return panel
 
     def inspect_text(self, title, body):

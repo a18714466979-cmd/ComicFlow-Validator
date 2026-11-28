@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from .guide_links import guide_button
 from .image_api import IMAGE_PROVIDERS, TEXT, ImageSettings, build_image_request
 from .production_dialog import field
 from .ui_language import translate
@@ -15,11 +16,16 @@ IMAGE_HELP = "选择能输出图片的图像模型，用于生成资产候选、
 
 
 def build_api_settings(parent, text_session, vision_session, image_session, label_text):
-    content = ttk.Frame(parent, padding=14)
+    content = ttk.Frame(parent, name="api_settings", padding=14)
     content.pack(fill="both", expand=True)
-    label_text(ttk.Label(content, wraplength=690),
-               "按用途配置模型。设置和密钥只在本次软件运行期间使用。").pack(anchor="w", pady=(0, 8))
-    tabs = ttk.Notebook(content)
+    header = ttk.Frame(content)
+    header.pack(fill="x", pady=(0, 8))
+    help_button = guide_button(header, "api")
+    if help_button is not None:
+        help_button.pack(side="right", padx=(8, 0))
+    label_text(ttk.Label(header, wraplength=690),
+               "按用途配置模型。设置和密钥只在本次软件运行期间使用。").pack(side="left")
+    tabs = ttk.Notebook(content, name="api_purposes")
     tabs.pack(fill="both", expand=True)
     screens = []
     for caption, help_text, session, other, generation in (

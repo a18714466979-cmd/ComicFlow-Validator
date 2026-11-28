@@ -16,6 +16,8 @@
 
 Comic Sequence Studio helps AI comic creators prepare and review a complete delivery for ByteDance Seedance 2.0. The workbench has tabs for storyboard production, inspection and validation, API connections, a bilingual illustrated tutorial, and e-commerce video recreation. Work through script, shots and assets in one project, or start a stage with a local file.
 
+Open **Tutorial → Storyboard production guide** for single-group production, or **Tutorial → Workbench operations guide** for e-commerce, batch production, delivery repair, and API settings. Screenshots and practice projects ship with the Windows package. **Help for this page** opens the relevant section and returns to the original tool afterward.
+
 Select **Changelog** under **Help** or click the version on the home page to read the release history. The Windows package includes the same [changelog](CHANGELOG.md) for offline use.
 
 Approved sources, dialogue spans, shot order, camera references and the nine-image budget can be checked before submission. Reviewing adjacent panels and repairing the affected region helps avoid repeated generations and full-group rework caused by preventable input problems.
@@ -182,7 +184,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 | 电商信息流视频复刻 | 导入参考视频和自有产品图，拆分镜、重做资产和竖屏彩色故事板，预览提示词并验收导出。 |
 | 检查验收 | 图片像素、比例和文件大小、ZIP 完整性与规则验收、逐格核图、跨页和跨组镜头对照、资产返修。 |
 | API 接入 | 分用途配置文本、审图和生图。 |
-| 使用教程 | 用界面截图和步骤介绍快速开始、剧本到交付、检查交付 ZIP 和配置 API，支持直接打开示例或对应工具。 |
+| 使用教程 | 中英文逐页图文教程，包含故事板、电商、多集和交付验收练习。各工具可从「本页帮助」跳转并回到原位置。 |
 
 同一项目可接续「剧本创作 → 分镜拆分 → 资产分析」。剧本编辑器可把选定的原稿写入新项目或作为已有项目中的剧本版本。镜头清单与已采纳的 AI 分镜都可进入下一步，资产分析带入该版本的原文与已保存镜头。从各页入口仍可打开已有项目或从本地导入稿件。
 

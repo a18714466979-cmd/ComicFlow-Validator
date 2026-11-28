@@ -13,7 +13,8 @@ def guide_button(parent, topic, *, name="page_help"):
         return None
     caption = "导演台使用教程" if name == "director_help" else "本页帮助"
     button = ttk.Button(parent, name=name, text=translate(parent, caption),
-                        command=lambda: open_help(topic), style="Workbench.TButton")
+                        command=lambda: open_help(topic() if callable(topic) else topic, source=parent),
+                        style="Workbench.TButton")
     if not hasattr(root, "_guide_buttons"):
         root._guide_buttons = WeakSet()
     root._guide_buttons.add(button)

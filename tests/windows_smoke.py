@@ -20,22 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_TAB, ECOMMERCE_TAB, REVIEW_TAB, API_TAB, TUTORIAL_TAB = range(5)
 
 
-def make_ecommerce_video(folder):
-    """Make a local vertical reference with hard cuts at 1 and 2 seconds."""
-    from src.ecommerce_video import resolve_ffmpeg
-
-    target = folder / "竖屏广告参考.mp4"
-    colors = ("black", "white", "black")
-    inputs = [value for color in colors for value in ("-f", "lavfi", "-i", f"color=c={color}:s=144x256:r=24:d=1")]
-    subprocess.run(
-        [resolve_ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin", *inputs,
-         "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[out]", "-map", "[out]",
-         "-c:v", "mpeg4", "-threads", "2", "-pix_fmt", "yuv420p", "-y", str(target)],
-        check=True, timeout=15, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    return target
-
-
 def attach_chinese_layout(project, path, folder, *, distinct=1, local=3, extras=0):
     """Register simple synthetic walls and fixed equipment without calling an image model."""
     from src.production_layout import bind_window
@@ -241,6 +225,10 @@ def run_inside_launcher():
                 with patch.object(messagebox, "showerror", side_effect=self.fail_storyboard_guide):
                     self.inspect_storyboard_guide()
                 return
+            if mode == "workbench-guide":
+                with patch.object(messagebox, "showerror", side_effect=self.fail_storyboard_guide):
+                    self.inspect_workbench_guide()
+                return
             if mode == "workbench-bridges":
                 self.inspect_workbench_bridges()
                 return
@@ -286,6 +274,8 @@ def run_inside_launcher():
             self.after(100, self.inspect_result)
 
         def inspect_api_settings(self):
+            import socket
+
             from src.production_project import ProductionProject
 
             def input_field(scope, caption):
@@ -298,6 +288,11 @@ def run_inside_launcher():
                 field.insert(0, value)
                 return field
 
+            def save_settings(tab):
+                with (patch.object(socket, "getaddrinfo", side_effect=AssertionError("API configuration resolved a host")),
+                      patch.object(socket.socket, "connect", side_effect=AssertionError("API configuration opened a connection"))):
+                    click(tab, "保存本次设置")
+
             assert any("Seedance 2.0" in widget.cget("text") for widget in walk(self, tk.Label))
             navigation = next(walk(self, ttk.Notebook))
             assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
@@ -309,7 +304,14 @@ def run_inside_launcher():
             key = "synthetic-shared-provider-key"
             enter(text, "模型 ID", "draft-text-test")
             assert enter(text, "API Key", key).cget("show") == "*"
-            click(text, "保存本次设置")
+            previous_base = input_field(text, "API 基础地址").get()
+            enter(text, "API 基础地址", "http://invalid.example.test/v1")
+            with patch.object(messagebox, "showerror") as error:
+                save_settings(text)
+            assert error.call_count == 1 and "HTTPS" in error.call_args.args[1]
+            enter(text, "API 基础地址", previous_base)
+            enter(text, "API Key", key)
+            save_settings(text)
 
             tabs.select(1)
             base = input_field(vision, "API 基础地址").get()
@@ -325,7 +327,7 @@ def run_inside_launcher():
             assert not input_field(vision, "API Key").get()
             enter(vision, "API 基础地址", base)
             click(vision, "带入另一用途的 Key")
-            click(vision, "保存本次设置")
+            save_settings(vision)
 
             tabs.select(2)
             assert not input_field(image, "API Key").get()
@@ -338,7 +340,10 @@ def run_inside_launcher():
             provider.event_generate("<<ComboboxSelected>>")
             enter(image, "模型 ID", "image-generation-test")
             enter(image, "API Key", "synthetic-image-key")
-            click(image, "保存本次设置")
+            save_settings(image)
+            self.exercise_page_help(visible_frame(self, "api_settings"), "api")
+            assert tabs.index(tabs.select()) == 2
+            assert input_field(image, "API Key").get() == "synthetic-image-key"
 
             click(self, "中文 / English")
             assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
@@ -412,11 +417,45 @@ def run_inside_launcher():
 
             self.after(120, check_project_tools)
 
+        def read_workbench_topic(self, topic, *, reader=None):
+            from src.workbench_guide_topics import WORKBENCH_TOPICS
+
+            guide = reader if reader is not None else visible_frame(self, "storyboard_guide")
+            outline = named(guide, ttk.Treeview, "guide_topic_list", mapped=True)
+            title = named(guide, (tk.Label, ttk.Label), "guide_title")
+            picture = named(guide, (tk.Label, ttk.Label), "guide_screenshot")
+            self.update()
+            assert outline.selection() == (topic,), (topic, outline.selection())
+            assert title.cget("text") == WORKBENCH_TOPICS[topic].title[self.ui_language == "en"]
+            assert picture.cget("image") and picture.winfo_ismapped()
+            return guide
+
+        def exercise_page_help(self, scope, topic):
+            navigation = next(walk(self, ttk.Notebook))
+            origin = navigation.select()
+            origin_window = scope.winfo_toplevel()
+            before_grab = self.grab_current()
+            button = wait_for(self, lambda: next((item for item in walk(scope, ttk.Button)
+                                                  if item.winfo_name() == "page_help" and item.winfo_ismapped()), None),
+                              f"Contextual help unavailable for {topic}")
+            button.invoke()
+            guide = self.read_workbench_topic(topic)
+            if origin_window is not self:
+                assert not origin_window.winfo_viewable() and self.grab_current() is None
+            named(guide, ttk.Button, "guide_return", mapped=True).invoke()
+            self.update()
+            assert navigation.select() == origin and scope.winfo_ismapped(), topic
+            assert self.grab_current() is before_grab, topic
+
         def inspect_tutorial(self, navigation):
             from src import workbench_tutorial
 
             self.geometry("900x700")
             tutorial = show_page(self, TUTORIAL_TAB)
+            overview = named(tutorial, ttk.Button, "guide_overview")
+            if overview.winfo_ismapped():
+                overview.invoke()
+            tutorial = visible_frame(tutorial, "tutorial_overview")
             for topic in ("Quick start", "Script to delivery", "Check a delivery ZIP", "Connect an API"):
                 click(tutorial, topic)
                 images = [widget for widget in walk(tutorial, tk.Label) if widget.cget("image")]
@@ -631,6 +670,281 @@ def run_inside_launcher():
                   "and a reopened storyboard delivery ZIP", flush=True)
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
+
+        def inspect_workbench_guide(self):
+            from src.asset_registry import sha256_file
+            from src.batch_workspace import BatchWorkspace
+            from src.bundled_validators import bundled_validator
+            from src.ecommerce_project import EcommerceProject
+            from src.production_export import build_batch
+            from src.production_images import approve_candidate
+            from src.production_project import ProductionProject
+            from src.production_rules import ENGLISH
+            from src.workbench_guide_topics import WORKBENCH_TOPICS
+            from src.workbench_tutorial import __file__ as tutorial_file
+
+            root = Path(tutorial_file).resolve().parents[1]
+            expected = {
+                "general", "guide_navigation", "ecommerce_import", "ecommerce_shots", "ecommerce_assets",
+                "ecommerce_delivery", "batch_import", "batch_plan", "batch_assets", "batch_queue",
+                "batch_delivery", "review_zip", "review_images", "review_cuts", "review_repair", "jobs", "api",
+            }
+            assert set(WORKBENCH_TOPICS) == expected
+            verified = {}
+            for topic in expected:
+                for language in ("zh", "en"):
+                    screenshot = root / "assets" / "workbench_guide" / f"{topic}_{language}.webp"
+                    with Image.open(screenshot) as image:
+                        image.load()
+                        assert image.format == "WEBP" and image.width >= 640 and image.height >= 250, screenshot
+                    verified[topic, language] = sha256_file(screenshot)
+                assert verified[topic, "zh"] != verified[topic, "en"], topic
+
+            self.geometry("1160x870")
+            tutorial = show_page(self, TUTORIAL_TAB)
+            named(tutorial, ttk.Button, "workbench_guide_open", mapped=True).invoke()
+            guide = self.read_workbench_topic("general")
+            topics = named(guide, ttk.Treeview, "guide_topic_list", mapped=True)
+
+            def read(topic):
+                topics.selection_set(topic)
+                topics.see(topic)
+                topics.event_generate("<<TreeviewSelect>>")
+                self.read_workbench_topic(topic, reader=guide)
+
+            read("guide_navigation")
+            illustration = named(guide, (tk.Label, ttk.Label), "guide_screenshot")
+            chinese_picture = illustration.cget("image")
+            click(self, "中文 / English")
+            self.read_workbench_topic("guide_navigation", reader=guide)
+            assert self.title() == APP_NAME_EN and illustration.cget("image") != chinese_picture
+            for topic in sorted(expected):
+                read(topic)
+            click(self, "中文 / English")
+            assert self.title() == APP_NAME_ZH
+            for topic in sorted(expected):
+                read(topic)
+
+            practice = project_path.with_name("教程工作台演练")
+            practice.mkdir()
+
+            def start_practice(kind):
+                show_page(self, TUTORIAL_TAB)
+                read("general")
+                with patch.object(filedialog, "askdirectory", return_value=str(practice)):
+                    named(guide, ttk.Button, f"practice_{kind}", mapped=True).invoke()
+
+            examples = root / "Examples"
+            ecom = examples / "Workbench" / "Ecommerce"
+            start_practice("ecommerce")
+            flow = visible_frame(self, "ecommerce_workflow")
+            opened = next(practice.rglob("Practice.cfecom"))
+            loaded = EcommerceProject.open(opened)
+            assert loaded.product_name and not loaded.product_reviewed
+            assert Path(loaded.video_path).is_file() and loaded.product_refs
+            assert all(Path(path).is_file() and practice in Path(path).parents for path in loaded.product_refs)
+            assert (page_at(self, ECOMMERCE_TAB).winfo_ismapped() and
+                    next(walk(flow, ttk.Notebook)).index("current") == 0)
+            self.exercise_page_help(flow, "ecommerce_import")
+            self.exercise_packaged_ecommerce(opened.parent)
+
+            batch_source = examples / "Workbench" / "Batch" / "Signal-Station.cfbatch"
+            baseline_batch = sha256_file(batch_source)
+            start_practice("batch")
+            batch = visible_frame(self, "batch_workspace")
+            manifest = next(practice.rglob(batch_source.name))
+            workspace = BatchWorkspace.open(manifest)
+            episode, group = named(batch, ttk.Combobox, "episode"), named(batch, ttk.Combobox, "batch_group")
+            wait_for(self, lambda: len(episode["values"]) == 2, "The copied practice batch did not restore two episodes")
+            assert [item.id for item in workspace.episodes] == ["EP01", "EP02"]
+            assert not manifest.samefile(batch_source)
+            episode.current(1)
+            episode.event_generate("<<ComboboxSelected>>")
+            trace = named(batch, ttk.Treeview, "trace")
+            wait_for(self, lambda: any("巡检员" in trace.set(row, "text") for row in trace.get_children()),
+                     "The copied batch did not load Episode 2's source trace")
+            assert "SB02" in group["values"]
+            group.set("SB02")
+            group.event_generate("<<ComboboxSelected>>")
+            self.exercise_page_help(batch, "batch_plan")
+            assert episode.get().startswith("EP02") and group.get() == "SB02"
+            named(batch, ttk.Button, "open_target_group", mapped=True).invoke()
+            header = visible_frame(self, "production_task_header")
+            wait_for(self, lambda: any("EP02" in label.cget("text") and "SB02" in label.cget("text")
+                                      for label in walk(header, ttk.Label)), "Batch sample opened the wrong group")
+            named(header, ttk.Button, "return_to_batch", mapped=True).invoke()
+            assert visible_frame(self, "batch_workspace") is batch
+            assert episode.get().startswith("EP02") and group.get() == "SB02"
+            named(batch, ttk.Button, "step_assets", mapped=True).invoke()
+            self.exercise_page_help(batch, "batch_assets")
+            assert workspace.required_asset_gaps("EP02", "SB02")
+            bind = wait_for(self, lambda: next((button for button in walk(batch, ttk.Button)
+                                                if button.winfo_ismapped() and button.instate(["!disabled"])
+                                                and button.cget("text") == "绑定已批准依赖"), None),
+                            "The copied batch did not finish reopening Episode 2 / SB02")
+            bind.invoke()
+            wait_for(self, lambda: not BatchWorkspace.open(manifest).required_asset_gaps("EP02", "SB02"),
+                     "The approved shared asset did not bind to Episode 2 / SB02")
+            assert sha256_file(batch_source) == baseline_batch
+
+            start_practice("review")
+            review = page_at(self, REVIEW_TAB)
+            zip_entry, validator, *_ = walk(review, ttk.Entry)
+            baseline = Path(zip_entry.get())
+            original = examples / baseline.name
+            assert review.winfo_ismapped() and practice in baseline.parents and baseline.is_file()
+            assert baseline.read_bytes() == original.read_bytes()
+            assert Path(validator.get()) == bundled_validator(ENGLISH)
+            self.exercise_page_help(review, "review_zip")
+            assert zip_entry.get() == str(baseline)
+            click(review, "开始验收")
+            selector = next(walk(review, ttk.Combobox))
+            wait_for(self, lambda: bool(selector["values"]), "Bundled English ZIP did not produce a preview")
+            assert any("自动检查通过" in self.getvar(variable) for label in walk(review, ttk.Label)
+                       if (variable := label.cget("textvariable")))
+            member = next(name for name in selector["values"]
+                          if name.startswith("SB01/") and "_details_" in name and name.endswith(".png"))
+            selector.set(member)
+            selector.event_generate("<<ComboboxSelected>>")
+            with patch.object(filedialog, "askopenfilename",
+                              side_effect=AssertionError("The practice ZIP should find its exact copied project")):
+                named(review, ttk.Button, "return_to_production", mapped=True).invoke()
+                assets = visible_frame(self, "production_panel")
+            asset_table = next(tree for tree in walk(assets, ttk.Treeview) if tree.winfo_ismapped())
+            assert any(member.partition("/")[2] in str(asset_table.item(row, "values"))
+                       for row in asset_table.selection())
+            show_page(self, REVIEW_TAB)
+
+            click(review, "图片大小与比例")
+            image_window = next(walk(self, tk.Toplevel))
+            with patch.object(filedialog, "askopenfilename", return_value=str(ecom / "Product.png")):
+                click(image_window, "选择本地图片")
+            controls = visible_frame(image_window, "review_image_controls")
+            self.exercise_page_help(controls, "review_images")
+            assert any("比例与 16:9 不同" in self.getvar(variable) for label in walk(image_window, ttk.Label)
+                       if (variable := label.cget("textvariable")))
+            click(image_window, "关闭")
+
+            click(review, "景别机位与格间衔接")
+            cut = next(walk(self, tk.Toplevel))
+            choices = next(walk(cut, ttk.Combobox))
+            click(cut, "下一处")
+            selected_cut = choices.get()
+            assert "SB01-02" in selected_cut
+            self.exercise_page_help(visible_frame(cut, "review_cut_controls"), "review_cuts")
+            assert choices.get() == selected_cut
+            click(cut, "关闭")
+
+            left_path, right_path = (baseline.with_name(f"SB{n:02d}.cfproject") for n in (1, 2))
+            left, right = (ProductionProject.open(path) for path in (left_path, right_path))
+            original_project = left_path.read_bytes()
+            job = left.image_jobs[0]
+            prior = next(asset for asset in left.images if asset.id == job["references"][0]["id"])
+            target = approve_candidate(left, left_path, job, 0, prior.filename, "R2", "局部修改合成灯罩",
+                                       "核对选区与边缘", replace_original=True)
+            assert prior.digest != target.digest
+            staging = baseline.with_name("返修后的交付目录")
+            registry = baseline.with_name("Practice-Assets.sqlite3")
+            local_validator = bundled_validator(ENGLISH)
+            assert registry.is_file()
+            build_batch([(left, left_path), (right, right_path)], staging, local_validator, registry)
+            repaired = baseline.with_name("返修复验.zip")
+
+            def repair():
+                modal = next(walk(self, tk.Toplevel))
+                tabs = named(modal, ttk.Notebook, "repair_workbook")
+                tabs.select(1)
+                pane = tabs.nametowidget(tabs.select())
+                for row, item in ((0, "SB01-01"), (2, staging), (3, repaired), (4, "合成灯罩"),
+                                  (5, "批准局部修改")):
+                    field = pane.grid_slaves(row=row, column=1)[0]
+                    assert isinstance(field, ttk.Entry)
+                    field.insert(0, str(item))
+                self.exercise_page_help(visible_frame(modal, "review_repair_controls"), "review_repair")
+                assert tabs.index("current") == 1
+                assert pane.grid_slaves(row=0, column=1)[0].get() == "SB01-01"
+                report = next(walk(pane, tk.Text))
+                click(pane, "查看关联文件")
+                wait_for(self, lambda: "SD2_prompt.txt" in report.get("1.0", "end"), "Repair missed the selected shot")
+                click(pane, "复验并打包")
+                wait_for(self, lambda: "复验：已发布" in report.get("1.0", "end"),
+                         "Bundled validator did not publish a repaired ZIP")
+                assert sha256_file(repaired) in report.get("1.0", "end")
+                modal.destroy()
+
+            self.after(65, repair)
+            click(review, "资产与返修")
+            with ZipFile(baseline) as before, ZipFile(repaired) as after:
+                assert after.testzip() is None and set(before.namelist()) == set(after.namelist())
+                changed = {member for member in before.namelist() if before.read(member) != after.read(member)}
+                assert changed == {"SB01/SB01_shot_details.txt", f"SB01/{prior.filename}"}, changed
+                with Image.open(BytesIO(after.read(f"SB01/{prior.filename}"))) as image:
+                    image.load()
+                    assert image.width * 9 == image.height * 16
+            assert (examples / left_path.name).read_bytes() == original_project
+            assert left_path.read_bytes() != original_project and baseline.read_bytes() == original.read_bytes()
+
+            click(review, "任务中心")
+            jobs = visible_frame(self, "jobs_center")
+            table = named(jobs, ttk.Treeview, "registered_jobs", mapped=True)
+            table.selection_set(table.get_children()[0])
+            selected_job = table.selection()
+            self.exercise_page_help(jobs, "jobs")
+            assert table.selection() == selected_job
+            print("Verified offline workbench guides (Chinese and English), independent practice files, exact batch "
+                  "episode/group return and the reopened ZIP repaired by the bundled English validator", flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
+
+        def exercise_packaged_ecommerce(self, folder):
+            page = page_at(self, ECOMMERCE_TAB)
+            phases = next(walk(page, ttk.Notebook))
+
+            def select_check(parent, caption):
+                check = next(item for item in walk(parent, ttk.Checkbutton) if item.cget("text") == caption)
+                assert check.winfo_ismapped()
+                check.invoke()
+
+            select_check(page, "确认产品照片覆盖所需角度")
+            click(page, "下一步：分镜分析")
+            with (patch.object(filedialog, "askopenfilename", return_value=str(folder / "Shots.json")),
+                  patch.object(messagebox, "askyesno", return_value=True)):
+                click(page, "导入分镜 JSON")
+                click(page, "确认分镜并分析资产")
+            wait_for(self, lambda: phases.index("current") == 2, "Bundled e-commerce shots could not be confirmed")
+            assets = next(walk(phases.nametowidget(phases.select()), ttk.Treeview))
+            assert set(assets.get_children()) == {"product", "scene:产品展示台", "board:SB01"}
+
+            def approve_preview():
+                preview = visible_frame(page, "ecommerce_detail")
+                click(preview, "确认使用这张图")
+                self.update()
+
+            assets.selection_set("product")
+            click(page, "合成自有产品总图")
+            approve_preview()
+            for item, filename in (("scene:产品展示台", "Scene.png"), ("board:SB01", "SB01-Board.png")):
+                assets.selection_set(item)
+                with patch.object(filedialog, "askopenfilename", return_value=str(folder / filename)):
+                    click(page, "导入批准图像")
+                approve_preview()
+            click(page, "下一步：提示词与交付")
+            click(page, "生成交付预览")
+            files = next(walk(phases.nametowidget(phases.select()), ttk.Treeview))
+            wait_for(self, files.get_children, "Bundled e-commerce assets did not form a delivery preview")
+            select_check(page, "已逐格核对画面、原语言对白、产品细节及独立人物资产")
+            output = folder / "Luma-练习交付.zip"
+            with patch.object(filedialog, "asksaveasfilename", return_value=str(output)):
+                click(page, "验收并导出 ZIP")
+            done = visible_frame(page, "ecommerce_detail")
+            assert named(done, ttk.Label, "ecommerce_detail_title").cget("text") == "交付完成"
+            with ZipFile(output) as package:
+                assert package.testzip() is None
+                name = "SB01_01-03/prompts/SD2_prompt.txt"
+                assert package.read(name).decode("utf-8-sig").count("产品入画：Luma") == 3
+            click(done, "关闭")
+            print("Verified bundled e-commerce practice used the shipped shots and approved images to export a ZIP",
+                  flush=True)
 
         def inspect_production_handoff(self):
             from src import drafting_dialog
@@ -1925,6 +2239,8 @@ def run_inside_launcher():
                     click(panel, "导入剧本")
 
             def create(panel):
+                named(panel, ttk.Button, "step_import").invoke()
+                self.exercise_page_help(panel, "batch_import")
                 with patch.object(filedialog, "asksaveasfilename", return_value=str(workspace_path)):
                     click(panel, "新建批次")
                 wait_for(lambda: any(button.cget("text") == "导入剧本" and button.instate(["!disabled"])
@@ -1973,6 +2289,8 @@ def run_inside_launcher():
                     self.update_idletasks()
                     selector = named(panel, ttk.Combobox, "batch_group")
                     assert selector.get().startswith("SB01")
+                    self.exercise_page_help(panel, "batch_plan")
+                    assert trace.selection() == (iid,) and selector.get().startswith("SB01")
                     wait_for(lambda: visible("production_task_header"), finish, "could not open group from batch")
                     click(panel, "打开单组制片")
 
@@ -2009,6 +2327,8 @@ def run_inside_launcher():
                     self.update_idletasks()
                     episode = named(panel, ttk.Combobox, "episode").get()
                     group = named(panel, ttk.Combobox, "batch_group").get()
+                    self.exercise_page_help(panel, "batch_queue")
+                    assert next(walk(panel, ttk.Notebook)).index("current") == 2
                     named(panel, ttk.Button, "open_api").invoke()
                     self.update()
                     api = page_at(self, API_TAB)
@@ -2037,6 +2357,8 @@ def run_inside_launcher():
                 assert queue.jobs() and queue.spent() == 0
                 assert all(row["episode"] == "EP03" for row in queue.jobs())
                 show_page(panel, 3)
+                self.update()
+                self.exercise_page_help(panel, "batch_delivery")
                 target = workspace_path.with_name("未验收的整集.zip")
                 export = next(button for button in walk(panel, ttk.Button) if button.cget("text") == "导出整集 ZIP")
                 assert export.winfo_ismapped() and export.instate(["disabled"])
@@ -2061,17 +2383,15 @@ def run_inside_launcher():
         def inspect_ecommerce(self):
             from src.ecommerce_delivery import PRODUCT_FILE, label_board_sheet
             from src.ecommerce_project import EcommerceProject, EcommerceShot, render_shots
+            from src.workbench_tutorial import __file__ as tutorial_file
 
             page = show_page(self, ECOMMERCE_TAB)
             navigation = next(walk(self, ttk.Notebook))
             assert navigation.tab(navigation.select(), "text") == "电商信息流视频复刻"
-            video = make_ecommerce_video(project_path.parent)
-            product = project_path.with_name("产品照片 正面.png")
-            photo = Image.new("RGB", (256, 256), "#f1ded2")
-            paint = ImageDraw.Draw(photo)
-            paint.rounded_rectangle((75, 48, 180, 215), radius=16, fill="#804086")
-            paint.text((100, 111), "CF", fill="white")
-            photo.save(product)
+            materials = Path(tutorial_file).resolve().parents[1] / "Examples" / "Workbench" / "Ecommerce"
+            video, product = (materials / name for name in ("Reference.mp4", "Product.png"))
+            with Image.open(product) as downloaded:
+                photo = downloaded.convert("RGB")
             ecommerce_path = project_path.with_suffix(".cfecom")
             delivery_path = ecommerce_path.with_suffix(".zip")
 
@@ -2101,6 +2421,7 @@ def run_inside_launcher():
 
             def confirm_references():
                 assert_product_gate("产品名称")
+                self.exercise_page_help(visible_frame(page, "ecommerce_workflow"), "ecommerce_import")
                 name_label = visible(ttk.Label, "自有产品名")
                 row = int(name_label.grid_info()["row"])
                 entry = next(widget for widget in name_label.master.grid_slaves(row=row)
@@ -2123,6 +2444,9 @@ def run_inside_launcher():
             def verify_cuts(table):
                 ranges = tuple(table.set(item, "time") for item in table.get_children())
                 assert ranges == ("00:00.000-00:01.000", "00:01.000-00:02.000", "00:02.000-00:03.000"), ranges
+                table.selection_set(table.get_children()[1])
+                self.exercise_page_help(visible_frame(page, "ecommerce_workflow"), "ecommerce_shots")
+                assert table.selection() == (table.get_children()[1],)
                 shot_file = project_path.with_suffix(".json")
                 shot_file.write_text(render_shots([
                     EcommerceShot(
@@ -2169,10 +2493,19 @@ def run_inside_launcher():
                 assert set(assets.get_children()) == {"product", *fixtures}
                 assets.selection_set("scene:厨房")
                 selected = assets.selection()
+                self.exercise_page_help(visible_frame(page, "ecommerce_workflow"), "ecommerce_assets")
+                assert assets.selection() == selected
                 click(stages.nametowidget(stages.select()), "API 设置")
                 api = page_at(self, API_TAB)
                 self.update()
                 assert api.winfo_ismapped()
+                model_label = next(label for label in walk(api, ttk.Label)
+                                   if label.cget("text") == "模型 ID" and label.winfo_ismapped())
+                model = model_label.master.grid_slaves(row=int(model_label.grid_info()["row"]), column=1)[0]
+                model.insert(0, "unsent-local-ecommerce-model-")
+                unsent = model.get()
+                self.exercise_page_help(visible_frame(api, "api_settings"), "api")
+                assert model.get() == unsent
                 named(api, ttk.Button, "api_return", mapped=True).invoke()
                 self.update_idletasks()
                 assert page.winfo_ismapped() and stages.index(stages.select()) == 2 and assets.selection() == selected
@@ -2205,6 +2538,7 @@ def run_inside_launcher():
                     selected = next(iterator, None)
                     if selected is None:
                         click(page, "下一步：提示词与交付")
+                        self.exercise_page_help(visible_frame(page, "ecommerce_workflow"), "ecommerce_delivery")
                         click(page, "生成交付预览")
                         after_ready(lambda: "交付预览已准备" in status_text(), export_zip)
                         return
@@ -3259,7 +3593,7 @@ def verify_windows_launcher(root=ROOT):
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("production-workspace", f' "{archive}"'),
-                               ("storyboard-guide", f' "{archive}"'),
+                               ("storyboard-guide", f' "{archive}"'), ("workbench-guide", f' "{archive}"'),
                                ("workbench-bridges", f' "{archive}"'), ("job-recovery", f' "{archive}"'),
                                ("image-entry", ""),
                                ("action-sequence", f' "{archive}"'), ("task-navigation", f' "{archive}"'),
@@ -3268,10 +3602,10 @@ def verify_windows_launcher(root=ROOT):
                                ("batch-center", f' "{archive}"'),
                                ("batch-file", f' "{folder / "制片-batch-center.cfbatch"}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
-            if mode in {"file-only", "mode-switch", "production-workspace", "storyboard-guide"}:
+            if mode in {"file-only", "mode-switch", "production-workspace", "storyboard-guide", "workbench-guide"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
             if mode.startswith("a-layout-") or mode in {
-                "task-navigation", "dialogue-blocking", "production-workspace", "storyboard-guide",
+                "task-navigation", "dialogue-blocking", "production-workspace", "storyboard-guide", "workbench-guide",
                 "workbench-bridges", "job-recovery",
             }:
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")

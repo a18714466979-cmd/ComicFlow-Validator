@@ -8,6 +8,7 @@ from zipfile import BadZipFile
 
 from PIL import Image, ImageTk
 
+from .guide_links import guide_button
 from .ui_language import translate, window_title
 from .production_layout import valid_box
 from .shot_review import load_shots, pixel_selection, shot_id, shot_summary
@@ -118,7 +119,7 @@ class ImagePane(ttk.LabelFrame):
 
 
 def open_shot_review(parent: tk.Misc, result: ReviewResult, group: str = "", shot: str = "",
-                     *, mount: ttk.Frame | None = None):
+                     *, mount: ttk.Frame | None = None, help_topic="deliver"):
     try:
         shots = load_shots(result)
     except (ValueError, OSError, BadZipFile) as exc:
@@ -137,8 +138,12 @@ def open_shot_review(parent: tk.Misc, result: ReviewResult, group: str = "", sho
         window.transient(parent)
         # Keep the validated archive snapshot available until this review is closed.
         window.grab_set()
-    navigation = ttk.Frame(window, padding=(12, 8))
+    navigation = ttk.Frame(window, name="shot_review_controls", padding=(12, 8))
     navigation.pack(fill="x")
+    if mount is None:
+        help_button = guide_button(navigation, help_topic)
+        if help_button is not None:
+            help_button.pack(side="right")
     selection = ttk.Combobox(navigation, values=[f"{row.group} / {row.shot}" for row in shots], state="readonly", width=28)
     selection.pack(side="left")
     notes = ttk.Label(window, padding=(12, 0), wraplength=1000)

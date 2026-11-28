@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from .ui_language import translate, window_title
 from .asset_registry import AssetRegistry
+from .guide_links import guide_button
 from .repair_package import affected_files, pack_repair
 from .storyboard_review import ReviewResult
 
@@ -21,7 +22,12 @@ def open_asset_repair(
     window.minsize(650, 550)
     window.transient(parent)
     window.grab_set()
-    tabs = ttk.Notebook(window)
+    header = ttk.Frame(window, name="review_repair_controls", padding=(10, 8, 10, 0))
+    help_button = guide_button(header, "review_repair")
+    if help_button is not None:
+        help_button.pack(side="right")
+        header.pack(fill="x")
+    tabs = ttk.Notebook(window, name="repair_workbook")
     tabs.pack(fill="both", expand=True, padx=10, pady=10)
     assets, repair = ttk.Frame(tabs, padding=8), ttk.Frame(tabs, padding=8)
     tabs.add(assets, text=translate(tabs, "资产登记"))

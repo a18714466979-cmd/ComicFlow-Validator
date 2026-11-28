@@ -12,6 +12,7 @@ from zipfile import BadZipFile
 from PIL import Image, ImageTk
 
 from .camera_preflight import camera_cuts, camera_findings_text
+from .guide_links import guide_button
 from .production_rules import ENGLISH
 from .shot_review import ShotReview, load_shots
 from .shot_review_dialog import ImagePane
@@ -86,7 +87,7 @@ def open_image_inspection(parent):
     window.transient(parent)
     body = ttk.Frame(window, padding=12)
     body.pack(fill="both", expand=True)
-    actions = ttk.Frame(body)
+    actions = ttk.Frame(body, name="review_image_controls")
     actions.pack(fill="x")
     facts_line = tk.StringVar(window)
     verdict_line = tk.StringVar(window)
@@ -138,6 +139,9 @@ def open_image_inspection(parent):
 
     ttk.Button(actions, text=label(window, "选择本地图片", "Choose local image"), command=choose).pack(side="left")
     ttk.Button(actions, text=label(window, "关闭", "Close"), command=window.destroy).pack(side="right")
+    help_button = guide_button(actions, "review_images")
+    if help_button is not None:
+        help_button.pack(side="right", padx=(0, 6))
     verdict_line.set(label(window, "请选择需要核对的图片。", "Choose an image to inspect."))
     canvas.bind("<Configure>", render)
     return window
@@ -195,7 +199,7 @@ def open_cut_review(parent, result: ReviewResult | None, rules=ENGLISH):
     window.minsize(790, 530)
     window.transient(parent)
     window.grab_set()
-    controls = ttk.Frame(window, padding=(10, 8))
+    controls = ttk.Frame(window, name="review_cut_controls", padding=(10, 8))
     controls.pack(fill="x")
     selection = ttk.Combobox(controls, state="readonly", width=31)
     selection.pack(side="left", padx=(0, 6))
@@ -207,6 +211,9 @@ def open_cut_review(parent, result: ReviewResult | None, rules=ENGLISH):
     ttk.Checkbutton(controls, text=label(window, "仅跨页或跨组", "Across pages or groups"),
                     variable=boundaries_only, command=lambda: refresh()).pack(side="left", padx=4)
     ttk.Button(controls, text=label(window, "关闭", "Close"), command=window.destroy).pack(side="right")
+    help_button = guide_button(controls, "review_cuts")
+    if help_button is not None:
+        help_button.pack(side="right", padx=(0, 6))
     summary = ttk.Label(window, padding=(10, 3), wraplength=760)
     summary.pack(fill="x")
     pair = ttk.Panedwindow(window, orient="horizontal")

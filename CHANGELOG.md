@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.9.0 · 2026-11-28
+
+### 简体中文
+
+- 新增「工作台操作教程」。通用导航、电商复刻、批量制片、检查返修、任务中心和 API 接入补齐 17 个中英文章节及 34 张实际界面截图。
+- 上述工具可从「本页帮助」查看当前步骤，阅读后返回原任务、所选分镜或配置表单。
+- 新增电商、多集和交付验收三套离线练习。每次练习在用户选择的目录创建独立副本。
+
+### English
+
+- The Workbench operations guide adds 17 bilingual topics and 34 screenshots for navigation, e-commerce, batch production, validation and repair, the Job Center, and API connections.
+- Contextual help returns to the original task, shot selection, or settings form.
+- Three offline exercises open independent copies of an e-commerce project, a multiple-episode batch, and a storyboard delivery for validation and repair.
+
 ## 2.8.0 · 2026-11-28
 
 ### 简体中文

@@ -7,6 +7,7 @@ from queue import Empty, Queue
 from threading import Thread
 from tkinter import messagebox, ttk
 
+from .guide_links import guide_button
 from .ui_language import translate
 
 
@@ -151,6 +152,9 @@ def build_job_center(parent, registry):
     footer.pack(fill="x", pady=(8, 0))
     stamp = ttk.Label(footer, wraplength=450)
     stamp.pack(side="left", fill="x", expand=True)
+    help_button = guide_button(footer, "jobs")
+    if help_button is not None:
+        help_button.pack(side="right", padx=(6, 0))
     rows = {}
 
     def select():
