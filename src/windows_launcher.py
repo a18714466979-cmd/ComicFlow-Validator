@@ -32,6 +32,9 @@ from .workbench_home import PAGE_CAPTIONS, build_navigation, build_production_pa
 from .workbench_tutorial import build_tutorial
 
 
+BATCH_STAGES = ("import", "plan", "assets", "queue", "delivery")
+
+
 VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
                  CHINESE: "COMICFLOW_CHINESE_STORYBOARD_VALIDATOR"}
 
@@ -127,6 +130,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     text_session: dict[str, VisionSettings] = {}
     image_session: dict[str, ImageSettings] = {}
     active_batch = None
+    current_work = None
 
     tabs = ttk.Notebook(review_page)
     issues_tab = ttk.Frame(tabs, padding=8)
@@ -314,32 +318,90 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             except OSError:
                 messagebox.showinfo(tr("校验脚本"), tr("本次可使用所选脚本，下次启动时需重新选择。"), parent=window)
 
+    def refresh_current_work():
+        if current_work is None:
+            refresh_production()
+            return
+        meta = " · ".join(str(value) for value in (
+            current_work["episode"], current_work.get("group"), tr(RULE_LABELS[current_work["rules"]]),
+        ) if value)
+        refresh_production(project_title=current_work["title"], project_meta=meta,
+                           progress=current_work.get("progress"), next_step=current_work["step"])
+
     def produce(path=None, *, action=None, destination="group", owner=None, loaded_project=None, source_id=""):
         save_validator_choice()
-        return open_production_dialog(owner or window, validators, registry_path, text_session, image_session,
-                                      active_rules, switch_rules, initial_project=path, initial_action=action,
-                                      destination=destination, loaded_project=loaded_project, source_id=source_id)
+        dialog = open_production_dialog(owner or window, validators, registry_path, text_session, image_session,
+                                       active_rules, switch_rules, initial_project=path, initial_action=action,
+                                       destination=destination, loaded_project=loaded_project, source_id=source_id)
+        if dialog is None:
+            return None
 
-    def batch_center(path=None):
+        def remember_group(event):
+            nonlocal current_work
+            if event.widget is not dialog.window or dialog.project is None or dialog.path is None:
+                return
+            project = dialog.project
+            current_work = {
+                "kind": "group", "path": dialog.path, "title": project.name or dialog.path.stem,
+                "episode": project.episode, "group": project.group, "rules": project.rules,
+                "step": 1 if project.sources else 0,
+            }
+            window.after_idle(refresh_current_work)
+
+        dialog.window.bind("<Destroy>", remember_group, add="+")
+        return dialog
+
+    def batch_center(path=None, *, stage=None, episode=None):
         nonlocal active_batch
         from .batch_dialog import BatchDialog
 
         if active_batch is not None and active_batch.window.winfo_exists():
+            if stage is not None:
+                active_batch.select_stage(stage)
             active_batch.window.lift()
             return
         save_validator_choice()
 
-        def open_group(group_path, rules, parent):
+        def open_group(group_path, rules, parent, *, destination="shots", adjacent_path=None):
             return open_production_dialog(
                 parent, validators, registry_path, text_session, image_session, rules, switch_rules,
-                initial_project=group_path, destination="shots",
+                initial_project=group_path, destination=destination, adjacent_path=adjacent_path,
             )
+
+        def remember_batch(center):
+            nonlocal current_work
+            if center.workspace is None:
+                return
+            groups = center.view.get("delivery_groups", ())
+            progress = (sum(bool(group["ready"]) for group in groups), len(groups)) if groups else None
+            current_work = {
+                "kind": "batch", "path": center.workspace.path, "title": center.workspace.title,
+                "episode": center.episode_id, "rules": center.workspace.rules,
+                "progress": progress, "step": BATCH_STAGES.index(center.recommended_stage()),
+            }
+            refresh_current_work()
 
         center = BatchDialog(window, active_rules, text_session, image_session, validators, open_group)
         active_batch = center
+        center.on_workbench_update = remember_batch
+        if stage is not None:
+            center.select_stage(stage)
         center.window.grab_set()
         if path is not None:
-            center.open_path(path)
+            center.open_path(path, episode_id=episode)
+
+    def batch_stage(index):
+        recent = current_work if current_work and current_work["kind"] == "batch" else None
+        batch_center(recent["path"] if recent else None, stage=BATCH_STAGES[index],
+                     episode=recent["episode"] if recent else None)
+
+    def resume_work():
+        if current_work is None:
+            batch_center(stage="import")
+        elif current_work["kind"] == "batch":
+            batch_stage(current_work["step"])
+        else:
+            produce(current_work["path"])
 
     def clear_review() -> None:
         nonlocal result, selected_issue
@@ -450,6 +512,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             widget.configure(text=tr(caption))
         for page, caption in zip(pages, PAGE_CAPTIONS):
             navigation.tab(page, text=tr(caption))
+        navigation.fit_workbench_tabs()
+        refresh_current_work()
         refresh_api_language()
         refresh_tutorial()
         ecommerce.refresh_language()
@@ -512,6 +576,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     callbacks = {
         "new": lambda: produce(action="new"),
         "batch": batch_center,
+        "batch_step": batch_stage,
+        "resume": resume_work,
         "open": lambda: produce(action="open"),
         "review_zip": choose_delivery_zip,
         "group": produce,
@@ -523,7 +589,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     for destination in ("shots", "assets", "generate_assets", "generate_board", "layout", "prompts",
                         "costume", "pose", "deliver"):
         callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
-    workflow_buttons = build_production_page(production_page, label_text, callbacks)
+    workflow_buttons, refresh_production = build_production_page(production_page, label_text, callbacks)
     refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
     ecommerce = EcommercePage(ecommerce_page, vision_session, image_session, lambda: navigation.select(api_page))
     examples = Path(__file__).resolve().parents[1] / "Examples"

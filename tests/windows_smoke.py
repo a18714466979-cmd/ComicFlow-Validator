@@ -119,6 +119,12 @@ def run_inside_launcher():
         os._exit(10)
 
     class SmokeWindow(tk.Tk):
+        def __init__(self):
+            super().__init__()
+            if mode in {"a-layout-125", "a-layout-150"}:
+                percentage = int(mode.rsplit("-", 1)[1])
+                self.tk.call("tk", "scaling", 96 / 72 * percentage / 100)
+
         def report_callback_exception(self, exc, value, traceback):
             sys.__excepthook__(exc, value, traceback)
             fail(value)
@@ -159,10 +165,13 @@ def run_inside_launcher():
                 marker.write_text("COMICFLOW_GUI_OK", encoding="utf-8")
                 return
             navigation = next(walk(self, ttk.Notebook))
-            initial_page = PRODUCTION_TAB if mode == "empty" else REVIEW_TAB
+            initial_page = PRODUCTION_TAB if mode == "empty" or mode.startswith("a-layout-") else REVIEW_TAB
             assert navigation.index(navigation.select()) == initial_page
             field, validator, *_ = walk(page_at(self, REVIEW_TAB), ttk.Entry)
-            assert field.get() == ("" if mode == "empty" else archive), field.get()
+            assert field.get() == ("" if initial_page == PRODUCTION_TAB else archive), field.get()
+            if mode.startswith("a-layout-"):
+                self.inspect_a_workbench()
+                return
             if mode == "api-settings":
                 self.inspect_api_settings()
                 return
@@ -202,10 +211,13 @@ def run_inside_launcher():
                 return
             if mode == "empty":
                 production = show_page(self, PRODUCTION_TAB)
-                guidance = [label.cget("text") for label in walk(production, tk.Label)]
+                click(production, "项目文件说明")
+                self.update_idletasks()
+                guidance = [label.cget("text") for label in walk(production, tk.Label) if label.winfo_ismapped()]
                 assert any("软件会创建 .cfproject" in text for text in guidance)
                 assert any("Examples/SB01.cfproject" in text for text in guidance)
                 assert any("无需解压" in text for text in guidance)
+                click(production, "项目文件说明")
                 with patch.object(filedialog, "askopenfilename", return_value=archive) as picker:
                     click(production, "验收已有 ZIP")
                     assert picker.call_args.kwargs["filetypes"][0] == ("ZIP 交付包", "*.zip")
@@ -668,10 +680,202 @@ def run_inside_launcher():
 
             self.after(60, inspect_sequence)
 
-        def inspect_batch_center(self):
+        def inspect_a_workbench(self):
+            from tkinter.scrolledtext import ScrolledText
+
+            from src import batch_runner
             from src.batch_runner import BatchQueue
             from src.batch_workspace import BatchWorkspace
+            from src.image_api import IMAGE_PROVIDERS, ImageReply, ImageSettings
             from src.production_project import ProductionProject
+            from src.production_rules import ENGLISH
+
+            path = project_path.with_suffix(".cfbatch")
+            workspace = BatchWorkspace.create(path, "Harbor pilot", ENGLISH)
+            script = "\n".join(["INT. HARBOR STATION - NIGHT", *(
+                f"The lighthouse lamp pulses brightly over position {index}." for index in range(1, 19)
+            )])
+            workspace.add_episode("EP04", "Fog at the pier", script)
+            workspace.approve_plan("EP04")
+            group_path = workspace.group_path("EP04", "SB02")
+            queue = BatchQueue(workspace)
+            queue.enqueue_asset("EP04", "SB02", "道具", "Harbor signal", "lit", "PNG test fixture")
+            png = BytesIO()
+            Image.new("RGB", (256, 144), "#946342").save(png, format="PNG")
+            provider = "OpenAI GPT Image"
+            config = IMAGE_PROVIDERS[provider]
+            model = ImageSettings(provider, config.base, config.model, "offline-only-test-key")
+            with patch.object(batch_runner, "submit_image", return_value=ImageReply((png.getvalue(),))):
+                assert queue.run(image_settings=model, max_requests=1) == {"review": 1}
+            group = ProductionProject.open(group_path)
+            assert group.image_jobs[0]["outputs"] and not group.images and group.impacts()
+
+            def named(scope, kind, name):
+                return next(control for control in walk(scope, kind) if control.winfo_name() == name)
+
+            def batch_panel(english):
+                expected = "Batch production center" if english else "批量制作中心"
+                return next((panel for panel in walk(self, tk.Toplevel) if panel.title() == expected), None)
+
+            def after_ready(test, done, reason):
+                deadline = time.monotonic() + 5
+
+                def check():
+                    if value := test():
+                        done(value)
+                    elif time.monotonic() < deadline:
+                        self.after(40, check)
+                    else:
+                        fail(reason)
+
+                self.after(40, check)
+
+            def measure(window, buttons):
+                window.update_idletasks()
+                left, top = window.winfo_rootx(), window.winfo_rooty()
+                right, bottom = left + window.winfo_width(), top + window.winfo_height()
+                rows = {}
+                for button in buttons:
+                    caption = button.cget("text")
+                    assert button.winfo_ismapped(), caption
+                    x, y = button.winfo_rootx(), button.winfo_rooty()
+                    assert left <= x and x + button.winfo_width() <= right, (caption, x, right)
+                    assert top <= y and y + button.winfo_height() <= bottom, (caption, y, bottom)
+                    assert button.winfo_width() >= button.winfo_reqwidth(), (caption, button.winfo_width(), button.winfo_reqwidth())
+                    assert button.winfo_height() >= button.winfo_reqheight(), (caption, button.winfo_height(), button.winfo_reqheight())
+                    rows.setdefault(y, []).append(button)
+                for controls in rows.values():
+                    assert len({control.winfo_height() for control in controls}) == 1
+                    coordinates = sorted((control.winfo_rootx(), control.winfo_width()) for control in controls)
+                    assert all(x + width <= next_x for (x, width), (next_x, _) in zip(coordinates, coordinates[1:]))
+
+            def layout(window, get_buttons, after):
+                narrow, height = window.minsize()
+                sizes = iter(dict.fromkeys(((max(narrow, 1160), max(height, 780)), (narrow, height))))
+
+                def apply_size():
+                    size = next(sizes, None)
+                    if size is None:
+                        after()
+                        return
+                    window.geometry(f"{size[0]}x{size[1]}")
+                    window.after(90, verify_size)
+
+                def verify_size():
+                    measure(window, get_buttons())
+                    apply_size()
+
+                apply_size()
+
+            step_names = ("import", "plan", "assets", "queue", "delivery")
+
+            def start_language(english):
+                production = show_page(self, PRODUCTION_TAB)
+
+                def home_steps():
+                    return [named(production, ttk.Button, "a_home_" + name) for name in step_names]
+
+                home_delivery = home_steps()[-1]
+                assert ("Review & delivery" if english else "验收交付") in home_delivery.cget("text")
+                layout(self, home_steps, lambda: launch(english, home_delivery, production))
+
+            def launch(english, home_delivery, production):
+                home_delivery.invoke()
+                panel = batch_panel(english)
+                assert panel is not None
+                tabs = next(walk(panel, ttk.Notebook))
+                assert tabs.index(tabs.select()) == 3, "home delivery route must select the real delivery page"
+                if not english:
+                    with patch.object(filedialog, "askopenfilename", return_value=str(path)):
+                        click(panel, "打开批次")
+
+                def loaded():
+                    groups = named(panel, ttk.Treeview, "delivery_groups")
+                    return groups if groups.get_children() == ("SB01", "SB02") else None
+
+                after_ready(loaded, lambda groups: inspect_delivery(english, production, panel, groups),
+                            "saved group states did not load into the A delivery table")
+
+            def inspect_delivery(english, production, panel, groups):
+                status = "Review panels" if english else "待逐格复核"
+                assert status in groups.item("SB02", "values"), groups.item("SB02", "values")
+                groups.selection_set("SB02")
+                groups.event_generate("<<TreeviewSelect>>")
+                detail = named(panel, ScrolledText, "delivery_detail")
+                headings = [str(label.getvar(variable)) for label in walk(panel, ttk.Label)
+                            if (variable := label.cget("textvariable"))]
+                assert "SB01 → SB02" in headings, headings
+                body = detail.get("1.0", "end")
+                assert "SB01" in body and "SB02" in body and status in body, body
+                export_title = "Export episode ZIP" if english else "导出整集 ZIP"
+                export = next(control for control in walk(panel, ttk.Button) if control.cget("text") == export_title)
+                assert export.winfo_ismapped() and export.instate(["disabled"])
+                with patch.object(filedialog, "asksaveasfilename") as choose:
+                    export.invoke()
+                    assert not choose.called
+
+                def batch_steps():
+                    return [named(panel, ttk.Button, "step_" + name) for name in step_names]
+
+                layout(panel, batch_steps, lambda: open_group_review(english, production, panel))
+
+            def open_group_review(english, production, panel):
+                caption = "Open group for review" if english else "打开本组复核"
+
+                def editor_for_selected_group():
+                    title = "ComicFlow Group Production" if english else "ComicFlow 单组制片"
+                    for editor in walk(panel, tk.Toplevel):
+                        if editor.title() == title:
+                            values = {field.get() for field in walk(editor, ttk.Entry)}
+                            if {"EP04", "SB02"} <= values:
+                                return editor
+                    return None
+
+                def close_editor(editor):
+                    with patch.object(messagebox, "askyesnocancel", return_value=False):
+                        editor.tk.eval(editor.protocol("WM_DELETE_WINDOW"))
+                    close_caption = "Close" if english else "关闭"
+                    after_ready(lambda: any(control.cget("text") == close_caption and control.instate(["!disabled"])
+                                            for control in walk(panel, ttk.Button)),
+                                lambda _ready: finish(english, production, panel),
+                                "Batch review did not resume after closing the group")
+
+                after_ready(editor_for_selected_group, close_editor, "A review did not open selected batch group SB02")
+                click(panel, caption)
+
+            def finish(english, production, panel):
+                click(panel, "Close" if english else "关闭")
+                if not english:
+                    click(self, "中文 / English")
+                    start_language(True)
+                    return
+                resume = named(production, ttk.Button, "a_home_resume")
+                resume.invoke()
+                reopened = batch_panel(True)
+                assert reopened is not None
+
+                def resumed():
+                    episode = named(reopened, ttk.Combobox, "episode")
+                    return episode.get().startswith("EP04")
+
+                def complete(_ready):
+                    assert ProductionProject.open(group_path).impacts(), "selecting a review row must not approve the project"
+                    click(reopened, "Close")
+                    print(f"Verified A layout {mode.rsplit('-', 1)[1]}%, both languages at normal/minimum widths, real batch resume and unapproved delivery guard", flush=True)
+                    print("COMICFLOW_GUI_OK", flush=True)
+                    self.after_idle(self.destroy)
+
+                after_ready(resumed, complete, "A home did not resume the current episode")
+
+            start_language(False)
+
+        def inspect_batch_center(self):
+            from src.batch_delivery import publish_episode
+            from src.batch_runner import BatchQueue
+            from src.batch_workspace import BatchWorkspace
+            from src.bundled_validators import bundled_validator
+            from src.production_project import ProductionProject
+            from src.production_rules import ENGLISH
 
             workspace_path = project_path.with_suffix(".cfbatch")
             scripts = []
@@ -792,25 +996,28 @@ def run_inside_launcher():
                 wait_for(lambda: enabled("确认本集规划"), approve, "batch editor did not resume")
 
             def preflight(panel):
-                queue = BatchQueue(BatchWorkspace.open(workspace_path))
+                workspace = BatchWorkspace.open(workspace_path)
+                queue = BatchQueue(workspace)
                 assert queue.jobs() and queue.spent() == 0
                 assert all(row["episode"] == "EP03" for row in queue.jobs())
                 show_page(panel, 3)
                 target = workspace_path.with_name("未验收的整集.zip")
-                errors = patch.object(messagebox, "showerror")
-                captured = errors.start()
-                with patch.object(filedialog, "asksaveasfilename", return_value=str(target)):
-                    click(panel, "导出整集 ZIP")
-
-                def finish_export(_ready):
-                    errors.stop()
-                    assert not target.exists(), "draft episode presented as a completed delivery"
-                    click(panel, "关闭")
-                    print("Verified batch creation, source-to-shot trace, three-episode reopen, offline queue and blocked draft delivery", flush=True)
-                    print("COMICFLOW_GUI_OK", flush=True)
-                    self.after_idle(self.destroy)
-
-                wait_for(lambda: captured.called, finish_export, "unreviewed episode was accepted")
+                export = next(button for button in walk(panel, ttk.Button) if button.cget("text") == "导出整集 ZIP")
+                assert export.winfo_ismapped() and export.instate(["disabled"])
+                with patch.object(filedialog, "asksaveasfilename", return_value=str(target)) as picker:
+                    export.invoke()
+                    assert not picker.called
+                try:
+                    publish_episode(workspace, "EP03", bundled_validator(ENGLISH), target)
+                except ValueError as error:
+                    assert "尚未逐格确认" in str(error), str(error)
+                else:
+                    fail("unreviewed episode was accepted by the delivery engine")
+                assert not target.exists(), "draft episode presented as a completed delivery"
+                click(panel, "关闭")
+                print("Verified batch creation, source-to-shot trace, three-episode reopen, offline queue and blocked draft delivery", flush=True)
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.after_idle(self.destroy)
 
             wait_for(lambda: titled("批量制作中心"), create, "batch center did not open")
             click(gallery, "批量制作中心")
@@ -1894,6 +2101,7 @@ def verify_windows_launcher(root=ROOT):
         env.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
         verify_embedded_director(root, folder, env)
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
+                               ("a-layout-125", ""), ("a-layout-150", ""),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("image-entry", ""),
@@ -1903,6 +2111,8 @@ def verify_windows_launcher(root=ROOT):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
+            if mode.startswith("a-layout-"):
+                launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(
                 f'cmd.exe /d /c .\\ComicFlow-Windows.bat{argument}', cwd=root, env=launch_env,
                 stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", timeout=35,

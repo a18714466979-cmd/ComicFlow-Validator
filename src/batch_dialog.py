@@ -11,8 +11,10 @@ from .batch_planning import coverage_issues, trace_rows
 from .batch_workspace import BatchWorkspace
 from .batch_runner import BatchQueue
 from .batch_delivery import publish_episode, publish_series
+from .production_handoff import reviewed_boundary
 from .production_project import ProductionProject
 from .production_rules import CHINESE, rule_revision
+from .workbench_style import AMBER, GREEN, INK, LINE, SURFACE, configure_workbench
 
 
 BATCH_FILES = (("ComicFlow batch", "*.cfbatch"),)
@@ -25,6 +27,25 @@ TASK_STATES = {"queued": ("待运行", "Queued"), "running": ("运行中", "Runn
                "approved": ("已采纳", "Approved"), "polling": ("等待服务商", "Awaiting provider")}
 
 
+STAGES = (
+    ("import", "导入剧本", "Import scripts"),
+    ("plan", "整集规划", "Episode plan"),
+    ("assets", "公共资产", "Shared assets"),
+    ("queue", "执行队列", "Production queue"),
+    ("delivery", "验收交付", "Review & delivery"),
+)
+STEP_LABELS = {
+    "import": "Import scripts", "plan": "Plan", "assets": "Shared assets",
+    "queue": "Job queue", "delivery": "Review & delivery",
+}
+GROUP_STATES = {
+    "ready": ("已复核", "Reviewed"),
+    "visual": ("待逐格复核", "Review panels"),
+    "handoff": ("待核对交接", "Review handoff"),
+    "missing": ("无法读取项目", "Project unreadable"),
+}
+
+
 class BatchDialog:
     def __init__(self, parent, rules, text_session, image_session, validators, open_group):
         self.rules = rules
@@ -34,9 +55,13 @@ class BatchDialog:
         self.open_group = open_group
         self.window = tk.Toplevel(parent)
         self.english = getattr(self.window._root(), "ui_language", "zh") == "en"
+        configure_workbench(self.window)
         self.window.title(self.t("批量制作中心", "Batch production center"))
-        self.window.geometry("1000x730")
-        self.window.minsize(770, 595)
+        max_height = max(480, self.window.winfo_screenheight() - 72)
+        scaling = float(self.window.tk.call("tk", "scaling")) / (96 / 72)
+        min_height = min(max_height, max(600, round(595 * scaling)))
+        self.window.geometry(f"1080x{min(max_height, max(760, min_height))}")
+        self.window.minsize(770, min_height)
         self.window.transient(parent)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.window.grab_set()
@@ -47,6 +72,10 @@ class BatchDialog:
         self.episode_id = ""
         self.episode_ids = []
         self.controls = []
+        self.on_workbench_update = None
+        self.stage = "plan"
+        self.review_rows = {}
+        self.step_columns = None
         self.status = tk.StringVar(self.window, self.t("先新建批次，再导入一集或多集剧本。", "Create a batch, then import one or more scripts."))
         self.heading = tk.StringVar(self.window, self.t("尚未打开批次", "No batch open"))
         self.summary = tk.StringVar(self.window)
@@ -70,106 +99,267 @@ class BatchDialog:
     def error(self, error):
         messagebox.showerror(self.window.title(), str(error), parent=self.window)
 
-    def button(self, bar, zh, en, action, needs="episode"):
-        button = ttk.Button(bar, text=self.t(zh, en), command=lambda: self.guarded(action))
-        button.pack(side="left", padx=(0, 5), pady=3)
+    def button(self, bar, zh, en, action, needs="episode", *, primary=False, side="left"):
+        style = "Primary.Workbench.TButton" if primary else "Workbench.TButton"
+        button = ttk.Button(bar, text=self.t(zh, en), width=0, style=style, command=lambda: self.guarded(action))
+        button.pack(side=side, padx=(0, 6) if side == "left" else (6, 0), pady=3)
         self.controls.append((button, needs))
         return button
 
     def toolbar(self, page):
-        bar = ttk.Frame(page)
+        bar = ttk.Frame(page, style="A.TFrame")
         bar.pack(fill="x", pady=(0, 3))
         return bar
 
+    def wrap_toolbar(self, bar):
+        controls = []
+        for widget in bar.pack_slaves():
+            options = widget.pack_info()
+            options.pop("in")
+            horizontal = options["padx"]
+            padding = 2 * horizontal if isinstance(horizontal, int) else sum(map(int, horizontal))
+            controls.append((widget, options, widget.winfo_reqwidth() + padding))
+        previous = None
+        rows = []
+
+        def arrange(event):
+            nonlocal previous
+            lines = [[]]
+            remaining = event.width
+            for index, (_, _, width) in enumerate(controls):
+                if lines[-1] and width > remaining:
+                    lines.append([])
+                    remaining = event.width
+                lines[-1].append(index)
+                remaining -= width
+            if lines == previous:
+                return
+            previous = lines
+            for widget, _, _ in controls:
+                widget.pack_forget()
+            for row in rows:
+                row.destroy()
+            rows.clear()
+            for line in lines:
+                row = ttk.Frame(bar, style="A.TFrame")
+                row.pack(fill="x")
+                rows.append(row)
+                for index in line:
+                    widget, options, _ = controls[index]
+                    widget.pack(in_=row, **options)
+
+        bar.bind("<Configure>", arrange, add="+")
+
     def note(self, parent, zh, en):
-        label = ttk.Label(parent, text=self.t(zh, en), wraplength=840, justify="left")
-        label.pack(anchor="w", pady=(2, 5))
+        label = ttk.Label(parent, text=self.t(zh, en), style="A.Muted.TLabel", wraplength=740, justify="left")
+        label.pack(fill="x", anchor="w", pady=(2, 5))
+        parent.bind("<Configure>", lambda event: label.configure(wraplength=max(100, event.width - 24)), add="+")
         return label
 
     def table(self, page, name, columns, height):
-        area = ttk.Frame(page)
+        area = ttk.Frame(page, style="A.TFrame")
         area.pack(fill="both", expand=True)
-        table = ttk.Treeview(area, name=name, columns=[x[0] for x in columns], show="headings", selectmode="browse", height=height)
+        area.columnconfigure(0, weight=1)
+        area.rowconfigure(0, weight=1)
+        table = ttk.Treeview(area, name=name, style="A.Treeview", columns=[x[0] for x in columns],
+                             show="headings", selectmode="browse", height=height)
         for key, zh, en, size in columns:
             table.heading(key, text=self.t(zh, en))
-            table.column(key, width=size, minwidth=38, stretch=key in {"text", "message", "identity", "state_name"})
-        scroll = ttk.Scrollbar(area, orient="vertical", command=table.yview)
-        table.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
-        table.pack(side="left", fill="both", expand=True)
+            table.column(key, width=size, minwidth=43, stretch=key in {"text", "message", "identity", "state_name", "scene"})
+        vertical = ttk.Scrollbar(area, orient="vertical", command=table.yview)
+        horizontal = ttk.Scrollbar(area, orient="horizontal", command=table.xview)
+        table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        table.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
         return table
 
     def build(self):
-        body = ttk.Frame(self.window, padding=12)
+        body = ttk.Frame(self.window, padding=(18, 12), style="A.TFrame")
         body.pack(fill="both", expand=True)
+        header = self.toolbar(body)
+        self.button(header, "关闭", "Close", self.close, "always", side="right")
+        ttk.Label(header, text=self.window.title(), style="A.TLabel",
+                  font=("TkDefaultFont", 17, "bold")).pack(anchor="w")
+        heading = ttk.Label(body, textvariable=self.heading, style="A.Muted.TLabel", wraplength=850)
+        heading.pack(fill="x", pady=(1, 6))
+        body.bind("<Configure>", lambda event: heading.configure(wraplength=max(200, event.width - 40)), add="+")
+
+        self.step_row = ttk.Frame(body, style="A.TFrame")
+        self.step_row.pack(fill="x", pady=(0, 8))
+        self.steps = {}
+        for key, zh, en in STAGES:
+            self.steps[key] = ttk.Button(self.step_row, name=f"step_{key}", text=self.t(zh, en), width=0,
+                                         style="A.Step.TButton", command=lambda stage=key: self.select_stage(stage))
+        self.step_row.bind("<Configure>", self.arrange_steps)
+        self.update_steps()
+
         bar = self.toolbar(body)
-        self.button(bar, "新建批次", "New batch", self.create, "always")
+        self.new_button = self.button(bar, "新建批次", "New batch", self.create, "always")
         self.button(bar, "打开批次", "Open batch", self.choose_open, "always")
-        self.button(bar, "导入剧本", "Import scripts", self.import_scripts, "batch")
-        self.button(bar, "更新本集原稿", "Revise episode script", self.revise)
+        self.import_button = self.button(bar, "导入剧本", "Import scripts", self.import_scripts, "batch")
+        self.button(bar, "更新本集原稿", "Revise script", self.revise)
         self.button(bar, "刷新", "Refresh", self.reload, "batch")
-        self.button(bar, "关闭", "Close", self.close, "always")
-        ttk.Label(body, textvariable=self.heading, font=("TkDefaultFont", 13, "bold"), wraplength=780).pack(anchor="w", pady=(4, 6))
+        self.wrap_toolbar(bar)
+
         line = self.toolbar(body)
-        ttk.Label(line, text=self.t("当前集", "Episode")).pack(side="left", padx=(0, 5))
-        self.episode_box = ttk.Combobox(line, name="episode", state="readonly", width=32)
-        self.episode_box.pack(side="left", padx=(0, 8))
+        ttk.Label(line, text=self.t("当前集", "Episode"), style="A.TLabel").pack(side="left", padx=(0, 5))
+        self.episode_box = ttk.Combobox(line, name="episode", state="readonly", width=25)
+        self.episode_box.pack(side="left", padx=(0, 10))
         self.episode_box.bind("<<ComboboxSelected>>", self.switch_episode)
-        ttk.Label(line, text=self.t("目标组", "Group")).pack(side="left", padx=(0, 4))
+        ttk.Label(line, text=self.t("目标组", "Group"), style="A.TLabel").pack(side="left", padx=(0, 4))
         self.group_box = ttk.Combobox(line, state="readonly", width=7)
-        self.group_box.pack(side="left", padx=(0, 8))
+        self.group_box.pack(side="left", padx=(0, 10))
         self.group_box.bind("<<ComboboxSelected>>", self.select_group)
-        ttk.Label(line, textvariable=self.summary).pack(side="left")
-        self.tabs = ttk.Notebook(body)
-        self.tabs.pack(fill="both", expand=True, pady=(4, 5))
-        plan, assets, queue, delivery = [ttk.Frame(self.tabs, padding=9) for _ in range(4)]
-        for page, zh, en in ((plan, "整集规划", "Episode plan"), (assets, "公共资产", "Shared assets"),
-                             (queue, "执行队列", "Production queue"), (delivery, "验收交付", "Review & delivery")):
-            self.tabs.add(page, text=self.t(zh, en))
+        ttk.Label(line, textvariable=self.summary, style="A.Muted.TLabel").pack(side="left")
+
+        content = ttk.Frame(body, style="A.TFrame")
+        content.pack(fill="both", expand=True, pady=(5, 6))
+        self.import_page = ttk.Frame(content, padding=16, style="A.Card.TFrame")
+        ttk.Label(self.import_page, text=self.t("导入一集或多集定稿", "Add one or more final scripts"),
+                  style="A.TLabel", font=("TkDefaultFont", 14, "bold"), background=SURFACE).pack(anchor="w")
+        details = tk.StringVar(self.window)
+        self.import_hint = details
+        self.import_hint.set(self.t("先新建批次或打开已有的 .cfbatch。", "Create a batch or open an existing .cfbatch first."))
+        tooltip = ttk.Label(self.import_page, textvariable=details, style="A.Muted.TLabel",
+                            background=SURFACE, wraplength=680, justify="left")
+        tooltip.pack(anchor="w", fill="x", pady=(8, 16))
+        self.import_page.bind("<Configure>", lambda event: tooltip.configure(wraplength=max(150, event.width - 32)))
+        self.button(self.import_page, "继续到整集规划", "Continue to episode plan", lambda: self.select_stage("plan"),
+                    primary=True)
+
+        self.tabs = ttk.Notebook(content, style="A.Hidden.TNotebook")
+        self.tabs.pack(fill="both", expand=True)
+        plan, assets, queue, delivery = [ttk.Frame(self.tabs, padding=9, style="A.TFrame") for _ in range(4)]
+        self.pages = dict(zip((entry[0] for entry in STAGES[1:]), (plan, assets, queue, delivery)))
+        for page, entry in zip(self.pages.values(), STAGES[1:]):
+            self.tabs.add(page, text=self.t(entry[1], entry[2]))
+        self.tabs.bind("<<NotebookTabChanged>>", self.tab_changed)
         self.build_plan(plan)
         self.build_assets(assets)
         self.build_queue(queue)
         self.build_delivery(delivery)
         footer = self.toolbar(body)
+        footer.pack_configure(before=content, side="bottom")
         self.progress = ttk.Progressbar(footer, mode="indeterminate", length=70)
         self.progress.pack(side="right")
-        ttk.Label(footer, textvariable=self.status, wraplength=680, justify="left").pack(side="left")
+        status = ttk.Label(footer, textvariable=self.status, style="A.Muted.TLabel", wraplength=680, justify="left")
+        status.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        footer.bind("<Configure>", lambda event: status.configure(wraplength=max(180, event.width - 85)))
+        self.step_row.after_idle(self.arrange_steps)
+
+    def arrange_steps(self, _event=None):
+        width = self.step_row.winfo_width()
+        widths = [step.winfo_reqwidth() + 8 for step in self.steps.values()]
+        columns = 5 if width < 20 or width >= sum(widths) else 3 if width >= 3 * max(widths) else 2
+        if columns == self.step_columns:
+            return
+        self.step_columns = columns
+        for column in range(5):
+            self.step_row.columnconfigure(column, weight=1 if column < columns else 0,
+                                          uniform="steps" if column < columns and columns != 5 else "")
+        for index, step in enumerate(self.steps.values()):
+            step.grid(row=index // columns, column=index % columns, sticky="nsew", padx=(0, 4), pady=(0, 3))
+
+    def update_steps(self):
+        view = self.view
+        delivery = view.get("delivery_groups", ())
+        jobs = [job for job in view.get("jobs", ()) if job["episode"] == self.episode_id]
+        complete = {"import": bool(self.episode_id), "plan": view.get("approved", False),
+                    "assets": bool(view.get("assets")) and not view.get("gaps"),
+                    "queue": bool(jobs) and all(job["status"] == "approved" for job in jobs),
+                    "delivery": bool(delivery) and all(group["ready"] for group in delivery)}
+        for i, (key, zh, en) in enumerate(STAGES, start=1):
+            mark = "✓" if complete[key] else f"{i:02}"
+            style = "A.Current.Step.TButton" if self.stage == key else (
+                "A.Done.Step.TButton" if complete[key] else "A.Step.TButton")
+            self.steps[key].configure(text=f"{mark}  {self.t(zh, STEP_LABELS.get(key, en))}", style=style)
+        if hasattr(self, "new_button"):
+            self.new_button.configure(style="Workbench.TButton" if self.workspace else "Primary.Workbench.TButton")
+            self.import_button.configure(style="Primary.Workbench.TButton" if self.workspace and self.stage == "import" and not self.episode_id
+                                         else "Workbench.TButton")
+
+    def select_stage(self, stage):
+        if stage not in ("import", *self.pages):
+            raise ValueError(f"Unknown batch stage: {stage}")
+        if stage == "import":
+            self.tabs.pack_forget()
+            self.import_page.pack(fill="both", expand=True)
+        else:
+            self.import_page.pack_forget()
+            self.tabs.pack(fill="both", expand=True)
+            self.tabs.select(self.pages[stage])
+        self.stage = stage
+        self.update_steps()
+        if stage == "delivery":
+            self.show_delivery_selection()
+        self.notify_workbench()
+
+    def tab_changed(self, _event):
+        if self.stage == "import" or not self.tabs.winfo_manager():
+            return
+        match = next((key for key, page in self.pages.items() if str(page) == self.tabs.select()), None)
+        if match and self.stage != match:
+            self.select_stage(match)
+
+    def notify_workbench(self):
+        if self.on_workbench_update is not None:
+            self.on_workbench_update(self)
+
+    def recommended_stage(self):
+        if not self.episode_id:
+            return "import"
+        if not self.view.get("approved") or self.view.get("issues"):
+            return "plan"
+        if self.view.get("required_gaps"):
+            return "assets"
+        jobs = [job for job in self.view.get("jobs", ()) if job["episode"] == self.episode_id]
+        if any(job["status"] != "approved" for job in jobs):
+            return "queue"
+        return "delivery"
 
     def build_plan(self, page):
         bar = self.toolbar(page)
         ttk.Label(bar, text=self.t("查找原文或镜号", "Find passage or shot")).pack(side="left", padx=(0, 5))
-        ttk.Entry(bar, name="search", textvariable=self.search, width=30).pack(side="left", padx=(0, 8))
+        ttk.Entry(bar, name="search", textvariable=self.search, width=17).pack(side="left", padx=(0, 8))
         self.button(bar, "查看整集原文", "Read script", self.show_script)
-        self.button(bar, "确认本集规划", "Approve episode plan", self.approve_plan)
+        self.button(bar, "确认本集规划", "Approve episode plan", self.approve_plan, primary=True)
+        self.wrap_toolbar(bar)
         self.trace = self.table(page, "trace", (("group", "组／镜", "Group / shot", 90), ("line", "原稿行", "Line", 65),
-            ("speaker", "说话人", "Speaker", 105), ("text", "原文／对白", "Source text / dialogue", 360)), 8)
+            ("speaker", "说话人", "Speaker", 105), ("text", "原文／对白", "Source text / dialogue", 360)), 3)
         self.trace.bind("<<TreeviewSelect>>", lambda _e: self.trace_detail())
         self.trace.bind("<Double-1>", lambda _e: self.guarded(self.edit_group))
         self.search.trace_add("write", lambda *_: self.fill_trace())
-        self.detail = scrolledtext.ScrolledText(page, height=4, wrap="word", state="disabled")
+        self.detail = scrolledtext.ScrolledText(page, height=2, wrap="word", state="disabled")
         self.detail.pack(fill="x", pady=4)
         bars = self.toolbar(page)
         self.button(bars, "细拆动作段", "Split action passage", self.split_action)
         self.button(bars, "从此镜另起一组", "Start group here", lambda: self.adjust_groups(True))
         self.button(bars, "与前一组合并", "Merge with previous", lambda: self.adjust_groups(False))
         self.button(bars, "打开单组制片", "Open group editor", self.edit_group)
+        bars.pack_configure(before=self.trace.master, side="bottom")
+        self.detail.pack_configure(before=self.trace.master, side="bottom")
+        self.wrap_toolbar(bars)
 
     def build_assets(self, page):
         ttk.Label(page, textvariable=self.asset_status, wraplength=790).pack(anchor="w", pady=(0, 5))
         self.assets = self.table(page, "assets", (("identity", "身份／资产", "Identity / asset", 180),
             ("state_name", "状态／造型", "State / look", 180), ("version", "版本", "Version", 90),
-            ("file", "批准文件", "Approved file", 200)), 6)
+            ("file", "批准文件", "Approved file", 200)), 2)
         bar = self.toolbar(page)
-        self.button(bar, "批准本地资产", "Approve local asset", self.approve_asset, "batch")
+        self.button(bar, "批准本地资产", "Approve local asset", self.approve_asset, "batch", primary=True)
         self.button(bar, "复用到所选组", "Reuse in selected group", self.reuse_asset)
         self.button(bar, "安排资产生图", "Queue asset image", self.queue_asset)
+        self.wrap_toolbar(bar)
         self.requirements = self.table(page, "requirements", (("identity", "本组依赖", "Required asset", 200), ("state_name", "指定状态", "Required state", 200),
-            ("version", "版本", "Version", 90), ("delivery", "用途", "Use", 150)), 3)
+            ("version", "版本", "Version", 90), ("delivery", "用途", "Use", 150)), 1)
         actions = self.toolbar(page)
         self.button(actions, "指定依赖", "Require asset", self.require_asset)
         self.button(actions, "移除依赖", "Remove requirement", self.remove_requirement)
         self.button(actions, "绑定已批准依赖", "Bind approved matches", self.resolve_requirements)
-        self.note(page, "选定目标组后，按身份、状态和版本绑定参考。缺少已指定的资产时，该组的图像任务会等待。", "Select a target group and match identity, state and version. Image tasks wait for the assets required by their group.")
+        actions.pack_configure(before=self.assets.master, side="bottom")
+        self.assets.master.pack_configure(expand=True)
+        self.wrap_toolbar(actions)
 
     def build_queue(self, page):
         model_bar = self.toolbar(page)
@@ -177,10 +367,11 @@ class BatchDialog:
         for session, zh, en in ((self.text_session, "文本模型", "Text model"), (self.image_session, "生图模型", "Image model")):
             ttk.Label(model_bar, text=self.t(zh, en)).pack(side="left", padx=(0, 4))
             labels = [self.t("未配置", "Not configured")] if not session else [f"{s.provider} · {s.model}" for s in session.values()]
-            box = ttk.Combobox(model_bar, values=labels, state="readonly", width=29)
+            box = ttk.Combobox(model_bar, values=labels, state="readonly", width=24)
             box.current(len(labels) - 1)
             box.pack(side="left", padx=(0, 10))
             self.model_boxes.append((box, list(session.values())))
+        self.wrap_toolbar(model_bar)
         bar = self.toolbar(page)
         self.kinds = {}
         for key, (zh, en) in TASK_KINDS.items():
@@ -189,41 +380,209 @@ class BatchDialog:
             ttk.Checkbutton(bar, text=self.t(zh, en), variable=var).pack(side="left", padx=(0, 6))
         self.button(bar, "本集加入队列", "Queue episode", lambda: self.enqueue(False))
         self.button(bar, "多集加入队列", "Queue all episodes", lambda: self.enqueue(True))
+        self.wrap_toolbar(bar)
         bar = self.toolbar(page)
         ttk.Label(bar, text=self.t("本批 API 请求上限", "Batch request limit")).pack(side="left")
         self.limit_box = ttk.Entry(bar, width=5, textvariable=self.budget)
         self.limit_box.pack(side="left", padx=(5, 8))
-        self.button(bar, "运行／继续", "Run / resume", self.run_queue)
-        self.pause = ttk.Button(bar, text=self.t("本次请求后暂停", "Pause after request"), command=self.pause_queue)
+        self.button(bar, "运行／继续", "Run / resume", self.run_queue, primary=True)
+        self.pause = ttk.Button(bar, text=self.t("本次请求后暂停", "Pause after request"), width=0, command=self.pause_queue)
         self.pause.pack(side="left", padx=(0, 5))
+        self.wrap_toolbar(bar)
         ttk.Label(page, textvariable=self.queue_status, wraplength=740).pack(anchor="w", pady=(0, 4))
         self.jobs = self.table(page, "jobs", (("episode", "集", "Episode", 60), ("group", "组／镜", "Group / shot", 115),
-            ("kind", "任务", "Task", 80), ("status", "状态", "Status", 100), ("message", "详情", "Details", 330)), 7)
+            ("kind", "任务", "Task", 80), ("status", "状态", "Status", 100), ("message", "详情", "Details", 330)), 2)
         bar = self.toolbar(page)
         self.button(bar, "查看／采纳候选", "Review candidate", self.review_job)
         self.button(bar, "整组审核文字", "Review group text", self.review_group_text)
         self.button(bar, "重试选中任务", "Retry selected", self.retry_job)
-        self.note(page, "运行会使用本次已配置的模型。待审的分镜、提示词和图片须确认后才能进入后续步骤。", "Run uses the configured session models. Review shot, prompt and image candidates before continuing dependent work.")
+        bar.pack_configure(before=self.jobs.master, side="bottom")
+        self.wrap_toolbar(bar)
 
     def build_delivery(self, page):
-        self.note(page, "先在各组的单组制片中完成逐格复核，确认相邻组末格与首格。正式交付会重新读取项目并检查原稿覆盖。", "Review each group in the group editor and confirm adjacent end/start panels. Publishing reopens the projects and checks script coverage.")
-        self.checks = scrolledtext.ScrolledText(page, height=10, wrap="word", state="disabled")
-        self.checks.pack(fill="both", expand=True)
-        bar = self.toolbar(page)
-        self.button(bar, "复查本集覆盖", "Refresh coverage", self.reload)
-        self.button(bar, "导出整集 ZIP", "Export episode ZIP", lambda: self.publish(False))
-        self.button(bar, "导出多集总包", "Export series ZIP", lambda: self.publish(True))
+        split = ttk.Panedwindow(page, orient="horizontal")
+        split.pack(fill="both", expand=True)
+
+        listing = ttk.Frame(split, padding=(0, 0, 8, 0), style="A.TFrame")
+        split.add(listing, weight=5)
+        self.delivery_caption = tk.StringVar(self.window, self.t("本集故事板组", "Episode storyboard groups"))
+        ttk.Label(listing, textvariable=self.delivery_caption, style="A.TLabel",
+                  font=("TkDefaultFont", 11, "bold")).pack(anchor="w", pady=(0, 6))
+        self.delivery_groups = self.table(listing, "delivery_groups", (
+            ("group", "组号", "Group", 62), ("scene", "场景", "Scene", 108),
+            ("review", "复核状态", "Review status", 145)), 3)
+        self.delivery_groups.tag_configure("ready", foreground=GREEN)
+        self.delivery_groups.tag_configure("handoff", foreground=AMBER)
+        self.delivery_groups.tag_configure("visual", foreground=AMBER)
+        self.delivery_groups.bind("<<TreeviewSelect>>", lambda _event: self.show_delivery_selection())
+        self.delivery_groups.bind("<Double-1>", lambda _event: self.guarded(self.open_delivery_group))
+
+        information = ttk.Frame(split, padding=10, style="A.Card.TFrame")
+        split.add(information, weight=4)
+        self.review_title = tk.StringVar(self.window, self.t("组间衔接", "Group handoff"))
+        title = ttk.Label(information, textvariable=self.review_title, style="A.TLabel", background=SURFACE,
+                          font=("TkDefaultFont", 12, "bold"), wraplength=380, justify="left")
+        title.pack(fill="x", anchor="w", pady=(0, 7))
+        information.bind("<Configure>", lambda event: title.configure(wraplength=max(100, event.width - 21)))
+        self.delivery_detail = scrolledtext.ScrolledText(information, name="delivery_detail", width=28, height=2,
+                                                         wrap="word", state="disabled", bd=0,
+                                                         padx=9, pady=5, bg=SURFACE, fg=INK,
+                                                         highlightthickness=1, highlightbackground=LINE,
+                                                         font="TkDefaultFont")
+        self.delivery_detail.pack(fill="both", expand=True, pady=(0, 8))
+        self.review_actions = ttk.Frame(information, style="A.Card.TFrame")
+        self.review_actions.pack(fill="x")
+        self.review_group_button = self.button(self.review_actions, "打开本组复核", "Open group for review",
+                                               self.open_delivery_group, "review_group", primary=True)
+        self.review_boundary_button = self.button(self.review_actions, "打开组间衔接", "Open group handoff",
+                                                  lambda: self.open_delivery_group(previous=True), "review_previous")
+        self.review_group_button.pack_configure(side="top", anchor="w", padx=0)
+        self.review_boundary_button.pack_configure(side="top", anchor="w", padx=0)
+
+        footer = self.toolbar(page)
+        footer.pack_configure(before=split, side="bottom")
+        self.button(footer, "导出整集 ZIP", "Export episode ZIP", lambda: self.publish(False), "release_episode",
+                    primary=True, side="right")
+        self.button(footer, "导出多集总包", "Export series ZIP", lambda: self.publish(True), side="right")
+        self.button(footer, "复查本集覆盖", "Recheck coverage", self.reload)
+        self.button(footer, "查看原稿覆盖", "Script coverage", self.show_coverage)
+        self.wrap_toolbar(footer)
+        self.delivery_status = tk.StringVar(self.window)
+        label = ttk.Label(page, textvariable=self.delivery_status, style="A.Muted.TLabel",
+                          wraplength=730, justify="left")
+        label.pack(before=footer, side="bottom", fill="x", anchor="w", pady=(4, 0))
+        page.bind("<Configure>", lambda event: label.configure(wraplength=max(200, event.width - 24)), add="+")
+
+    def show_coverage(self):
+        self.show_text(self.t("本集原稿覆盖", "Episode script coverage"), self.coverage_text())
+
+    def coverage_text(self):
+        plan = self.view.get("plan", {})
+        issues = list(dict.fromkeys([*plan.get("issues", []), *self.view.get("issues", [])]))
+        if issues:
+            return "\n".join(issues)
+        if plan:
+            return self.t("当前未发现原文覆盖缺口。仍需逐格核对画面和跨组衔接。",
+                          "No script coverage gaps found. Review actual panels and handoffs separately.")
+        return self.t("请先导入定稿。", "Import the final script first.")
+
+    def delivery_record(self):
+        selection = self.delivery_groups.selection()
+        return self.review_rows.get(selection[0], {}) if selection else {}
+
+    def open_delivery_group(self, previous=False):
+        record = self.delivery_record()
+        group = record.get("previous" if previous else "group")
+        if group and group in self.view.get("paths", {}):
+            if previous:
+                adjacent = self.view["paths"].get(record["group"])
+                if adjacent and not record["handoff"]:
+                    self.edit_group(group, destination="handoff", adjacent_path=adjacent)
+            else:
+                self.edit_group(group, destination="review")
+
+    def fill_delivery(self, same_episode):
+        past_selection = self.delivery_groups.selection() if same_episode else ()
+        self.delivery_groups.delete(*self.delivery_groups.get_children())
+        records = self.view.get("delivery_groups", ())
+        self.review_rows = {record["group"]: record for record in records}
+        ready = sum(row["ready"] for row in records)
+        if records:
+            self.delivery_caption.set(self.t(f"本集故事板组 · {ready}/{len(records)} 组已复核",
+                                              f"Episode storyboard groups · {ready}/{len(records)} reviewed"))
+        else:
+            self.delivery_caption.set(self.t("本集故事板组", "Episode storyboard groups"))
+        for record in records:
+            group = record["group"]
+            self.delivery_groups.insert("", "end", iid=group, values=(group, record["scene"] or "—",
+                                                                      self.t(*GROUP_STATES[record["state"]])),
+                                        tags=(record["state"],))
+        target = (past_selection[0] if past_selection and past_selection[0] in self.review_rows
+                  else next((row["group"] for row in records if not row["ready"]), next(iter(self.review_rows), "")))
+        if target:
+            self.delivery_groups.selection_set(target)
+            self.delivery_groups.focus(target)
+            self.delivery_groups.see(target)
+        if not records:
+            self.delivery_status.set(self.t("请先导入剧本并完成整集规划。", "Import the script and complete the episode plan first."))
+        elif not self.view.get("approved"):
+            self.delivery_status.set(self.t("请先确认本集规划。", "Approve the episode plan first."))
+        elif self.view.get("issues") or self.view.get("plan", {}).get("issues"):
+            self.delivery_status.set(self.t("原稿覆盖有待处理项，点「查看原稿覆盖」定位。", "Script coverage needs attention. Open the coverage report."))
+        elif self.view.get("required_gaps"):
+            self.delivery_status.set(self.t("请先到「公共资产」处理未绑定的指定资产。", "Bind the required assets in Shared assets first."))
+        elif ready < len(records):
+            pending = len(records) - ready
+            self.delivery_status.set(self.t(f"还有 {pending} 组待复核，完成后才能导出本集。",
+                                            f"{pending} groups need review before episode export."))
+        elif self.view.get("pending"):
+            self.delivery_status.set(self.t("最后一组还有待制作镜头，请回到单组制片处理。",
+                                            "The final group still has deferred shots. Review it in the group editor."))
+        else:
+            self.delivery_status.set(self.t("已记录分组复核。导出时会再次核对项目和全部素材。",
+                                            "Group reviews are recorded. Export rechecks the projects and all assets."))
+        self.show_delivery_selection()
+
+    def show_delivery_selection(self):
+        record = self.delivery_record()
+        if not record:
+            self.review_title.set(self.t("组间衔接", "Group handoff"))
+            self.write_text(self.delivery_detail, self.t("选择一个故事板组查看复核记录。", "Select a group to see its review status."))
+        else:
+            previous = record["previous"]
+            group = record["group"]
+            self.review_title.set(f"{previous} → {group}" if previous else self.t(f"{group} · 本组复核", f"{group} · Group review"))
+            label = self.t(*GROUP_STATES[record["state"]])
+            details = [self.t("本组画面与适用的组间交接已记录。", "Current panel and applicable handoff reviews are recorded.")
+                       if record["ready"] else label]
+            if previous:
+                details.extend((self.t(f"{previous} · 尾镜", f"{previous} · Last shot"),
+                                record["last_shot"] or self.t("尚无可读镜头。", "No readable shot."),
+                                self.t(f"{group} · 首镜", f"{group} · First shot"),
+                                record["first_shot"] or self.t("尚无可读镜头。", "No readable shot.")))
+                if record["handoff"]:
+                    details.extend((self.t("交接记录", "Handoff record"), record["handoff"]))
+                elif record["state"] != "missing":
+                    details.append(self.t("在前组「排版与交接」里打开前末后首对照，核对当前版本后再确认。",
+                                          "Open the previous group's Layout & handoff and review the actual end/start panels."))
+            elif record["first_shot"]:
+                details.append(record["first_shot"])
+            if record["state"] == "visual":
+                details.append(self.t("打开本组，逐格确认实际画面。", "Open this group and review the actual panels."))
+            self.write_text(self.delivery_detail, "\n\n".join(details))
+        if self.can_open_handoff(record):
+            self.review_boundary_button.pack(side="top", anchor="w", pady=3)
+        else:
+            self.review_boundary_button.pack_forget()
+        self.set_controls()
+
+    def can_open_handoff(self, record):
+        paths = self.view.get("paths", {})
+        return record.get("previous") in paths and record.get("group") in paths and not record["handoff"]
 
     def set_controls(self):
+        record = self.delivery_record()
+        policy = {
+            "always": True, "batch": bool(self.workspace), "episode": bool(self.episode_id),
+            "review_group": record.get("group") in self.view.get("paths", {}),
+            "review_previous": self.can_open_handoff(record),
+            "release_episode": self.episode_can_publish(),
+        }
         for button, needs in self.controls:
-            ready = needs == "always" or (bool(self.workspace) if needs == "batch" else bool(self.episode_id))
-            button.state(["!disabled"] if ready and not self.busy else ["disabled"])
+            button.state(["!disabled"] if policy[needs] and not self.busy else ["disabled"])
         self.episode_box.configure(state="readonly" if self.episode_ids and not self.busy else "disabled")
         self.group_box.configure(state="readonly" if self.episode_id and not self.busy else "disabled")
         self.limit_box.state(["disabled"] if self.busy else ["!disabled"])
         for box, _settings in self.model_boxes:
             box.configure(state="disabled" if self.busy else "readonly")
         self.pause.state(["!disabled"] if self.busy and self.stop is not None else ["disabled"])
+
+    def episode_can_publish(self):
+        view = self.view
+        records = view.get("delivery_groups", ())
+        return (bool(records) and all(group["ready"] for group in records) and view.get("approved")
+                and not (view.get("issues") or view.get("plan", {}).get("issues")
+                         or view.get("required_gaps") or view.get("pending")))
 
     def task(self, worker, done, label):
         if self.busy:
@@ -260,21 +619,56 @@ class BatchDialog:
         self.window.after(60, poll)
 
     @staticmethod
+    def shot_note(project, final):
+        if not project or not project.shots:
+            return ""
+        number = len(project.shots) if final else 1
+        shot = project.shots[number - 1]
+        state = project.notes.get("本组退出状态" if final else "本组进入状态", "").strip()
+        return "\n".join(part for part in (f"{project.group}-{number:02} · {shot.scene or shot.anchor}",
+                                               shot.fields.get("动作起止", "").strip(), state) if part)
+
+    @classmethod
+    def review_snapshot(cls, plan, projects):
+        lookup = {project.group: project for project in projects}
+        results = []
+        previous = ""
+        for row in plan["groups"]:
+            group = row["group"]
+            current = lookup.get(group)
+            older = lookup.get(previous)
+            confirmed = not previous or bool(older and current and reviewed_boundary(older, current))
+            state = ("missing" if current is None else "visual" if current.impacts()
+                     else "handoff" if not confirmed else "ready")
+            results.append({"group": group, "previous": previous, "state": state, "ready": state == "ready",
+                            "scene": " / ".join(dict.fromkeys(shot.scene for shot in current.shots if shot.scene))
+                            if current else "",
+                            "last_shot": cls.shot_note(older, True),
+                            "first_shot": cls.shot_note(current, False),
+                            "handoff": older.handoffs[group]["review"] if previous and confirmed else ""})
+            previous = group
+        return results
+
+    @staticmethod
     def snapshot(workspace, episode_id):
         episodes = list(workspace.episodes)
         ids = [ep.id for ep in episodes]
         episode_id = episode_id if episode_id in ids else next(iter(ids), "")
         queue = BatchQueue(workspace)
         view = {"workspace": workspace, "episodes": episodes, "episode": episode_id, "plan": {}, "trace": [],
-                "approved": False, "assets": workspace.asset_inventory(), "gaps": [], "issues": [],
-                "jobs": queue.jobs(), "spent": queue.spent(), "limit": queue.request_limit(), "paths": {}}
+                "approved": False, "assets": workspace.asset_inventory(), "gaps": [], "required_gaps": [], "issues": [],
+                "delivery_groups": [], "pending": False, "jobs": queue.jobs(), "spent": queue.spent(), "limit": queue.request_limit(), "paths": {}}
         if episode_id:
             plan = workspace.plan_for(episode_id)
             paths = workspace.group_paths(episode_id)
             projects, unreadable = [], []
             for path in paths:
                 try:
-                    projects.append(ProductionProject.open(path))
+                    project = ProductionProject.open(path)
+                    if (project.name, project.episode, project.rules, project.group) != (
+                            plan["name"], episode_id, workspace.rules, path.stem):
+                        raise ValueError("项目身份、制作规则或组号不匹配 / Project identity, rules or group do not match.")
+                    projects.append(project)
                     view["paths"][path.stem] = path
                 except (OSError, ValueError, TypeError, KeyError) as exc:
                     unreadable.append(f"{path.name} · {exc}")
@@ -282,6 +676,16 @@ class BatchDialog:
                         gaps=workspace.asset_gaps(episode_id) if not unreadable else [],
                         issues=unreadable + coverage_issues(plan, projects))
             view["requirements"] = {g['group']: workspace.required_assets(episode_id, g['group']) for g in plan['groups']}
+            required_gaps = []
+            for group, requirements in view["requirements"].items():
+                if requirements and group in view["paths"]:
+                    try:
+                        required_gaps.extend(f"{group} · {gap}" for gap in workspace.required_asset_gaps(episode_id, group))
+                    except (OSError, ValueError, TypeError, KeyError) as error:
+                        required_gaps.append(f"{group} · {error}")
+            view["required_gaps"] = required_gaps
+            view["delivery_groups"] = BatchDialog.review_snapshot(plan, projects)
+            view["pending"] = bool(projects and projects[-1].pending_shots)
         return view
 
     def update(self, action=None, *, episode=None, label=None, result_message=None):
@@ -315,8 +719,8 @@ class BatchDialog:
         if path:
             self.open_path(path)
 
-    def open_path(self, path):
-        self.task(lambda: self.snapshot(BatchWorkspace.open(Path(path)), ""), self.render,
+    def open_path(self, path, *, episode_id=None):
+        self.task(lambda: self.snapshot(BatchWorkspace.open(Path(path)), episode_id or ""), self.render,
                   self.t("正在打开批次…", "Opening batch…"))
 
     def import_scripts(self):
@@ -331,7 +735,9 @@ class BatchDialog:
             self.update(episode=self.episode_ids[index])
 
     def render(self, view):
-        if self.workspace is None or self.workspace.path != view["workspace"].path:
+        same_batch = self.workspace is not None and self.workspace.path == view["workspace"].path
+        same_episode = same_batch and self.episode_id == view["episode"]
+        if not same_batch:
             self.budget.set(str(view["limit"]))
         self.view = view
         self.workspace = view["workspace"]
@@ -352,13 +758,16 @@ class BatchDialog:
         self.assets.delete(*self.assets.get_children())
         for n, asset in enumerate(view["assets"]):
             self.assets.insert("", "end", iid=str(n), values=(asset.identity, asset.state, asset.version, asset.filename))
-        gaps = view["gaps"]
+        gaps = view["required_gaps"] or view["gaps"]
         self.asset_status.set(self.t("待绑定的资产", "Assets to bind") + (" · " + ", ".join(gaps[:12]) if gaps else " · —"))
         self.fill_jobs(view["jobs"], view["spent"])
-        issues = list(dict.fromkeys([*plan.get("issues", []), *view["issues"]]))
-        self.write_text(self.checks, "\n".join(issues) if issues else (self.t("当前未发现原文覆盖缺口。画面与跨组衔接仍须按画面复核。", "No source coverage gaps found. Visual and handoff reviews are separate.") if plan else ""))
+        self.import_hint.set(self.t("用上方「导入剧本」选择 TXT 或 Markdown。每个文件对应一集。",
+                                    "Choose Import scripts above. Select one TXT or Markdown file per episode."))
+        self.fill_delivery(same_episode)
         self.status.set(str(self.workspace.path))
+        self.update_steps()
         self.set_controls()
+        self.notify_workbench()
 
     @staticmethod
     def write_text(widget, value):
@@ -505,13 +914,16 @@ class BatchDialog:
             groups[index-1:index+1] = [groups[index-1]+groups[index]]
         self.update(lambda: self.workspace.regroup(self.episode_id, groups))
 
-    def edit_group(self, group_id=None, episode_id=None, image_job_id=None):
+    def edit_group(self, group_id=None, episode_id=None, image_job_id=None, *, destination=None, adjacent_path=None):
         episode_id = episode_id or self.episode_id
         group_id = group_id or self.selected_row()['group']
         path = self.view['paths'].get(group_id) if episode_id == self.episode_id else self.workspace.group_path(episode_id, group_id)
         if path is None:
             raise ValueError(self.t("此源段尚未绑定有效镜头。", "This passage has no linked group."))
-        dialog = self.open_group(path, self.workspace.rules, self.window)
+        options = {"destination": destination} if destination else {}
+        if adjacent_path is not None:
+            options["adjacent_path"] = adjacent_path
+        dialog = self.open_group(path, self.workspace.rules, self.window, **options)
         if dialog is not None:
             if image_job_id:
                 self.open_image_candidate(dialog, image_job_id)

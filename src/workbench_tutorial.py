@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from PIL import Image, ImageTk
 
-from .workbench_home import ACCENT, BACKGROUND, INK, MUTED
+from .workbench_style import ACCENT, BACKGROUND, INK, LINE, MUTED, SUBTLE, SURFACE
 
 
 TUTORIAL_IMAGES = Path("assets/workbench_tutorial")
@@ -67,26 +67,26 @@ def build_tutorial(page, actions, sample_action=None):
         button.pack(fill="x", pady=(0, 6))
         topic_buttons.append(button)
 
-    article = tk.Frame(content, bg="white", padx=17, pady=13, highlightbackground="#cfdae3", highlightthickness=1)
+    article = tk.Frame(content, bg=SURFACE, padx=17, pady=13, highlightbackground=LINE, highlightthickness=1)
     article.grid(row=0, column=1, sticky="nsew")
-    title = tk.Label(article, bg="white", fg=INK, font=("TkDefaultFont", 15, "bold"), anchor="w")
+    title = tk.Label(article, bg=SURFACE, fg=INK, font=("TkDefaultFont", 15, "bold"), anchor="w")
     title.pack(fill="x")
-    buttons = tk.Frame(article, bg="white")
+    buttons = tk.Frame(article, bg=SURFACE)
     buttons.pack(side="bottom", fill="x", pady=(7, 0))
     primary = ttk.Button(buttons, style="Primary.Workbench.TButton",
                          command=lambda: actions[SECTIONS[selected][0]]())
     primary.pack(side="left")
     sample = ttk.Button(buttons, style="Workbench.TButton", command=sample_action)
-    diagram = tk.Label(article, bg="#f0f4f8", bd=0, fg=MUTED, anchor="center")
+    diagram = tk.Label(article, bg=SUBTLE, bd=0, fg=MUTED, anchor="center")
     diagram.pack(fill="x", pady=(9, 10))
-    steps = tk.Frame(article, bg="white")
+    steps = tk.Frame(article, bg=SURFACE)
     steps.pack(fill="x")
     steps.columnconfigure(1, weight=1)
     instructions = []
     for index in range(3):
-        tk.Label(steps, text=f"{index + 1}.", bg="white", fg=ACCENT).grid(
+        tk.Label(steps, text=f"{index + 1}.", bg=SURFACE, fg=ACCENT).grid(
             row=index, column=0, sticky="nw", padx=(0, 7), pady=(0, 5))
-        statement = tk.Label(steps, bg="white", fg=INK, anchor="w", justify="left", wraplength=555)
+        statement = tk.Label(steps, bg=SURFACE, fg=INK, anchor="w", justify="left", wraplength=555)
         statement.grid(row=index, column=1, sticky="ew", pady=(0, 5))
         instructions.append(statement)
 

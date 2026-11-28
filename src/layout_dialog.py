@@ -22,13 +22,13 @@ from .storyboard_review import ReviewResult, index_members
 
 
 class LayoutDialog:
-    def __init__(self, production):
+    def __init__(self, production, *, adjacent_path=None):
         self.production = production
         self.project, self.path = production.project, production.path
         self.chinese = self.project.rules == CHINESE
         self.workspace = None
         self.draft = None
-        self.next_group = None
+        self.next_group = self.read_next(adjacent_path) if adjacent_path is not None else None
         self.boundary_seen = None
         self.window = tk.Toplevel(production.window)
         self.window.title(translate(self.window, "ComicFlow 排版与交接"))
@@ -44,6 +44,9 @@ class LayoutDialog:
         tabs.add(handoff, text=translate(tabs, "相邻组交接"))
         self.layout_page(page)
         self.handoff_page(handoff)
+        if self.next_group is not None:
+            self.show_next()
+            tabs.select(handoff)
 
     def close(self):
         self.window.destroy()
@@ -279,16 +282,23 @@ class LayoutDialog:
         tab = "文本与排版" if self.chinese else "复核与交付"
         self.layout_status.set(f"正式图和镜头绑定已更新。请在「{tab}」核对图片和两份 TXT。")
 
+    def read_next(self, path):
+        path = Path(path)
+        project = ProductionProject.open(path)
+        adjacent(self.project, project)
+        return project, path
+
+    def show_next(self):
+        project, path = self.next_group
+        self.partner.set(f"{self.project.group} → {project.group} · {path.name}")
+        self.report_text("")
+
     def load_next(self):
         filename = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
         if filename:
-            path = Path(filename)
-            project = ProductionProject.open(path)
-            adjacent(self.project, project)
-            self.next_group = (project, path)
+            self.next_group = self.read_next(filename)
             self.boundary_seen = None
-            self.partner.set(f"{self.project.group} → {project.group} · {path.name}")
-            self.report_text("")
+            self.show_next()
 
     def projects(self):
         if self.next_group is None:

@@ -1,124 +1,334 @@
-"""Build the storyboard workbench's home screen and project shortcuts."""
+"""Build the desktop workbench navigation and the guided production home."""
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font, ttk
 
 from .production_rules import DELIVERY_TARGET, OTHER_VIDEO_MODELS, RULE_LABELS
-
-
-BACKGROUND = "#edf2f7"
-NAVY = "#182b3c"
-INK = "#1c2c3b"
-MUTED = "#435c70"
-ACCENT = "#23617f"
+from .workbench_style import ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, SURFACE, TINT, configure_workbench
 
 
 PAGE_CAPTIONS = ("故事板制作", "电商信息流视频复刻", "检查验收", "API 接入", "使用教程")
+WORKFLOW_STEPS = (
+    ("导入剧本", "Import scripts", "import"),
+    ("整集规划", "Episode plan", "plan"),
+    ("公共资产", "Shared assets", "assets"),
+    ("执行队列", "Production queue", "queue"),
+    ("验收交付", "Review & delivery", "delivery"),
+)
+PROJECT_SHORTCUTS = (
+    ("新建项目", "new"),
+    ("继续已有项目", "open"),
+    ("批量制作中心", "batch"),
+    ("验收已有 ZIP", "review_zip"),
+)
+PRODUCTION_TOOLS = (
+    ("剧本创作", "script"),
+    ("分镜拆分", "shots"),
+    ("资产分析", "inventory"),
+    ("资产图生成", "generate_assets"),
+    ("故事板图生成", "generate_board"),
+    ("提示词生成", "prompts"),
+    ("角色服装设计", "costume"),
+    ("人物动作编排", "action_sequence"),
+    ("角色动作设计", "pose"),
+    ("故事板组打包交付", "deliver"),
+    ("单组制片", "group"),
+    ("批准图像", "assets"),
+    ("排版与交接", "layout"),
+    ("对白与九图预算", "preflight"),
+)
+GUIDANCE = (
+    "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。",
+    "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。",
+    "选择已有的交付压缩包，无需解压。选完点「开始验收」。",
+)
+_KEEP = object()
+
+
+def _wrap_to_parent(parent, labels, *, inset=0, minimum=80):
+    def fit(event):
+        width = max(minimum, event.width - inset)
+        for label in labels:
+            if int(label.cget("wraplength")) != width:
+                label.configure(wraplength=width)
+
+    parent.bind("<Configure>", fit, add="+")
 
 
 def build_navigation(window, label_text, change_language, selected_rules, switch_rules):
-    def label(parent, caption, **options):
-        return label_text(tk.Label(parent, **options), caption)
+    styles = configure_workbench(window)
+    header = tk.Frame(window, bg=SURFACE, padx=22, pady=8, highlightthickness=1, highlightbackground=LINE)
+    header.pack(fill="x", pady=(0, 1))
+    header.columnconfigure(1, weight=1)
+    tk.Frame(header, bg=ACCENT, width=6, height=22).grid(row=0, column=0, sticky="w", padx=(0, 10))
+    label_text(tk.Label(header, bg=SURFACE, fg=INK, font=("TkDefaultFont", 13, "bold")),
+               "ComicFlow 漫剧制片工作台").grid(row=0, column=1, sticky="w")
+    ttk.Button(header, text="中文 / English", command=change_language, style="Workbench.TButton").grid(
+        row=0, column=2, sticky="e")
 
-    styles = ttk.Style(window)
-    styles.theme_use("clam")
-    styles.configure("Workbench.TButton", padding=(9, 4), foreground=NAVY)
-    styles.configure("Primary.Workbench.TButton", padding=(12, 5), foreground="white",
-                     background=ACCENT, bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT)
-    styles.map("Primary.Workbench.TButton", background=[("disabled", "#7d8c99"), ("active", "#184b65")])
-    window.configure(background=BACKGROUND)
-    header = tk.Frame(window, bg=NAVY, padx=16, pady=12)
-    header.pack(fill="x")
-    header.columnconfigure(0, weight=1)
-    label(header, "ComicFlow 漫剧制片工作台", bg=NAVY, fg="white", font=("TkDefaultFont", 17, "bold")).grid(
-        row=0, column=0, sticky="w")
-    label(header, DELIVERY_TARGET, bg=NAVY, fg="#e3eef5").grid(row=1, column=0, sticky="w", pady=(3, 0))
-    label(header, OTHER_VIDEO_MODELS, bg=NAVY, fg="#c6d9e5", anchor="w", justify="left",
-          wraplength=820).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(3, 0))
-    language = tk.Frame(header, bg=NAVY)
-    language.grid(row=0, column=1, rowspan=2, sticky="e")
-    label(language, "界面语言", bg=NAVY, fg="#c6d9e5").pack(side="left", padx=(0, 6))
-    ttk.Button(language, text="中文 / English", command=change_language, style="Workbench.TButton").pack(side="left")
-
-    rule_bar = tk.Frame(window, bg=BACKGROUND, padx=16)
-    rule_bar.pack(fill="x", pady=(5, 5))
-    label(rule_bar, "制作规则", bg=BACKGROUND, fg=MUTED).pack(side="left", padx=(0, 7))
+    rule_bar = tk.Frame(window, bg=BACKGROUND, padx=22)
+    rule_bar.pack(fill="x", pady=(4, 0))
+    label_text(tk.Label(rule_bar, bg=BACKGROUND, fg=MUTED), "制作规则").pack(side="left", padx=(0, 8))
     rules_buttons = []
     for rules, caption in RULE_LABELS.items():
         control = label_text(ttk.Radiobutton(rule_bar, variable=selected_rules, value=rules,
-                                            command=lambda value=rules: switch_rules(value)), caption)
-        control.pack(side="left", padx=(0, 8))
+                                             command=lambda value=rules: switch_rules(value)), caption)
+        control.pack(side="left", padx=(0, 12))
         rules_buttons.append(control)
-    styles.configure("Navigation.TNotebook.Tab", padding=(20, 8))
+
+    notice = tk.Frame(window, bg=BACKGROUND, padx=22)
+    notice.pack(fill="x", pady=(2, 4))
+    model_note = label_text(tk.Label(notice, bg=BACKGROUND, fg=MUTED, justify="left", anchor="w"),
+                            DELIVERY_TARGET)
+    detail_note = label_text(tk.Label(notice, bg=BACKGROUND, fg=MUTED, justify="left", anchor="w"),
+                             OTHER_VIDEO_MODELS)
+    model_note.pack(side="top", anchor="w")
+    detail_note.pack(side="top", anchor="w")
+    _wrap_to_parent(notice, (model_note, detail_note), inset=44)
+
+    tab_font = font.nametofont("TkDefaultFont", root=window).copy()
+    default_size = tab_font.cget("size")
+    styles.configure("Navigation.TNotebook.Tab", font=tab_font, padding=(13, 6))
     navigation = ttk.Notebook(window, style="Navigation.TNotebook")
     navigation.pack(fill="both", expand=True, padx=12, pady=(0, 8))
     pages = tuple(ttk.Frame(navigation) for _ in PAGE_CAPTIONS)
     for page in pages:
         navigation.add(page)
     navigation.enable_traversal()
+
+    tab_geometry = None
+
+    def fit_tabs(_event=None):
+        nonlocal tab_geometry
+        width = navigation.winfo_width() - 20
+        if width <= 0:
+            return
+        captions = [navigation.tab(tab, "text") for tab in navigation.tabs()]
+        minimum_size = 7 if default_size > 0 else -10
+        direction = 1 if default_size > 0 else -1
+        fitted_size = default_size
+        tab_font.configure(size=fitted_size)
+        measure = sum(tab_font.measure(caption) + 4 for caption in captions)
+        while abs(fitted_size) > abs(minimum_size) and measure + 2 * len(captions) > width:
+            fitted_size -= direction
+            tab_font.configure(size=fitted_size)
+            measure = sum(tab_font.measure(caption) + 4 for caption in captions)
+        pad = max(1, min(13, (width - measure) // (2 * len(captions))))
+        if tab_geometry != (pad, fitted_size):
+            styles.configure("Navigation.TNotebook.Tab", padding=(pad, 6))
+            tab_geometry = (pad, fitted_size)
+
+    navigation.bind("<Configure>", fit_tabs, add="+")
+    navigation.fit_workbench_tabs = fit_tabs
     return navigation, pages, rules_buttons
 
 
+def _adaptive_grid(parent, widgets, maximum, *, spacing=7):
+    previous = None
+
+    def fit(_event=None):
+        nonlocal previous
+        width = parent.winfo_width()
+        if width <= 1:
+            return
+        requested = [widget.winfo_reqwidth() for widget in widgets]
+        columns = maximum
+        while columns > 1:
+            total_width = sum(max(requested[column::columns]) for column in range(columns))
+            if total_width + spacing * (columns - 1) <= width:
+                break
+            columns -= 1
+        if columns == previous:
+            return
+        for column in range(maximum):
+            parent.columnconfigure(column, weight=int(column < columns))
+        for index, widget in enumerate(widgets):
+            row, column = divmod(index, columns)
+            widget.grid(row=row, column=column, sticky="nsew",
+                        padx=(0, spacing if column < columns - 1 else 0), pady=(0, spacing))
+        previous = columns
+
+    # Mapping the first row gives Tk a size before the first resize event.
+    for index, widget in enumerate(widgets):
+        widget.grid(row=index // maximum, column=index % maximum, sticky="nsew")
+    parent.bind("<Configure>", fit, add="+")
+    return fit
+
+
 def build_production_page(page, label_text, callbacks):
-    def button(parent, caption, action, *, primary=False):
-        style = "Primary.Workbench.TButton" if primary else "Workbench.TButton"
-        return label_text(ttk.Button(parent, command=callbacks[action], style=style), caption)
-
-    flow = tk.Frame(page, bg=BACKGROUND, padx=7, pady=8)
-    flow.pack(fill="both", expand=True)
-    flow.columnconfigure(tuple(range(3)), weight=1, uniform="stage")
-    for row in (1, 2, 3):
-        flow.rowconfigure(row, weight=1, uniform="stage")
-    shortcuts = tk.Frame(flow, bg=BACKGROUND)
-    shortcuts.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
-    shortcuts.columnconfigure(tuple(range(4)), weight=1, uniform="shortcut")
-    routes = (
-        ("新建项目", "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。", "new"),
-        ("批量制作中心", "导入一集或多集剧本，编排故事板组、查看任务并按集交付。", "batch"),
-        ("继续已有项目", "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。", "open"),
-        ("验收已有 ZIP", "选择已有的交付压缩包，无需解压。选完点「开始验收」。", "review_zip"),
-    )
+    window = page._root()
     controls = []
-    for column, (caption, description, action) in enumerate(routes):
-        route = tk.Frame(shortcuts, bg=BACKGROUND, padx=9, pady=4)
-        route.grid(row=0, column=column, sticky="nsew", padx=4)
-        control = button(route, caption, action, primary=action == "new")
-        control.pack(anchor="w")
-        detail = label_text(tk.Label(route, bg=BACKGROUND, fg=MUTED, anchor="w", justify="left", wraplength=220),
-                            description)
-        detail.pack(fill="x", pady=(4, 0))
-        route.bind("<Configure>", lambda event, text=detail: text.configure(wraplength=max(100, event.width - 18)))
-        controls.append(control)
+    ttk.Style(window).configure("A.Home.Tool.TButton", padding=(8, 5))
+    status = {"project_title": "", "project_meta": "", "progress": None, "next_step": None}
 
-    steps = (
-        ("剧本创作", "从构思写到剧本草稿，可本地编辑或请文本模型协助。", "script"),
-        ("分镜拆分", "导入批准剧本，逐镜安排动作、景别和对白。", "shots"),
-        ("资产分析", "从剧本整理角色、服装状态、场景和道具。", "inventory"),
-        ("资产图生成", "为角色、场景、道具或净板建立生图任务。", "generate_assets"),
-        ("故事板图生成", "按镜头清单生成板页，选择参考图后提交。", "generate_board"),
-        ("提示词生成", "按镜头起草 Seedance 2.0 的成片动作和声音。", "prompts"),
-        ("角色服装设计", "选取服装参考，进入角色生图并带入参考图。", "costume"),
-        ("人物动作编排", "从动作参考库记下镜头想法，用动作卡做 12／15 格预演。", "action_sequence"),
-        ("故事板组打包交付", "核对板格、净板和文字后，保存正式交付 ZIP。", "deliver"),
-    )
-    for index, (caption, description, action) in enumerate(steps):
-        card = tk.Frame(flow, bg="white", highlightbackground="#cfdae3", highlightthickness=1, padx=11, pady=8)
-        card.grid(row=index // 3 + 1, column=index % 3, padx=4, pady=4, sticky="nsew")
-        card.columnconfigure(0, weight=1)
-        control = button(card, caption, action, primary=action == "deliver")
-        control.grid(row=0, column=0, sticky="w")
-        detail = label_text(tk.Label(card, anchor="w", justify="left", bg="white", fg=MUTED, wraplength=240),
-                            description)
-        detail.grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        card.bind("<Configure>", lambda event, text=detail: text.configure(wraplength=max(100, event.width - 24)))
+    def button(parent, caption, action, *, name=None, style="Workbench.TButton"):
+        options = {"name": name} if name else {}
+        control = ttk.Button(parent, command=action, style=style, **options)
+        if caption:
+            label_text(control, caption)
         controls.append(control)
+        return control
 
-    tools = tk.Frame(flow, bg=BACKGROUND)
-    tools.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 1))
-    for caption, action in (("单组制片", "group"), ("批准图像", "assets"),
-                            ("排版与交接", "layout"), ("对白与九图预算", "preflight"),
-                            ("角色动作设计", "pose")):
-        control = button(tools, caption, action)
-        control.pack(side="left", padx=(4, 2))
-        controls.append(control)
-    return controls
+    viewport = tk.Frame(page, bg=BACKGROUND)
+    viewport.pack(fill="both", expand=True)
+    canvas = tk.Canvas(viewport, bg=BACKGROUND, highlightthickness=0, borderwidth=0, yscrollincrement=18)
+    scroll = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    content = tk.Frame(canvas, bg=BACKGROUND, padx=14, pady=10)
+    content_window = canvas.create_window(0, 0, window=content, anchor="nw")
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(content_window, width=event.width))
+    content.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    title = label_text(tk.Label(content, bg=BACKGROUND, fg=INK, font=("TkDefaultFont", 19, "bold"), anchor="w"),
+                       "故事板制作")
+    title.pack(fill="x")
+    intro = label_text(tk.Label(content, bg=BACKGROUND, fg=MUTED, anchor="w", justify="left"),
+                       "按步骤完成一集故事板。")
+    intro.pack(fill="x", pady=(1, 8))
+    _wrap_to_parent(content, (intro,), inset=28)
+
+    rail = tk.Frame(content, bg=BACKGROUND)
+    rail.pack(fill="x")
+    steps = []
+    for index, (caption, _english, identifier) in enumerate(WORKFLOW_STEPS):
+        steps.append(button(rail, caption,
+                            lambda value=index: callbacks["batch_step"](value)
+                            if "batch_step" in callbacks else callbacks["batch"](),
+                            name=f"a_home_{identifier}", style="A.Step.TButton"))
+    fit_steps = _adaptive_grid(rail, steps, len(steps))
+
+    hero = tk.Frame(content, bg=TINT, highlightbackground=LINE, highlightthickness=1, padx=15, pady=12)
+    hero.pack(fill="x", pady=(2, 8))
+    hero.columnconfigure((0, 1), weight=1, uniform="project")
+    project = tk.Frame(hero, bg=TINT)
+    project.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+    label_text(tk.Label(project, bg=TINT, fg=ACCENT, anchor="w"), "当前项目").pack(fill="x")
+    project_name = tk.Label(project, bg=TINT, fg=INK, font=("TkDefaultFont", 15, "bold"), anchor="w", justify="left")
+    project_name.pack(fill="x", pady=(1, 0))
+    meta_label = tk.Label(project, bg=TINT, fg=MUTED, anchor="w", justify="left")
+    meta_label.pack(fill="x", pady=(0, 6))
+    _wrap_to_parent(project, (project_name, meta_label))
+    primary = button(project, "", callbacks.get("resume", callbacks["batch"]), name="a_home_resume",
+                     style="Primary.Workbench.TButton")
+    primary.pack(anchor="w")
+    progress_card = tk.Frame(hero, bg=SURFACE, highlightbackground=LINE, highlightthickness=1, padx=11, pady=9)
+    progress_card.grid(row=0, column=1, sticky="nsew")
+    label_text(tk.Label(progress_card, bg=SURFACE, fg=INK, anchor="w", font=("TkDefaultFont", 10, "bold")),
+               "制作进度").pack(fill="x")
+    status_line = tk.Label(progress_card, bg=SURFACE, fg=MUTED, anchor="w", justify="left")
+    status_line.pack(fill="x", pady=(1, 3))
+    ttk.Style(window).configure("A.Home.Horizontal.TProgressbar", thickness=5, background=GREEN,
+                                troughcolor=LINE, bordercolor=LINE, lightcolor=GREEN, darkcolor=GREEN)
+    meter = ttk.Progressbar(progress_card, mode="determinate", style="A.Home.Horizontal.TProgressbar")
+    next_line = tk.Label(progress_card, bg=SURFACE, fg=MUTED, anchor="w", justify="left")
+    next_line.pack(fill="x")
+    _wrap_to_parent(progress_card, (status_line, next_line), inset=24)
+
+    route_header = tk.Frame(content, bg=BACKGROUND)
+    route_header.pack(fill="x")
+    label_text(tk.Label(route_header, bg=BACKGROUND, fg=INK, anchor="w", font=("TkDefaultFont", 10, "bold")),
+               "项目入口").pack(side="left")
+    routes = tk.Frame(content, bg=BACKGROUND)
+    routes.pack(fill="x", pady=(3, 0))
+    shortcuts = [button(routes, caption, callbacks[action], style="A.Home.Tool.TButton")
+                 for caption, action in PROJECT_SHORTCUTS]
+    fit_shortcuts = _adaptive_grid(routes, shortcuts, len(shortcuts))
+
+    guidance = tk.Frame(content, bg=BACKGROUND)
+    hints = []
+    for caption in GUIDANCE:
+        hint = label_text(tk.Label(guidance, bg=BACKGROUND, fg=MUTED, anchor="w", justify="left",
+                                   font=("TkDefaultFont", 8)), caption)
+        hint.pack(fill="x")
+        hints.append(hint)
+    _wrap_to_parent(guidance, hints)
+
+    def toggle_help():
+        if guidance.winfo_manager():
+            guidance.pack_forget()
+        else:
+            guidance.pack(fill="x", after=routes, pady=(0, 7))
+
+    help_button = button(route_header, "项目文件说明", toggle_help, name="a_home_project_help",
+                         style="A.Home.Tool.TButton")
+    help_button.pack(side="right")
+    label_text(tk.Label(content, bg=BACKGROUND, fg=INK, anchor="w", font=("TkDefaultFont", 10, "bold")),
+               "单项工具").pack(fill="x", pady=(3, 0))
+    tools = tk.Frame(content, bg=BACKGROUND)
+    tools.pack(fill="x", pady=(3, 0))
+    tools_buttons = [button(tools, caption, callbacks[action], style="A.Home.Tool.TButton")
+                     for caption, action in PRODUCTION_TOOLS]
+    fit_tools = _adaptive_grid(tools, tools_buttons, 5)
+
+    def wheel(event):
+        direction = -1 if event.delta > 0 or event.num == 4 else 1
+        canvas.yview_scroll(direction * 3, "units")
+        return "break"
+
+    def bind_scroll(widget):
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            widget.bind(sequence, wheel, add="+")
+        for child in widget.winfo_children():
+            bind_scroll(child)
+
+    bind_scroll(canvas)
+
+    def reveal_focused(event):
+        if not canvas.winfo_viewable():
+            return
+        item = event.widget
+        y = item.winfo_rooty() - canvas.winfo_rooty()
+        overflow = y + item.winfo_height() + 4 - canvas.winfo_height()
+        if y < 4 or overflow > 0:
+            region = canvas.bbox("all")
+            if region and region[3] > region[1]:
+                adjustment = y - 4 if y < 4 else overflow
+                canvas.yview_moveto((canvas.canvasy(0) + adjustment - region[1]) / (region[3] - region[1]))
+
+    for control in controls:
+        control.bind("<FocusIn>", reveal_focused, add="+")
+
+    def refresh(*, project_title=_KEEP, project_meta=_KEEP, progress=_KEEP, next_step=_KEEP):
+        for name, value in (("project_title", project_title), ("project_meta", project_meta),
+                            ("progress", progress), ("next_step", next_step)):
+            if value is not _KEEP:
+                status[name] = value
+        english = getattr(window, "ui_language", "zh") == "en"
+
+        def localized(zh, en):
+            return en if english else zh
+
+        name = status["project_title"]
+        active = status["next_step"]
+        project_name.configure(text=name or localized("尚未打开项目", "No project open"))
+        meta_label.configure(text=status["project_meta"] or localized("整集或多集剧本", "Single- or multi-episode scripts"))
+        primary.configure(text=localized("继续制作", "Continue production") if name else
+                          localized("开始批量制作", "Start batch production"))
+        progress_value = status["progress"]
+        if progress_value is not None and progress_value[1]:
+            done, total = progress_value
+            meter.configure(maximum=total, value=done)
+            if not meter.winfo_manager():
+                meter.pack(fill="x", before=next_line, pady=(1, 5))
+            status_line.configure(text=localized(f"{done} / {total} 组已复核", f"{done} / {total} groups reviewed"))
+        else:
+            meter.pack_forget()
+            status_line.configure(text=localized("进度随项目显示", "Progress appears with your project"))
+        if active is not None:
+            zh, en, _identifier = WORKFLOW_STEPS[active]
+            next_line.configure(text=localized(f"下一步  {zh}", f"Next step  {en}"))
+        else:
+            next_line.configure(text=localized("导入定稿后开始整集规划。", "Import a script to start episode planning."))
+        for index, step in enumerate(steps):
+            style = "A.Step.TButton"
+            if index == (0 if active is None else active):
+                style = "A.Current.Step.TButton"
+            step.configure(style=style)
+        content.after_idle(fit_steps)
+        content.after_idle(fit_shortcuts)
+        content.after_idle(fit_tools)
+
+    refresh()
+    return controls, refresh

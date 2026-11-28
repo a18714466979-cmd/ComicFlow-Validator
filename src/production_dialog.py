@@ -375,10 +375,10 @@ class ProductionDialog:
             self.registry.set(str(registry))
         self.status.set(path.name)
 
-    def go_to(self, destination):
-        if destination == "layout":
+    def go_to(self, destination, *, adjacent_path=None):
+        if destination in {"layout", "handoff"}:
             self.tabs.select(2)
-            self.open_layout()
+            self.open_layout(adjacent_path=adjacent_path)
         elif destination == "prompts":
             self.tabs.select(1)
             self.open_drafting(task=SD2_TASK)
@@ -398,7 +398,7 @@ class ProductionDialog:
             if script and Path(script).expanduser().is_file() and not self.project.impacts():
                 self.publish()
         else:
-            self.tabs.select({"group": 0, "shots": 1, "assets": 2}[destination])
+            self.tabs.select({"group": 0, "shots": 1, "assets": 2, "review": 3}[destination])
 
     def refresh_sources(self, preferred=""):
         sources = self.project.sources
@@ -585,11 +585,11 @@ class ProductionDialog:
             raise ValueError("请先新建或打开项目。")
         self.wait(ActionSequenceDialog(self).window)
 
-    def open_layout(self):
+    def open_layout(self, *, adjacent_path=None):
         from .layout_dialog import LayoutDialog
 
         self.save()
-        self.wait(LayoutDialog(self).window)
+        self.wait(LayoutDialog(self, adjacent_path=adjacent_path).window)
 
     def refresh(self):
         self.shots.delete(*self.shots.get_children())
@@ -913,7 +913,7 @@ class ProductionDialog:
 
 def open_production_dialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed,
                            initial_project=None, *, initial_action=None, destination="group",
-                           loaded_project=None, source_id=""):
+                           loaded_project=None, source_id="", adjacent_path=None):
     if initial_action == "open" and destination in {"generate_assets", "generate_board", "action_sequence"} and initial_project is None:
         try:
             selected = choose_project_file(parent)
@@ -936,7 +936,10 @@ def open_production_dialog(parent, validators, registry, text_session, image_ses
         elif initial_action == "open":
             dialog.open()
         if dialog.project is not None:
-            dialog.go_to(destination)
+            if adjacent_path is None:
+                dialog.go_to(destination)
+            else:
+                dialog.go_to(destination, adjacent_path=adjacent_path)
         elif initial_action:
             dialog.window.destroy()
 
