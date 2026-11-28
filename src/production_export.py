@@ -627,7 +627,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     if window_rows:
         production.append("实际画面窗口：\n" + "\n".join(window_rows))
     (group_folder / f"{group_id}_shot_details.txt").write_text("\n\n".join(production) + "\n", encoding="utf-8-sig")
-    (group_folder / "SD2_prompt.txt").write_text("\n\n".join(sd2) + "\n", encoding="utf-8-sig")
+    (group_folder / "SD2_prompt.txt").write_text("\n\n".join(sd2) + "\n", encoding="utf-8-sig", newline="\n")
     readme = (
         f"{project.name} · {project.episode}\n制作规则：{rule_revision(project.rules)}\n组号：{group_id}\n"
         f"镜头数：{len(project.shots)}\n图片数：{len(images)}\n本组进入状态：{notes['本组进入状态']}\n"
