@@ -46,6 +46,15 @@ ENGLISH = {
     "界面语言": "Interface",
     "制作规则": "Production rules",
     "英文影片制作": "English film production",
+    "软件锁定规则": "Locked workbench rules",
+    "用户资料": "User material",
+    "本次补充需求": "Additional request",
+    "查看已锁定规则": "View locked rules",
+    "生成规则由软件锁定。此处可补充场景、造型或修改细节。":
+        "ComicFlow locks the generation rules. Add scene, styling or edit details here.",
+    "审图重点（可选）": "Review focus (optional)",
+    "查看固定审图规则": "View fixed review instructions",
+    "补充审图重点会随图片发送。": "Your review focus is sent with the image.",
     "逐格确认实际景别与机位、角色身份和数量、动作承接、线稿可读性及实际画幅。":
         "Check each panel for its actual framing and camera position, identity and cast count, action continuity, line-art legibility, and usable frame.",
     "中文影片制作": "Chinese film production",

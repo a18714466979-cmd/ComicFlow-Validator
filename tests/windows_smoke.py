@@ -274,7 +274,17 @@ def run_inside_launcher():
                     return
                 selector.set("SB01/storyboard_2panel.png")
                 selector.event_generate("<<ComboboxSelected>>")
-                self.after(60, lambda: check_panel(self, "模型 ID", "image-review-test", key))
+
+                def check_vision():
+                    dialog = next(walk(self, tk.Toplevel))
+                    assert not input_field(dialog, "审图重点（可选）").get()
+                    with patch.object(messagebox, "showinfo") as info:
+                        click(dialog, "查看固定审图规则")
+                        title, instructions = info.call_args.args
+                        assert title == "查看固定审图规则" and "英文影片制作 v14.10.4" in instructions
+                    check_panel(self, "模型 ID", "image-review-test", key)
+
+                self.after(60, check_vision)
                 click(self, "AI 辅助看图")
                 saved = project_path.read_text(encoding="utf-8")
                 assert key not in saved and "synthetic-image-key" not in saved
@@ -367,7 +377,12 @@ def run_inside_launcher():
 
                 def inspect_request():
                     preview = next(walk(analysis, tk.Toplevel))
-                    content = next(walk(preview, tk.Text)).get("1.0", "end-1c")
+                    editor = next(walk(preview, tk.Text))
+                    assert editor.cget("state") == "disabled"
+                    content = editor.get("1.0", "end-1c")
+                    policy, material = content.split("\n\n用户资料\n", 1)
+                    assert policy.startswith("软件锁定规则\n") and "英文影片制作 v14.10.4" in policy
+                    assert shot_id not in policy and shot_id in material
                     assert shot_id in content and "SB01-01" in content and "值班员拿起钥匙" in content
                     assert alternate not in content and '"3": "值班员拿钥匙。"' in content
                     preview.destroy()
@@ -998,6 +1013,7 @@ def run_inside_launcher():
                 assert "本地预览，尚未发送" in content
                 assert "https://ark.cn-beijing.volces.com/api/v3/images/generations" in content
                 assert "输出一张图。" in content
+                assert "软件锁定规则" in content and "用户资料" in content
 
             self.after(50, inspect_preview)
             click(dialog, "预览本次发送")

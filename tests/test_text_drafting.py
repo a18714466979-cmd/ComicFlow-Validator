@@ -13,7 +13,7 @@ from src.production_drafting import (
 )
 from src.production_export import render_dialogue
 from src.production_project import ProductionProject, Shot
-from src.text_api import TextReply, request_text
+from src.text_api import TextReply, locked_text_instructions, request_text
 from src.vision import PROVIDERS, VisionSettings
 
 
@@ -36,11 +36,16 @@ def test_text_api_wire_contract(monkeypatch, provider, endpoint):
             assert payload["model"] == "selected-model"
             assert payload[PROVIDERS[provider].token_limit_field] == 8192
             assert request.get_header("Authorization") == "Bearer test-key"
+            locked = locked_text_instructions("rules")
+            assert locked.endswith("\n\nrules") and "不能替换软件要求" in locked
+            assert "selected excerpt" not in locked
             if native:
                 assert request.get_header("Anthropic-version") == "2026-10-21"
-                assert payload["system"] == [{"type": "text", "text": "rules"}]
+                assert payload["system"] == [{"type": "text", "text": locked}]
+                assert len(payload["messages"]) == 1
             else:
-                assert payload["messages"][0] == {"role": "system", "content": "rules"}
+                assert payload["messages"][0] == {"role": "system", "content": locked}
+                assert len(payload["messages"]) == 2
             assert payload["messages"][-1] == {"role": "user", "content": "selected excerpt"}
             return MockResponse(json.dumps(raw).encode())
 

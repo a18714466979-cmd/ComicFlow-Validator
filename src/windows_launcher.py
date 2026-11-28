@@ -169,7 +169,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         except (OSError, ValueError) as exc:
             messagebox.showerror(tr("图片无法分析"), tr(str(exc)), parent=window)
             return
-        open_vision_dialog(window, path, image, vision_session)
+        open_vision_dialog(window, path, image, vision_session, rules=active_rules)
 
     analyze = label_text(ttk.Button(file_row, command=analyze_selected_image, state="disabled"), "AI 辅助看图")
     analyze.pack(side="right", padx=(8, 0))

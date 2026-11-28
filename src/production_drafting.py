@@ -8,7 +8,10 @@ from hashlib import sha256
 
 from .camera_preflight import require_english_camera_rules
 from .production_project import SHOT_FIELDS, ApprovedSource, ProductionProject, Shot, identifier
-from .production_rules import CAMERA_ACTION_FIELD, CAMERA_DRAFTING, CHINESE, ENGLISH, ENGLISH_SD2_RULES, ENGLISH_SHOT_RULES
+from .production_rules import (
+    CAMERA_ACTION_FIELD, CAMERA_DRAFTING, CHINESE, ENGLISH, ENGLISH_SD2_RULES, ENGLISH_SHOT_RULES, RULE_LABELS,
+    rule_revision,
+)
 from .storyboard_preflight import IMAGE_LIMIT
 from .text_api import TextReply
 
@@ -49,7 +52,8 @@ def instructions_for(task: str, rules: str = ENGLISH) -> str:
         direction = "按前后相邻实际状态建议入组和出组交接，缺证据写入待核对。"
     else:
         raise ValueError("不支持此文本任务。")
-    return RULES + direction + "\n输出结构：\n" + json.dumps(example, ensure_ascii=False, indent=2)
+    profile = f"当前制作规则：{RULE_LABELS[rules]} v{rule_revision(rules)}。"
+    return profile + RULES + direction + "\n输出结构：\n" + json.dumps(example, ensure_ascii=False, indent=2)
 
 
 def build_context(project: ProductionProject, source: ApprovedSource, task: str, start: int, end: int,

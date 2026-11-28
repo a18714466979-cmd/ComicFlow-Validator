@@ -14,8 +14,8 @@ from .image_api import EDIT, IMAGE_PROVIDERS, REFERENCE, TEXT, ImageRequestError
 from .production_dialog import field, write_text
 from .production_export import check_english_board_input
 from .production_images import (
-    KINDS, STATUS, approve_candidate, candidate_path, image_prompt, job_request_prompt, local_patch, pinned_assets,
-    prepare_job, shot_input, storyboard_job_page, store_reply,
+    KINDS, STATUS, approve_candidate, candidate_path, image_prompt_sections, job_request_prompt, local_patch,
+    locked_image_rules, pinned_assets, prepare_job, shot_input, storyboard_job_page, store_reply,
 )
 from .production_rules import CHINESE, ENGLISH
 from .shot_review import pixel_selection
@@ -114,17 +114,18 @@ class ImageProductionDialog:
         self.box_note = tk.StringVar(self.window, "")
         self.region = None
         ttk.Label(reference, textvariable=self.box_note).pack(anchor="w")
-        prompts = ttk.LabelFrame(inputs, text=translate(inputs, "本次生图提示词"), padding=6)
+        prompts = ttk.LabelFrame(inputs, text=translate(inputs, "本次补充需求"), padding=6)
         prompts.pack(side="left", fill="both", expand=True)
+        ttk.Label(prompts, text=translate(prompts, "生成规则由软件锁定。此处可补充场景、造型或修改细节。"),
+                  wraplength=440).pack(anchor="w", pady=(0, 5))
         self.prompt = self.production.editor(prompts, 11)
         self.prompt.pack(fill="both", expand=True)
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=(6, 0))
-        self.buttons(bar, ("按用途载入提示模板", self.fill_prompt), ("预览本次发送", self.preview_request),
+        self.buttons(bar, ("查看已锁定规则", self.view_locked_rules), ("预览本次发送", self.preview_request),
                      ("确认并提交生图", self.send))
         self.refresh_refs()
         self.pick_provider()
-        self.fill_prompt()
 
     def select_imported_reference(self):
         if REFERENCE not in self.modes:
@@ -137,7 +138,6 @@ class ImageProductionDialog:
         index = next(index for index, item in enumerate(self.ref_images) if item.id == self.reference_id)
         self.refs.selection_set(index)
         self.refs.see(index)
-        self.fill_prompt()
         self.status.set(translate(self.window, "已带入设计参考。可在预览中检查参考图和提示词。"))
 
     def setup_history(self, page):
@@ -241,11 +241,19 @@ class ImageProductionDialog:
         index = self.shot_picker.current()
         return self.project.shots[index].id if index >= 0 else ""
 
-    def fill_prompt(self):
+    def picked_reference_kind(self, references):
+        if self.mode() == REFERENCE and references and references[0].id == self.reference_id:
+            return self.reference_kind
+        return ""
+
+    def view_locked_rules(self):
         mode = self.mode()
-        refs = self.chosen_refs() if mode == EDIT else []
-        write_text(self.prompt, image_prompt(self.project, self.kind(), self.selected_shot(), mode,
-                                             refs[0] if refs else None))
+        references = self.chosen_refs()
+        original = references[0] if mode == EDIT and references else None
+        template, _ = image_prompt_sections(self.project, self.kind(), self.selected_shot(), mode, original)
+        rules = locked_image_rules(template, self.project.rules, original, self.region or (),
+                                   self.picked_reference_kind(references))
+        self.show_report("软件锁定规则", rules)
 
     def view_reference(self):
         indices = self.refs.curselection()
@@ -274,14 +282,9 @@ class ImageProductionDialog:
             validator = self.production.validator_path()
             check_english_board_input(self.project, validator.with_name("plan_english_dialogue.py"))
         prompt = self.prompt.get("1.0", "end-1c")
-        if self.mode() == REFERENCE and references and references[0].id == self.reference_id:
-            note = ("第一张参考图仅指定服装的版型、层次、颜色和面料，保留目标角色身份。"
-                    if self.reference_kind == "costume" else
-                    "第一张参考图仅指定人物动作、重心、朝向和机位，按目标角色的正式资产生成。")
-            prompt += "\n" + note
         job, request = prepare_job(self.project, self.path, settings, self.mode(), self.kind(),
-                                   self.selected_shot(), prompt, [item.id for item in references],
-                                   self.region or (), preview=preview)
+                                  self.selected_shot(), prompt, [item.id for item in references],
+                                  self.region or (), preview=preview, reference_kind=self.picked_reference_kind(references))
         return settings, job, request
 
     def summary(self, job, *, request_url="", request_prompt=""):
@@ -337,10 +340,6 @@ class ImageProductionDialog:
         if self.busy:
             return
         settings, job, request = self.prepare(self.chosen_refs())
-        settings_fields = ("provider", "base", "model", "mode", "kind", "shot", "prompt", "references", "box")
-        if any(previous["status"] in {"submitting", "queued", "unknown"}
-               and all(previous[key] == job[key] for key in settings_fields) for previous in self.project.image_jobs):
-            raise ValueError("已有同内容任务待核对。请在「候选与任务」查看结果后再决定是否重试。")
         destination = urlsplit(settings.base).netloc
         details = translate(self.window, "发送提示词和 {count} 张已选参考图到 {host}？\n模型 {model}").format(
             count=len(job["references"]), host=destination, model=settings.model,

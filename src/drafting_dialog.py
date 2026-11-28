@@ -19,7 +19,7 @@ from .production_drafting import (
 from .production_project import ProductionProject
 from .production_rules import CHINESE, ENGLISH
 from .storyboard_preflight import IMAGE_LIMIT, group_capacity, image_budget
-from .text_api import build_text_request, request_text
+from .text_api import build_text_request, locked_text_instructions, request_text
 from .vision import PROVIDERS, VisionSettings
 
 
@@ -296,7 +296,8 @@ class DraftingDialog:
         panel.transient(self.window)
         preview = self.production.editor(panel)
         preview.pack(fill="both", expand=True, padx=10, pady=10)
-        self.set_report(preview, instructions + "\n\n" + payload)
+        self.set_report(preview, f"{translate(panel, '软件锁定规则')}\n{locked_text_instructions(instructions)}\n\n"
+                                 f"{translate(panel, '用户资料')}\n{payload}")
         panel.grab_set()
         self.window.wait_window(panel)
         self.window.grab_set()

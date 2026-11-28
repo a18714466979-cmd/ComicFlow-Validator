@@ -9,8 +9,8 @@ from threading import Thread
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
-from .production_rules import CHINESE, ENGLISH
-from .text_api import build_text_request, request_text
+from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
+from .text_api import build_text_request, locked_text_instructions, request_text
 from .ui_language import translate
 
 
@@ -53,7 +53,8 @@ def planning_request(task, title, source, rules, *, shot_context=None):
                              "source_lines 仅引用 script_lines 中的原剧本行号。"
                              "字段 shot_ids 可列出支持该资产的 current_shots 中 shot_id 的原值。number 仅供显示。"
                              "脚本未直接提及但已有镜头证据时可用空的 source_lines，并填写 shot_ids。")
-    return instructions, json.dumps(payload, ensure_ascii=False, indent=2)
+    rules_header = f"当前制作规则：{RULE_LABELS[rules]} v{rule_revision(rules)}。"
+    return rules_header + instructions, json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def asset_report(response, title, source, *, english=False, shot_context=None):
@@ -279,7 +280,8 @@ class PlanningDialog:
         window.transient(self.window)
         editor = scrolledtext.ScrolledText(window, wrap="word")
         editor.pack(fill="both", expand=True, padx=10, pady=10)
-        editor.insert("1.0", instructions + "\n\n" + payload)
+        editor.insert("1.0", f"{translate(window, '软件锁定规则')}\n{locked_text_instructions(instructions)}\n\n"
+                             f"{translate(window, '用户资料')}\n{payload}")
         editor.configure(state="disabled")
         window.grab_set()
         self.window.wait_window(window)

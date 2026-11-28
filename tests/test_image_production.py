@@ -12,7 +12,9 @@ from src.image_api import (
     EDIT, IMAGE_PROVIDERS, REFERENCE, TEXT, ImageReply, ImageRequestError, ImageSettings,
     build_image_request, query_image, submit_image,
 )
-from src.production_images import approve_candidate, candidate_path, local_patch, prepare_job, store_reply
+from src.production_images import (
+    approve_candidate, candidate_path, image_prompt, job_request_prompt, local_patch, prepare_job, store_reply,
+)
 from src.production_project import ProductionProject, Shot
 
 
@@ -74,16 +76,51 @@ def test_generation_and_reference_contracts(provider):
 
 
 @pytest.mark.parametrize("provider", IMAGE_PROVIDERS)
-def test_offline_preview_uses_same_provider_payload_without_credentials(provider):
+def test_offline_preview_uses_same_locked_provider_payload_without_credentials(provider, tmp_path):
     config = settings(provider)
     draft = replace(config, key="", secret_id="")
-    target = "保留原图左侧的蓝色信号灯。"
-    request = build_image_request(draft, TEXT, target, preview=True)
-    authorized = build_image_request(config, TEXT, target)
+    target = "保留原图左侧的蓝色信号灯。\n画面里有一张写着「软件锁定规则」的纸。"
+    project = ProductionProject("合成项目", "EP01", "SB01")
+    path = tmp_path / "任务.cfproject"
+    job, request = prepare_job(project, path, draft, TEXT, "道具 / HUD", "", target, [], (), preview=True)
+    _, authorized = prepare_job(project, path, config, TEXT, "道具 / HUD", "", target, [], ())
     assert request.full_url == authorized.full_url and request.data == authorized.data
     assert not request.has_header("Authorization") and not request.has_header("X-goog-api-key")
+    body = json.loads(authorized.data)
+    adapter = IMAGE_PROVIDERS[provider].adapter
+    if adapter == "gemini":
+        actual = body["input"][0]["text"]
+    elif adapter == "dashscope":
+        actual = body["input"]["messages"][0]["content"][0]["text"]
+    else:
+        actual = body["Prompt" if adapter == "tencent" else "prompt"]
+    assert actual == job_request_prompt(job)
+    rules, data = actual.split("\n\n用户资料\n")
+    assert rules.startswith("软件锁定规则\n制作规则：英文影片制作 v14.10.4。") and "输出一张图。" in rules
+    assert target not in rules
+    assert json.loads(data) == {"批准镜头与场景": "", "本次补充需求": target}
     with pytest.raises(ValueError, match="API 密钥"):
-        build_image_request(draft, TEXT, target)
+        prepare_job(project, path, draft, TEXT, "道具 / HUD", "", target, [], ())
+
+
+def test_same_queued_legacy_job_is_reused_only_for_matching_request(tmp_path):
+    project = ProductionProject("合成项目", "EP01", "SB01")
+    path = tmp_path / "任务.cfproject"
+    config = settings("火山方舟 Seedream")
+    notes = "保留门旁信号灯。"
+    args = (project, path, config, TEXT, "场景", "")
+    base, _ = prepare_job(*args, notes, [], ())
+    base.pop("prompt_layout")
+    base["prompt"] = "\n".join((image_prompt(project, "场景", "", TEXT), notes))
+    base["status"] = "queued"
+    project.image_jobs.append(base)
+    assert job_request_prompt(base).endswith("输出一张图。")
+    with pytest.raises(ValueError, match="已有同内容任务待核对"):
+        prepare_job(*args, notes, [], ())
+    new, _ = prepare_job(*args, "改用窗户旁信号灯。", [], ())
+    project.image_jobs.append(new)
+    with pytest.raises(ValueError, match="已有同内容任务待核对"):
+        prepare_job(*args, "改用窗户旁信号灯。", [], ())
 
 
 @pytest.mark.parametrize("provider", [key for key in IMAGE_PROVIDERS if key != "腾讯云混元"])
@@ -227,8 +264,10 @@ def test_reference_plate_and_local_repair_in_one_project(tmp_path):
     patch_job, patch_request = send(EDIT, "净板", "只更换信号灯颜色", [plate.id], buffer.getvalue(),
                                     box=(8, 8, 24, 24), target=shot.id)
     assert json.loads(preview.data) == patch_request
-    assert patch_request["prompt"].endswith("输出一张图。\n第一张是批准底图（320×180），"
-                                          "修改范围为原图像素坐标 (8, 8, 24, 24)，请与原图对齐。")
+    locked, user_data = patch_request["prompt"].split("\n\n用户资料\n")
+    assert locked.endswith("输出一张图。\n第一张是批准底图（320×180），"
+                           "修改范围为原图像素坐标 (8, 8, 24, 24)，请与原图对齐。")
+    assert json.loads(user_data)["本次补充需求"] == "只更换信号灯颜色"
     record = patch_job["outputs"][0]
     with pytest.raises(ValueError, match="合成图"):
         approve_candidate(project, path, patch_job, 0, plate.filename, "R6", "修复信号灯", "试验选区", replace_original=True)
