@@ -211,17 +211,18 @@ def bulk_import(root, gallery, canvas, catalog, native, folder):
         wait(root, lambda: str(status.getvar(status.cget("textvariable"))) == "Read 101 of 101 files."
              and canvas.yview()[1] < .1, "The gallery did not finish refreshing the imported cards")
         assert pulses, "UI did not process its scheduled update during import"
-        last_image = max(index for index, item in enumerate(catalog.items(native))
-                         if item.path.parent == batch and item.media_type == "image")
+        items = catalog.items(native)
+        assert items[-1].path.parent == batch
+        last_card_tag = f"index:{len(items) - 1}&&media-item-photo"
         scrollbar = next(widget for widget in canvas.master.winfo_children() if isinstance(widget, ttk.Scrollbar))
         scrollbar.tk.call(scrollbar.cget("command"), "moveto", 1.0)
 
-        def final_image_visible():
-            bounds = canvas.bbox(f"index:{last_image}&&media-item-photo")
+        def final_card_visible():
+            bounds = canvas.bbox(last_card_tag)
             return (bounds and canvas.yview()[0] > .5 and canvas.canvasy(0) <= (bounds[1] + bounds[3]) / 2
                     < canvas.canvasy(canvas.winfo_height()))
 
-        wait(root, final_image_visible, "Could not scroll to and preview the final batch of imported images")
+        wait(root, final_card_visible, "Could not scroll to and decode the final imported media card")
     finally:
         root.after_cancel(after_id)
 
