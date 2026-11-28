@@ -3,7 +3,6 @@
 import faulthandler
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -1750,39 +1749,98 @@ def run_inside_launcher():
     messagebox.showerror = lambda title, message, **_kwargs: fail(f"{title}: {message}")
 
 
+def drive_native_director(output, language, mode):
+    """Use the real Edge window to operate the shipped upstream editor."""
+    from threading import Thread
+    import webview
+    from src.director_desk import run_window
+
+    real_start = webview.start
+    errors = []
+
+    def start_with_driver(wait_for_result, **options):
+        window = webview.windows[0]
+
+        def drive():
+            deadline = time.monotonic() + 26
+
+            def until(script, message):
+                while time.monotonic() < deadline:
+                    if window.run_js(script):
+                        return
+                    time.sleep(0.15)
+                status = window.run_js('document.querySelector("#status")?.textContent')
+                raise RuntimeError(f"{message}. URL: {window.get_current_url()}, status: {status}")
+
+            def desk(script):
+                return f"(() => {{const desk = document.querySelector('#desk')?.contentDocument; return desk && ({script});}})()"
+
+            def click(selector):
+                target = f"desk.querySelector({json.dumps(selector)})"
+                until(desk(f"Boolean({target})"), f"Missing 3D control {selector}")
+                window.run_js(desk(f"{target}.click()"))
+
+            try:
+                if not window.events.before_load.wait(20):
+                    raise RuntimeError("The native WebView page never reached navigation.")
+                if window.gui.renderer != "edgechromium":
+                    raise RuntimeError(f"Expected Edge WebView2, found {window.gui.renderer}")
+                until('document.querySelector("#send") && !document.querySelector("#send").disabled',
+                      "Local 3D director bridge did not initialize")
+                until(desk('Boolean(desk.querySelector("canvas"))'), "Local 3D viewport did not load")
+                if mode == "pose":
+                    click('[aria-label="选择画幅比例"]')
+                    click('.viewport-aspect-option:has(.viewport-aspect-option-frame-16-9)')
+                else:
+                    click('[role="treeitem"][aria-label="角色01"] .object-select-button')
+                    click('[aria-label="角色面板标签"] button:last-child')
+                    click(".character-route-add")
+                    click(".character-route-add")
+                    second_point = json.dumps('[aria-label="选择路线点 2"]')
+                    until(desk(f"Boolean(desk.querySelector({second_point}))"),
+                          "The second route point was not recorded")
+                external = window.run_js("""[...performance.getEntriesByType('resource'),
+                    ...document.querySelector('#desk').contentWindow.performance.getEntriesByType('resource')]
+                    .map(entry => new URL(entry.name)).filter(url => /^https?:$/.test(url.protocol) &&
+                     url.origin !== location.origin).map(url => url.origin)""")
+                if external:
+                    raise RuntimeError(f"Unexpected external resources: {external}")
+                window.run_js('void setTimeout(() => document.querySelector("#send").click(), 75)')
+            except Exception as error:
+                errors.append(str(error))
+                window.destroy()
+
+        def on_start():
+            Thread(target=drive, daemon=True).start()
+            wait_for_result()
+
+        return real_start(on_start, **options)
+
+    with patch.object(webview, "start", side_effect=start_with_driver):
+        run_window(Path(output), "windows-smoke", language, mode)
+    if errors:
+        raise RuntimeError(errors[0])
+
+
 def verify_embedded_director(root, folder, env):
     """Exercise the real installed WebView, its renderer, and both file handoffs."""
     sys.path.insert(0, str(root))
     from src.director_action_import import import_director_cards
 
+    driver = ("import runpy, sys; "
+              "runpy.run_path(sys.argv[1])['drive_native_director'](*sys.argv[2:])")
     for mode, language in (("pose", "zh"), ("action", "en")):
         output = folder / f"director-{mode}"
         output.mkdir()
-        with socket.socket() as endpoint:
-            endpoint.bind(("127.0.0.1", 0))
-            debug_port = endpoint.getsockname()[1]
-        browser_args = " ".join((f"--remote-debugging-port={debug_port}", "--use-angle=swiftshader",
-                                 "--enable-unsafe-swiftshader", "--disable-background-networking"))
-        webview_env = {**env, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": browser_args}
-        with subprocess.Popen(
-            [sys.executable, "-m", "src.director_desk", str(output), "windows-smoke", language, mode],
-            cwd=root, env=webview_env,
-        ) as helper:
-            try:
-                browser = subprocess.run(
-                    ["node", str(Path(__file__).with_name("director_browser_smoke.mjs")), str(debug_port), mode],
-                    cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=35,
-                )
-                print(browser.stdout, end="")
-                error_file = output / "error.txt"
-                assert not error_file.is_file(), error_file.read_text(encoding="utf-8")
-                assert browser.returncode == 0, browser.stderr
-                assert helper.wait(timeout=22) == 0, f"The native {mode} window did not complete the handoff"
-                assert (output / "ready").is_file(), "No real protocol initialization was received"
-            finally:
-                if helper.poll() is None:
-                    helper.kill()
-                    helper.wait(timeout=5)
+        browser_args = "--use-angle=swiftshader --enable-unsafe-swiftshader --disable-background-networking"
+        webview_env = {**env, "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": browser_args,
+                       "LOCALAPPDATA": str(folder / f"WebView-{mode}")}
+        result = subprocess.run(
+            [sys.executable, "-c", driver, str(Path(__file__).resolve()), str(output), language, mode],
+            cwd=root, env=webview_env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+        assert result.returncode == 0, result.stderr
+        assert (output / "ready").is_file(), "No real protocol initialization was received"
         if mode == "pose":
             with Image.open(output / "frame.png") as frame:
                 frame.load()
@@ -1797,7 +1855,7 @@ def verify_embedded_director(root, folder, env):
 def verify_windows_launcher(root=ROOT):
     if os.name != "nt":
         raise SystemExit("This smoke test requires Windows.")
-    with TemporaryDirectory(prefix="comicflow-smoke-") as temporary:
+    with TemporaryDirectory(prefix="comicflow-smoke-", ignore_cleanup_errors=True) as temporary:
         folder = Path(temporary)
         archive = folder / "漫画 交付.zip"
         picture = BytesIO()
