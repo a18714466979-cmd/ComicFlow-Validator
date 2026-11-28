@@ -595,7 +595,8 @@ def run_inside_launcher():
                 shortcut, tab_name, modal_name, modal_tab = route
                 panel = next(walk(self, tk.Toplevel), None)
                 tool = next(walk(panel, tk.Toplevel), None) if panel else None
-                if panel is None or (modal_name and (tool is None or not tool.winfo_viewable())):
+                image_route = shortcut in {"Asset image generation", "Storyboard generation"}
+                if panel is None or (modal_name and tool is None) or (image_route and not tool.winfo_viewable()):
                     self.after(25, lambda: verify_view(route))
                     return
                 tabs = next(walk(panel, ttk.Notebook))
