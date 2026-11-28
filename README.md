@@ -4,7 +4,7 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载 Windows v2.2.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46113270217/artifacts/15250087606) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [更新日志](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [English](#english)
+[下载 Windows v2.3.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46115046723/artifacts/15251084145) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [更新日志](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [English](#english)
 
 首页点版本号，或打开「帮助 → 更新日志」，即可离线查看各版改动和已知问题。
 
@@ -13,6 +13,8 @@
 2.1.1 修复内置 3D 导演台人偶的关节接合问题，适用于摆姿势、动作预览和取图。
 
 2.2.0 更新了人物动作编排。点「浏览动作卡」可按类别看 53 张内置动作卡的封面和三帧预览。
+
+2.3.0 在内置 3D 导演台加入「动作片段」。可独立编排每个人物的关键帧、在指定时刻交接道具，并把最长 5 秒的片段保存为可重开的工程。
 
 ## 工作台有什么
 
@@ -72,6 +74,8 @@ A 版工作台在首页提供五步入口和当前项目进度，可沿着流程
 
 ## English
 
+Version 2.3.0 adds editable five-second character keyframes and timed prop handoffs to the built-in 3D Director Desk.
+
 Version 2.2.0 adds illustrated covers and three-beat previews for all 53 built-in action cards.
 
 Version 2.1.1 fixes joint separation in the built-in 3D mannequin during posing, playback and frame capture.
@@ -88,4 +92,4 @@ Comic Sequence Studio is designed to reduce avoidable regenerations by checking 
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that the app creates when you choose **New project**.
 
-[Windows v2.2.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46113270217/artifacts/15250087606) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Changelog](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows v2.3.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46115046723/artifacts/15251084145) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Changelog](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
