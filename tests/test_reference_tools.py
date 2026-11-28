@@ -31,8 +31,13 @@ def test_bundled_costumes_match_pinned_upstream_and_convert_to_reference_png(tmp
     project = ProductionProject("Reference test", "EP01", "SB01")
     assert (COSTUME_ROOT / "LICENSE-images").is_file()
     assert (COSTUME_ROOT / "NOTICE").is_file()
+    source_record = (COSTUME_ROOT / "SOURCE.txt").read_text(encoding="utf-8")
+    assert {path.stem.split("_")[1] for path in COSTUME_ROOT.glob("costume_*_front.webp")} == {
+        identity for identity, _, _, _ in COSTUMES
+    }
     for identity, _, _, digest in COSTUMES:
         filename = f"costume_{identity}_front.webp"
+        assert f"{filename} {digest}" in source_record
         source = COSTUME_ROOT / filename
         _, source_format, preview = read_reference(source, digest)
         assert source_format == "WEBP" and preview.size == (900, 1200)

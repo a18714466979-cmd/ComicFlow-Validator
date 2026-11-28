@@ -152,7 +152,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 同一项目可接续「剧本创作 → 分镜拆分 → 资产分析」。剧本编辑器可把选定的原稿写入新项目或作为已有项目中的剧本版本。镜头清单与已采纳的 AI 分镜都可进入下一步，资产分析带入该版本的原文与已保存镜头。从各页入口仍可打开已有项目或从本地导入稿件。
 
-服装设计包含五套 CC0 历代女装，也可导入有权使用的图。动作设计通过在线 3D 导演台摆姿和机位，将取景图导入 ComicFlow。两种入口都会把选定的本地参考带入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
+服装设计内置 23 套 CC0 服装参考，可按现代日常、通勤与职业、婚礼与宴会、古装与民国、动作与幻想筛选，也可导入有权使用的图。动作设计通过在线 3D 导演台摆姿和机位，将取景图导入 ComicFlow。两种入口都会把选定的本地参考带入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
 
 ### Seedance 2.0 单组制片
 

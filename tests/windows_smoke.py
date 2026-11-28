@@ -426,8 +426,18 @@ def run_inside_launcher():
                 costume = button == "角色服装设计"
                 assert chooser.title() == button
                 if costume:
+                    from src.reference_tools_dialog import COSTUMES
+
                     gallery = next(walk(chooser, tk.Listbox))
-                    assert gallery.size() == 5
+                    categories = next(walk(chooser, ttk.Combobox))
+                    assert gallery.size() == len(COSTUMES)
+                    categories.set("通勤与职业")
+                    categories.event_generate("<<ComboboxSelected>>")
+                    assert gallery.get(0, "end") == ("石色风衣与九分裤", "黑色三件套西装",
+                                                     "医生白大褂与浅蓝衬衫", "白底浅蓝边护士服")
+                    gallery.selection_clear(0, "end")
+                    gallery.selection_set(3)
+                    gallery.event_generate("<<ListboxSelect>>")
                 else:
                     filedialog.askopenfilename = lambda **_kwargs: str(reference_png)
                     click(chooser, "导入本地参考图")
@@ -458,6 +468,7 @@ def run_inside_launcher():
             def verify_reference_files():
                 saved = ProductionProject.open(project_path)
                 assert len(saved.images) == 2 and all(image.reference_only for image in saved.images)
+                assert "costume_C259_front.webp | WEBP SHA-256 " in saved.images[0].origin
                 assert saved.checked_image(project_path, saved.images[-1]).read_bytes() == reference_png.read_bytes()
                 assert not saved.image_jobs
                 show_page(self, 1)
