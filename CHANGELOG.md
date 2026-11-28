@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.6.0 · 2026-11-28
+
+### 简体中文
+
+- 剧本、分镜、资产分析、资产图、故事板图、提示词和组交付可在主窗口打开任务标签。可带着项目和已选剧本走下一步，也可从本地单组项目进入中间工序。
+- 资产分析清单可带入生图的补充需求。批准图像、素材选择与放大、排版和角色服装可从相关任务进入，结果保存到当前组。
+- 同一组不同工序可交替保存。两处同时改动同一个字段时，软件提示冲突并保留当前草稿。
+
+### English
+
+- Script writing, shot planning, asset analysis, asset images, storyboard images, prompts and group delivery open as task tabs. Continue with the current group and selected script, or open an existing local project at a later stage.
+- Carry asset analysis into the image brief. Open approved images, image selection, enlargement, layout and costumes from the relevant task, and save the result to the current group.
+- Save independently across stages of one group. If two edits change the same field, the workbench flags the conflict and keeps the current draft available.
+
 ## 2.5.0 · 2026-11-28
 
 ### 简体中文

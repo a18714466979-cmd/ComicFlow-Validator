@@ -145,7 +145,8 @@ def import_reference(project, project_path, source, kind, *, seen_digest, origin
         )
 
 
-def open_reference_tools(parent, project, path, kind, on_confirm):
+def open_reference_tools(parent, project, path, kind, on_confirm, *, mount=None, on_close=None,
+                         latest_project=None, save_project=None):
     if kind not in {"costume", "pose"}:
         raise ValueError("未知参考图用途。")
     costume = kind == "costume"
@@ -154,25 +155,38 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
     def tr(zh, en):
         return en if english else zh
 
-    window = tk.Toplevel(parent)
     title = tr("角色服装设计", "Character costume design") if costume else tr("角色动作设计", "Character pose design")
-    window.title(title)
-    window.geometry("850x620")
-    window.minsize(760, 570)
-    window.transient(parent)
-    previous_grab = parent.grab_current()
-    window.grab_set()
+    previous_grab = None
+    if mount is not None:
+        window = ttk.Frame(mount, name=f"{kind}_reference_editor")
+        window.pack(fill="both", expand=True)
+    else:
+        window = tk.Toplevel(parent)
+        window.title(title)
+        window.geometry("850x620")
+        window.minsize(760, 570)
+        window.transient(parent.winfo_toplevel())
+        previous_grab = parent.grab_current()
+        window.grab_set()
 
     capture_folder = None
 
-    def close():
-        window.destroy()
+    def cleanup(event):
+        if event.widget is not window:
+            return
         if capture_folder is not None:
             capture_folder.cleanup()
+
+    def close():
+        window.destroy()
         if previous_grab is not None and previous_grab.winfo_exists():
             previous_grab.grab_set()
+        if on_close is not None:
+            on_close()
 
-    window.protocol("WM_DELETE_WINDOW", close)
+    if mount is None:
+        window.protocol("WM_DELETE_WINDOW", close)
+    window.bind("<Destroy>", cleanup, add="+")
     content = ttk.Frame(window, padding=14)
     content.pack(fill="both", expand=True)
     note = (
@@ -307,12 +321,18 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
             return
         source, seen_digest, origin = chosen
         try:
-            asset = import_reference(project, path, source, kind, seen_digest=seen_digest, origin=origin)
-        except (OSError, ValueError, Image.DecompressionBombError) as exc:
+            working = latest_project() if latest_project is not None else project
+            asset = import_reference(working, path, source, kind, seen_digest=seen_digest, origin=origin)
+            if save_project is not None:
+                save_project(working)
+        except (OSError, ValueError, RuntimeError, Image.DecompressionBombError) as exc:
             messagebox.showerror(title, str(exc), parent=window)
             return
         close()
-        on_confirm(asset.id)
+        try:
+            on_confirm(asset.id)
+        except (OSError, RuntimeError, ValueError, tk.TclError) as exc:
+            messagebox.showerror(title, str(exc), parent=parent)
 
     ttk.Button(tools, text=tr("导入本地参考图", "Import local reference"), command=select_local).pack(
         side="left", padx=(0, 8) if costume else 8
@@ -322,3 +342,4 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
     confirm.pack(side="right")
     if costume:
         show_category()
+    return window

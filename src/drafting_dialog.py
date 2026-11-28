@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlsplit
 
 from .ui_language import translate, window_title
-from .production_dialog import field, fields_text, project_filetypes, read_fields, write_text
+from .production_dialog import caption, field, fields_text, project_filetypes, read_fields, refresh_captions, write_text
 from .production_dialogue import group_scope, plan_project_dialogue, save_scope, scope_from_shots, select_scope
 from .production_drafting import (
     DRAFT_SHOT_FIELDS, HANDOFF_FIELDS, HANDOFF_TASK, SD2_FIELDS, SD2_TASK, SHOT_TASK, TASKS,
@@ -24,7 +24,7 @@ from .vision import PROVIDERS, VisionSettings
 
 
 class DraftingDialog:
-    def __init__(self, production, session, *, start_task=None):
+    def __init__(self, production, session, *, start_task=None, parent=None):
         self.production = production
         self.project = production.project
         self.session = session
@@ -33,13 +33,20 @@ class DraftingDialog:
         self.plan_fingerprint = ""
         self.candidate = None
         self.busy = False
-        self.window = tk.Toplevel(production.window)
-        self.window.title(window_title(self.window, "文本制片"))
-        self.window.geometry("1040x774")
-        self.window.minsize(820, 665)
-        self.window.transient(production.window)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        tabs = ttk.Notebook(self.window)
+        self.embedded = parent is not None
+        if self.embedded:
+            self.window = parent.winfo_toplevel()
+            self.frame = ttk.Frame(parent, name="drafting_panel")
+            self.frame.pack(fill="both", expand=True)
+        else:
+            self.window = tk.Toplevel(production.window)
+            self.window.title(window_title(self.window, "文本制片"))
+            self.window.geometry("1040x774")
+            self.window.minsize(820, 665)
+            self.window.transient(production.window)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+            self.frame = self.window
+        self.tabs = tabs = ttk.Notebook(self.frame)
         tabs.pack(fill="both", expand=True, padx=10, pady=10)
         capacity = ttk.Frame(tabs, padding=10)
         ai = ttk.Frame(tabs, padding=10)
@@ -47,27 +54,90 @@ class DraftingDialog:
         tabs.add(ai, text=translate(tabs, "文本模型与历史"))
         self.setup_plan(capacity)
         self.setup_ai(ai)
+        self.set_start_task(start_task)
+
+    def set_start_task(self, start_task):
         if start_task:
-            tabs.select(ai)
+            self.tabs.select(1)
             self.task_picker.current(TASKS.index(start_task))
             self.pick_task()
 
-    def close(self):
+    def refresh_language(self):
+        refresh_captions(self.frame)
+        capacity = "中文对白预排" if self.project.rules == CHINESE else "对白与九图预排"
+        self.tabs.tab(0, text=translate(self.tabs, capacity))
+        self.tabs.tab(1, text=translate(self.tabs, "文本模型与历史"))
+        current = self.task_picker.current()
+        self.task_picker["values"] = tuple(translate(self.window, task) for task in TASKS)
+        if current >= 0:
+            self.task_picker.current(current)
+
+    def dirty(self):
+        return (self.candidate is not None and self.editor.get("1.0", "end-1c") != self.editor_record
+                or (self.embedded and self.production.dirty()))
+
+    def save(self):
+        if not self.allow_close():
+            return False
+        if self.candidate and self.editor.get("1.0", "end-1c") != self.editor_record:
+            self.save_revision()
+        elif self.embedded and self.production.dirty():
+            self.production.save()
+        return True
+
+    def allow_close(self):
         if self.busy:
-            self.status.set("文本请求仍在处理，请等本次返回后关闭。")
-            return
-        self.window.destroy()
+            self.status.set(translate(self.window, "文本请求仍在处理，请等本次返回后关闭。"))
+        return not self.busy
+
+    def sync_project(self, project=None):
+        if not self.embedded or self.busy or self.dirty():
+            return False
+        if project is None:
+            project = self.production.latest_project()
+        if project == self.project:
+            return True
+        source = self.source.current()
+        selected_source = self.sources[source].id if source >= 0 else ""
+        selected_shot = self.targets[self.shot.current()][1].id if self.shot.current() >= 0 else ""
+        candidate = self.candidate["id"] if self.candidate else ""
+        if not self.production.sync_project(project):
+            return False
+        self.sources = self.project.sources
+        self.source["values"] = tuple(f"{item.name} · {item.version}" for item in self.sources)
+        source_index = next((i for i, item in enumerate(self.sources) if item.id == selected_source), -1)
+        if source_index >= 0:
+            self.source.current(source_index)
+            self.pick_task()
+        elif self.sources:
+            self.source.current(len(self.sources) - 1)
+            self.pick_source()
+        else:
+            self.source.set("")
+            self.pick_task()
+        for index, (_, shot) in enumerate(self.targets):
+            if shot.id == selected_shot and str(self.shot.cget("state")) == "readonly":
+                self.shot.current(index)
+                break
+        self.refresh_history(preferred=candidate)
+        self.asset_next.state(["!disabled"] if self.project.shots else ["disabled"])
+        return True
+
+    def close(self):
+        if self.allow_close():
+            self.frame.destroy()
 
     def buttons(self, bar, *entries):
         widgets = []
         for title, action in entries:
-            button = ttk.Button(bar, text=translate(bar, title), command=lambda run=action: self.run(run))
+            button = caption(ttk.Button(bar, command=lambda run=action: self.run(run)), title)
             button.pack(side="left", padx=(0, 6))
             widgets.append(button)
         return widgets
 
     def run(self, action):
         try:
+            self.sync_project()
             action()
         except Exception as exc:
             messagebox.showerror(translate(self.window, "文本制片"), translate(self.window, str(exc)), parent=self.window)
@@ -83,9 +153,9 @@ class DraftingDialog:
             budget = ttk.LabelFrame(page, text=translate(page, "计划交付图片"), padding=8)
             budget.pack(fill="x", pady=9)
             self.counts = [tk.StringVar(self.window, "0") for _ in range(4)]
-            ttk.Label(budget, text=translate(budget, "故事板 1 张")).pack(side="left")
+            caption(ttk.Label(budget), "故事板 1 张").pack(side="left")
             for title, count in zip(("主角", "配角", "道具 / HUD", "场景"), self.counts):
-                ttk.Label(budget, text=translate(budget, title)).pack(side="left", padx=(9, 4))
+                caption(ttk.Label(budget), title).pack(side="left", padx=(9, 4))
                 ttk.Entry(budget, textvariable=count, width=4).pack(side="left")
                 count.trace_add("write", self.show_budget)
             self.budget_status = tk.StringVar(self.window)
@@ -98,7 +168,7 @@ class DraftingDialog:
                      ("载入上一组交接", self.load_previous))
         self.group_picker = ttk.Combobox(bar, state="readonly", width=35 if chinese else 22)
         self.group_picker.pack(side="left", padx=(0, 5))
-        ttk.Label(bar, text=translate(bar, "上一组")).pack(side="left")
+        caption(ttk.Label(bar), "上一组").pack(side="left")
         self.previous_group = tk.StringVar(self.window, self.project.previous_group)
         ttk.Entry(bar, textvariable=self.previous_group, width=8).pack(side="left", padx=5)
         if chinese:
@@ -210,10 +280,10 @@ class DraftingDialog:
         self.source.bind("<<ComboboxSelected>>", self.pick_source)
         scope = ttk.Frame(config)
         scope.grid(row=6, column=1, sticky="w")
-        ttk.Label(config, text=translate(config, "剧本行段")).grid(row=6, column=0, sticky="w")
+        caption(ttk.Label(config), "剧本行段").grid(row=6, column=0, sticky="w")
         self.start, self.end = (tk.StringVar(self.window) for _ in range(2))
         ttk.Entry(scope, textvariable=self.start, width=7).pack(side="left")
-        ttk.Label(scope, text=translate(scope, " 至 ")).pack(side="left")
+        caption(ttk.Label(scope), " 至 ").pack(side="left")
         ttk.Entry(scope, textvariable=self.end, width=7).pack(side="left")
         self.shot = field(config, 7, "目标镜头（写 SD2 时）", tk.StringVar(self.window), ())
         if self.sources:
@@ -228,7 +298,7 @@ class DraftingDialog:
         ttk.Label(page, textvariable=self.status, wraplength=930).pack(anchor="w")
         history = ttk.Frame(page)
         history.pack(fill="x", pady=(5, 0))
-        ttk.Label(history, text=translate(history, "候选版本")).pack(side="left", padx=(0, 8))
+        caption(ttk.Label(history), "候选版本").pack(side="left", padx=(0, 8))
         self.history = ttk.Combobox(history, state="readonly")
         self.history.pack(side="left", fill="x", expand=True)
         self.history.bind("<<ComboboxSelected>>", lambda _event: self.show_candidate(self.history.current()))
@@ -244,6 +314,10 @@ class DraftingDialog:
         self.buttons(actions, ("保存编辑为新版本", self.save_revision), ("采纳已选建议", self.accept),
                      ("复制交接建议", self.copy_handoff))
         self.asset_next, = self.buttons(actions, ("下一步：分析资产", self.open_assets))
+        if self.embedded and self.production.on_stage:
+            navigation = ttk.Frame(page)
+            navigation.pack(fill="x", pady=(5, 0))
+            self.buttons(navigation, ("返回镜头清单", lambda: self.production.open_stage("shots")))
         if not self.project.shots:
             self.asset_next.state(["disabled"])
         self.refresh_history()
@@ -290,19 +364,36 @@ class DraftingDialog:
 
     def preview_payload(self):
         _, _, instructions, payload = self.payload()
-        panel = tk.Toplevel(self.window)
-        panel.title(translate(panel, "本次发送内容"))
-        panel.geometry("845x650")
-        panel.transient(self.window)
+        if self.embedded:
+            panel = ttk.Frame(self.frame, name="drafting_payload_preview")
+            header = ttk.Frame(panel, padding=8)
+            header.pack(fill="x")
+            self.tabs.pack_forget()
+            panel.pack(fill="both", expand=True)
+
+            def restore():
+                panel.destroy()
+                self.tabs.pack(fill="both", expand=True, padx=10, pady=10)
+
+            self.buttons(header, ("返回", restore))
+        else:
+            panel = tk.Toplevel(self.window)
+            panel.title(translate(panel, "本次发送内容"))
+            panel.geometry("845x650")
+            panel.transient(self.window)
         preview = self.production.editor(panel)
         preview.pack(fill="both", expand=True, padx=10, pady=10)
         self.set_report(preview, f"{translate(panel, '软件锁定规则')}\n{locked_text_instructions(instructions)}\n\n"
                                  f"{translate(panel, '用户资料')}\n{payload}")
+        if self.embedded:
+            return
         panel.grab_set()
         self.window.wait_window(panel)
         self.window.grab_set()
 
     def send_request(self):
+        if self.embedded and self.dirty():
+            raise ValueError("请先保存文本候选，或处理其他工序的项目更新。")
         settings = VisionSettings(self.provider.get(), self.base_url.get().strip(), self.model.get().strip(),
                                   self.key.get().strip())
         task, context, instructions, payload = self.payload()
@@ -329,6 +420,8 @@ class DraftingDialog:
                 queue.put(exc)
 
         def receive():
+            if not self.frame.winfo_exists():
+                return
             try:
                 result = queue.get_nowait()
             except Empty:
@@ -351,7 +444,7 @@ class DraftingDialog:
         Thread(target=worker, daemon=True).start()
         self.window.after(100, receive)
 
-    def refresh_history(self):
+    def refresh_history(self, *, preferred=""):
         self.history["values"] = tuple(
             f"{i:02d} · {item['task']} · {item['provider']} · {item['model']} · "
             f"{item['context']['source_version']} · "
@@ -359,9 +452,15 @@ class DraftingDialog:
             for i, item in enumerate(self.project.text_drafts, 1)
         )
         if self.project.text_drafts:
-            index = len(self.project.text_drafts) - 1
+            index = next((idx for idx, item in enumerate(self.project.text_drafts) if item["id"] == preferred),
+                         len(self.project.text_drafts) - 1)
             self.history.current(index)
             self.show_candidate(index)
+        elif self.candidate is not None:
+            self.candidate = None
+            self.history.set("")
+            self.items.delete(0, "end")
+            write_text(self.editor, "")
 
     def show_candidate(self, index):
         if index < 0:
@@ -413,6 +512,8 @@ class DraftingDialog:
         self.status.set("已保留原候选并保存新版本。")
 
     def accept(self):
+        if self.embedded and self.production.dirty():
+            raise ValueError("请先保存文本候选，或处理其他工序的项目更新。")
         if not self.candidate:
             raise ValueError("请选择要采纳的候选版本。")
         task = self.candidate["task"]

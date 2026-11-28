@@ -24,6 +24,7 @@ from .bundled_validators import bundled_validator
 from .ecommerce_page import EcommercePage
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
+from .production_workspace import ProductionWorkspace
 from .image_api import ImageSettings
 from .release_notes import open_release_notes
 from .shot_review_dialog import open_shot_review
@@ -543,6 +544,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         if release_window is not None and release_window.winfo_exists():
             refresh_release()
         tasks.refresh_language()
+        production_workspace.refresh_language()
         refresh_current_work()
         refresh_api_language()
         refresh_tutorial()
@@ -555,24 +557,6 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         set_status(status_data[0], **status_data[1])
         if result is None:
             show_preview()
-
-    def plan_script(task):
-        from .script_handoff_dialog import choose_project_for_script
-        from .storyboard_planning_dialog import open_storyboard_planning
-
-        def use_script(title, body):
-            editor = planner.window
-            selected = choose_project_for_script(editor, title, body, active_rules)
-            if selected is None:
-                return False
-            path, project, source = selected
-            production = produce(path, destination="shots", owner=editor, loaded_project=project, source_id=source.id)
-            editor.wait_window(production.window)
-            editor.grab_set()
-            return True
-
-        planner = open_storyboard_planning(window, text_session, task=task, rules=active_rules,
-                                           on_use_script=use_script if task == "script" else None)
 
     def inspect_image():
         from .review_tools_dialog import open_image_inspection
@@ -593,6 +577,25 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         lambda: current_work["path"] if current_work and current_work["kind"] == "group" else None,
         remember_project,
     )
+    production_workspace = ProductionWorkspace(
+        window, tasks,
+        lambda: current_work["path"] if current_work and current_work["kind"] == "group" else None,
+        lambda: active_rules, validators, registry_path, text_session, image_session, remember_project,
+        action_workspace.open,
+    )
+
+    def open_stage(stage):
+        action_workspace.hide()
+        production_workspace.ask_project(stage)
+
+    def open_actions():
+        production_workspace.hide()
+        action_workspace.show()
+
+    def open_script():
+        action_workspace.hide()
+        production_workspace.hide()
+        production_workspace.open("script")
 
     callbacks = {
         "new": lambda: produce(action="new"),
@@ -602,16 +605,18 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         "open": lambda: produce(action="open"),
         "review_zip": choose_delivery_zip,
         "group": produce,
-        "script": lambda: plan_script("script"),
-        "inventory": lambda: plan_script("assets"),
-        "action_sequence": action_workspace.show,
+        "script": open_script,
+        "inventory": lambda: open_stage("inventory"),
+        "action_sequence": open_actions,
         "preflight": lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules),
     }
     for destination in ("shots", "assets", "generate_assets", "generate_board", "layout", "prompts",
-                        "costume", "pose", "deliver"):
-        callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
+                        "costume", "deliver"):
+        callbacks[destination] = lambda view=destination: open_stage(view)
+    callbacks["pose"] = lambda: produce(action="open", destination="pose")
     workflow_buttons, refresh_production = build_production_page(
         production_page, label_text, callbacks, action_picker=action_workspace,
+        production_picker=production_workspace,
     )
     refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
     ecommerce = EcommercePage(ecommerce_page, vision_session, image_session, lambda: navigation.select(api_page))

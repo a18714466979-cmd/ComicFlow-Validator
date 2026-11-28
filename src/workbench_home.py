@@ -134,7 +134,7 @@ def _adaptive_grid(parent, widgets, maximum, *, spacing=7):
     return fit
 
 
-def build_production_page(page, label_text, callbacks, *, action_picker=None):
+def build_production_page(page, label_text, callbacks, *, action_picker=None, production_picker=None):
     window = page._root()
     controls = []
     ttk.Style(window).configure("A.Home.Tool.TButton", padding=(8, 5))
@@ -150,6 +150,8 @@ def build_production_page(page, label_text, callbacks, *, action_picker=None):
 
     if action_picker is not None:
         action_picker.mount(page, label_text)
+    if production_picker is not None:
+        production_picker.mount(page, label_text)
 
     viewport = tk.Frame(page, bg=BACKGROUND)
     viewport.pack(fill="both", expand=True)

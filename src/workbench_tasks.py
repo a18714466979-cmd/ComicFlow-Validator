@@ -1,6 +1,5 @@
 """Permanent workbench pages and independently editable task tabs."""
 
-from collections import Counter
 from itertools import count
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -17,6 +16,7 @@ class WorkbenchTasks:
         self.serial = count(1)
         self.recent = []
         self.pending = None
+        self.active_page = ""
         styles = ttk.Style(window)
         styles.configure("A.Task.TButton", background=SURFACE, bordercolor=LINE, padding=(9, 6))
         styles.configure("A.Active.Task.TButton", background=TINT, bordercolor=ACCENT, foreground=ACCENT)
@@ -68,6 +68,12 @@ class WorkbenchTasks:
             self.dismiss_confirmation()
         for page, button in zip(self.pages, self.primary):
             button.configure(style="A.Active.Task.TButton" if str(page) == selected else "A.Task.TButton")
+        if selected != self.active_page:
+            self.active_page = selected
+            task = next((item for item in self.tasks.values() if str(item.page) == selected), None)
+            activated = getattr(task, "activate", None)
+            if activated:
+                activated()
         self.fit()
 
     def refresh_language(self):
@@ -111,9 +117,13 @@ class WorkbenchTasks:
         self.more.configure(text=translate(self.window, "已打开任务（{count}）").format(count=len(self.tasks)))
         self.menu.delete(0, "end")
         items = list(self.tasks.values())
-        groups = Counter(task.project.group for task in items)
+        groups = {}
         for task in items:
-            caption = task.caption(distinguish=groups[task.project.group] > 1)
+            if task.project is not None:
+                groups.setdefault(task.project.group, set()).add(task.path)
+        for task in items:
+            distinct = task.project is not None and len(groups[task.project.group]) > 1
+            caption = task.caption(distinguish=distinct)
             self.notebook.tab(task.page, text=caption)
             active = str(task.page) == selected
             task.button.configure(text=caption, style="A.Active.Task.TButton" if active else "A.Task.TButton")
@@ -152,6 +162,12 @@ class WorkbenchTasks:
 
     def request_close(self, key):
         task = self.tasks[key]
+        allowed = getattr(task.editor, "allow_close", None)
+        if allowed and allowed() is False:
+            self.select(task.page)
+            messagebox.showinfo(translate(self.window, "任务进行中"),
+                                translate(self.window, "请等待本次请求返回后再关闭任务。"), parent=self.window)
+            return
         if not task.editor.dirty():
             self.remove(key)
             return
@@ -167,7 +183,8 @@ class WorkbenchTasks:
 
         def save():
             try:
-                task.editor.save()
+                if task.editor.save() is False:
+                    return
             except (OSError, ValueError, RuntimeError, tk.TclError) as error:
                 messagebox.showerror(translate(self.window, "保存失败"), str(error), parent=self.window)
                 return
@@ -214,7 +231,8 @@ class WorkbenchTasks:
 
     def allow_close(self):
         for key, task in tuple(self.tasks.items()):
-            if task.editor.dirty():
+            allowed = getattr(task.editor, "allow_close", None)
+            if (allowed and allowed() is False) or task.editor.dirty():
                 self.request_close(key)
                 return False
         return True

@@ -1,15 +1,16 @@
 """Create image jobs and review their candidates in the single-group workbench."""
 
+from copy import deepcopy
 import tkinter as tk
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlsplit
 
 from PIL import Image, ImageOps, ImageTk
 
-from .ui_language import translate, window_title
+from .ui_language import ENGLISH as UI_ENGLISH, translate, window_title
 from .image_api import EDIT, IMAGE_PROVIDERS, REFERENCE, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
 from .production_dialog import field, write_text
 from .production_export import check_english_board_input
@@ -17,27 +18,43 @@ from .production_images import (
     KINDS, STATUS, approve_candidate, candidate_path, image_prompt_sections, job_request_prompt, local_patch,
     locked_image_rules, pinned_assets, prepare_job, shot_input, storyboard_job_page, store_reply,
 )
+from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH
 from .shot_review import pixel_selection
 
 
+ACTIVE_IMAGE_PROJECTS = set()
+
+
 class ImageProductionDialog:
-    def __init__(self, production, session, *, kind="角色", reference_id="", reference_kind=""):
+    def __init__(self, production, session, *, kind="角色", reference_id="", reference_kind="", mount=None):
         self.production, self.session = production, session
-        self.project, self.path = production.project, production.path
+        self.path = production.path
+        self.embedded = mount is not None
+        self.project = production.latest_project() if self.embedded else production.project
+        self.job_path = self.path.resolve()
         self.busy = False
+        self.overlay = None
+        self.saved_prompt = ""
+        self.language = getattr(production.window._root(), "ui_language", "zh")
         self.reference_id = reference_id
         self.reference_kind = reference_kind
-        self.window = tk.Toplevel(production.window)
-        self.window.title(window_title(self.window, "图像制片"))
-        self.window.geometry("1060x790")
-        self.window.minsize(830, 635)
-        self.window.transient(production.window)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.tabs = ttk.Notebook(self.window)
+        if self.embedded:
+            self.window = ttk.Frame(mount, name="image_production_editor")
+            self.window.pack(fill="both", expand=True)
+        else:
+            self.window = tk.Toplevel(production.window)
+            self.window.title(window_title(self.window, "图像制片"))
+            self.window.geometry("1060x790")
+            self.window.minsize(830, 635)
+            self.window.transient(production.window)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.body = ttk.Frame(self.window)
+        self.body.pack(fill="both", expand=True)
+        self.tabs = ttk.Notebook(self.body)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(10, 4))
         self.status = tk.StringVar(self.window, translate(self.window, "密钥只在本次软件运行期间使用。"))
-        ttk.Label(self.window, textvariable=self.status, wraplength=990).pack(anchor="w", padx=10, pady=(0, 8))
+        ttk.Label(self.body, textvariable=self.status, wraplength=730).pack(anchor="w", padx=10, pady=(0, 8))
         form, history = (ttk.Frame(self.tabs, padding=9) for _ in range(2))
         self.tabs.add(form, text=translate(self.tabs, "新建生图任务"))
         self.tabs.add(history, text=translate(self.tabs, "候选与任务"))
@@ -51,13 +68,18 @@ class ImageProductionDialog:
             raise
 
     def close(self):
-        if self.busy:
-            self.status.set("正在提交或查询，请等本次请求返回。")
-        else:
+        if self.allow_close():
             self.window.destroy()
+
+    def allow_close(self):
+        if self.busy:
+            self.status.set(translate(self.window, "正在提交或查询，请等本次请求返回。"))
+            return False
+        return True
 
     def run(self, action):
         try:
+            self.sync_project()
             action()
         except Exception as exc:
             messagebox.showerror(translate(self.window, "图像制片"), translate(self.window, str(exc)), parent=self.window)
@@ -67,6 +89,12 @@ class ImageProductionDialog:
             ttk.Button(bar, text=translate(bar, title), command=lambda run=action: self.run(run)).pack(side="left", padx=(0, 6))
 
     def setup_form(self, page, kind):
+        if self.embedded:
+            from .action_preset_gallery import _ScrollingPane
+
+            scroller = _ScrollingPane(page, "image_form")
+            scroller.pack(fill="both", expand=True)
+            page = scroller.content
         config = ttk.Frame(page)
         config.pack(fill="x")
         self.provider = tk.StringVar(self.window, next(reversed(self.session), next(iter(IMAGE_PROVIDERS))))
@@ -90,11 +118,7 @@ class ImageProductionDialog:
         self.kind_picker.bind("<<ComboboxSelected>>", self.update_scope)
         target_label = "目标镜头／故事板页" if self.project.rules == CHINESE else "净板目标镜头"
         self.shot_picker = field(config, 7, target_label, self.target, ())
-        self.shot_picker["values"] = tuple(
-            f"{self.project.group}-{n:02d} · {shot.scene or shot.anchor}" for n, shot in enumerate(self.project.shots, 1)
-        )
-        if self.project.shots:
-            self.shot_picker.current(0)
+        self.refresh_shots()
         self.capability = tk.StringVar(self.window)
         ttk.Label(page, textvariable=self.capability, wraplength=960).pack(anchor="w", pady=5)
         inputs = ttk.Frame(page)
@@ -125,14 +149,54 @@ class ImageProductionDialog:
                   wraplength=440).pack(anchor="w", pady=(0, 5))
         self.prompt = self.production.editor(prompts, 11)
         self.prompt.pack(fill="both", expand=True)
+        if self.embedded:
+            self.prompt.bind("<<Modified>>", self.prompt_edited)
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=(6, 0))
         self.buttons(bar, ("查看已锁定规则", self.view_locked_rules), ("预览本次发送", self.preview_request),
                      ("确认并提交生图", self.send))
+        if self.embedded:
+            more = ttk.Frame(page)
+            more.pack(fill="x", pady=(4, 0))
+            self.buttons(more, ("载入 API 接入设置", self.load_connection),
+                         ("导入本地补充需求", self.import_draft), ("另存补充需求 TXT", self.save))
         self.refresh_refs()
         self.pick_provider()
+        if self.embedded:
+            widgets = list(page.winfo_children())
+            while widgets:
+                widget = widgets.pop()
+                widgets.extend(widget.winfo_children())
+                if isinstance(widget, (ttk.Frame, ttk.Label, ttk.LabelFrame, ttk.Button, ttk.Entry)):
+                    scroller.attach_scroll(widget)
 
-    def select_imported_reference(self):
+    def refresh_language(self):
+        language = getattr(self.window._root(), "ui_language", "zh")
+        if language == self.language:
+            return
+        reverse = {english: chinese for chinese, english in UI_ENGLISH.items()}
+        widgets = list(self.window.winfo_children())
+        while widgets:
+            widget = widgets.pop()
+            widgets.extend(widget.winfo_children())
+            if isinstance(widget, (ttk.Button, ttk.Label, ttk.LabelFrame, ttk.Checkbutton)):
+                text = widget.cget("text")
+                translated = UI_ENGLISH.get(text, text) if language == "en" else reverse.get(text, text)
+                if translated != text:
+                    widget.configure(text=translated)
+        self.tabs.tab(0, text=translate(self.tabs, "新建生图任务"))
+        self.tabs.tab(1, text=translate(self.tabs, "候选与任务"))
+        for picker, choices in ((self.mode_picker, self.modes), (self.kind_picker, KINDS)):
+            selected = picker.current()
+            picker.configure(values=tuple(translate(picker, label) for label in choices))
+            picker.current(selected)
+        self.language = language
+
+    def select_imported_reference(self, reference_id=None, reference_kind=None):
+        if reference_id is not None:
+            self.sync_project()
+            self.reference_id, self.reference_kind = reference_id, reference_kind or ""
+            self.tabs.select(0)
         if REFERENCE not in self.modes:
             alternatives = dict.fromkeys((*reversed(self.session), *IMAGE_PROVIDERS))
             provider = next(name for name in alternatives if REFERENCE in IMAGE_PROVIDERS[name].modes)
@@ -140,9 +204,10 @@ class ImageProductionDialog:
             self.pick_provider()
         self.mode_picker.current(self.modes.index(REFERENCE))
         self.update_scope()
-        index = next(index for index, item in enumerate(self.ref_images) if item.id == self.reference_id)
-        self.refs.selection_set(index)
-        self.refs.see(index)
+        index = next((index for index, item in enumerate(self.ref_images) if item.id == self.reference_id), None)
+        if index is None:
+            raise ValueError(translate(self.window, "所选参考图已变化，请重新打开素材库。"))
+        self.apply_visual_refs((self.ref_images[index],), include=True)
         self.status.set(translate(self.window, "已带入设计参考。可在预览中检查参考图和提示词。"))
 
     def setup_history(self, page):
@@ -192,6 +257,59 @@ class ImageProductionDialog:
             self.capability.set(self.capability.get() + " 请填百炼控制台提供的区域工作空间地址，末尾到 /api/v1。")
         self.update_scope()
 
+    def load_connection(self):
+        if not self.session:
+            raise ValueError(translate(self.window, "请先在 API 接入页保存本次设置。"))
+        self.provider.set(next(reversed(self.session)))
+        self.pick_provider()
+        self.status.set(translate(self.window, "已载入本次 API 接入设置。"))
+
+    def prompt_edited(self, _event=None):
+        if self.prompt.edit_modified():
+            self.prompt.edit_modified(False)
+            changed = getattr(getattr(self.production, "task", None), "changed", None)
+            if changed is not None:
+                root = self.window._root()
+                root.after_idle(lambda: changed() if self.window.winfo_exists() else None)
+
+    def dirty(self):
+        return self.embedded and self.draft_text() != self.saved_prompt
+
+    def draft_text(self):
+        return self.prompt.get("1.0", "end-1c")
+
+    def import_draft(self):
+        filename = filedialog.askopenfilename(
+            parent=self.window, filetypes=((translate(self.window, "纯文本"), "*.txt *.md"),),
+        )
+        if not filename:
+            return
+        with Path(filename).open("rb") as source:
+            data = source.read(256 * 1024 + 1)
+        if len(data) > 256 * 1024:
+            raise ValueError(translate(self.window, "补充需求文本最多 256 KiB。"))
+        content = data.decode("utf-8-sig")
+        if self.dirty() and not messagebox.askyesno(
+            translate(self.window, "本次补充需求"),
+            translate(self.window, "用本地文本替换当前未保存的补充需求？"), parent=self.window,
+        ):
+            return
+        self.saved_prompt = content
+        write_text(self.prompt, content)
+
+    def save(self):
+        filename = filedialog.asksaveasfilename(
+            parent=self.window, defaultextension=".txt", filetypes=(("TXT", "*.txt"),),
+            initialfile=f"{self.project.group}_image-notes.txt",
+        )
+        if not filename:
+            return False
+        text = self.draft_text()
+        atomic_text(Path(filename), text)
+        self.saved_prompt = text
+        self.status.set(f"{translate(self.window, '已保存')} {filename}")
+        return True
+
     def mode(self):
         return self.modes[self.mode_picker.current()]
 
@@ -206,13 +324,66 @@ class ImageProductionDialog:
         self.shot_picker.configure(state="readonly" if targeted else "disabled")
         self.update_base_choice()
 
-    def refresh_refs(self):
+    def refresh_shots(self, selected=""):
+        self.shot_picker["values"] = tuple(
+            f"{self.project.group}-{index:02d} · {shot.scene or shot.anchor}"
+            for index, shot in enumerate(self.project.shots, 1)
+        )
+        if self.project.shots:
+            index = next((i for i, shot in enumerate(self.project.shots) if shot.id == selected),
+                         0 if not selected else None)
+            if index is not None:
+                self.shot_picker.current(index)
+                return
+        self.target.set("")
+
+    def refresh_refs(self, selected=()):
         self.refs.configure(state="normal")
         self.ref_images = list(self.project.images)
         self.refs.delete(0, "end")
-        for item in self.ref_images:
+        for index, item in enumerate(self.ref_images):
             self.refs.insert("end", f"{item.filename} · {item.version}")
+            if item.id in selected:
+                self.refs.selection_set(index)
         self.update_scope()
+
+    def sync_project(self, project=None):
+        if not self.embedded:
+            return
+        latest = self.production.latest_project() if project is None else project
+        if latest == self.project:
+            return
+        selected = {self.ref_images[index].id for index in self.refs.curselection()}
+        target = self.selected_shot()
+        job = self.project.image_jobs[self.jobs.current()] if self.jobs.current() >= 0 else None
+        old = self.project
+        self.project = deepcopy(latest)
+        if old.shots != latest.shots:
+            self.refresh_shots(target)
+        if old.images != latest.images:
+            self.refresh_refs(selected)
+        else:
+            self.update_scope()
+        if old.image_jobs != latest.image_jobs:
+            self.refresh_jobs(job)
+
+    def publish_project_state(self):
+        if self.embedded:
+            notify = getattr(self.production, "notify_project", None)
+            if notify is not None:
+                notify(self.project)
+            else:
+                self.production.adopt_project(self.project)
+
+    def persist(self):
+        save = getattr(self.production, "save_project", None) if self.embedded else None
+        if save is not None:
+            saved = save(self.project)
+            if saved is not None:
+                self.sync_project(saved)
+        else:
+            self.project.save(self.path)
+            self.publish_project_state()
 
     def open_project_media(self, *, pick=False, preview_selected=False):
         from .media_gallery import open_media_gallery
@@ -220,12 +391,16 @@ class ImageProductionDialog:
 
         english = getattr(self.window._root(), "ui_language", "zh") == "en"
         selected = tuple(self.ref_images[index].id for index in self.refs.curselection())
-        open_media_gallery(
+        surface = open_media_gallery(
             self.window, project_media_items(self.project, self.path, english=english),
             catalog=project_media_catalog(self.path), selected=selected, native_only=pick or preview_selected,
             on_select=self.apply_visual_refs if pick else None, open_selected=preview_selected,
             title=translate(self.window, "按图选择参考" if pick else "项目素材库"),
+            mount=self.window if self.embedded else None, on_close=self.restore_body if self.embedded else None,
         )
+        if self.embedded:
+            self.body.pack_forget()
+            self.overlay = surface
 
     def pick_visual_refs(self):
         if REFERENCE in self.modes:
@@ -233,9 +408,15 @@ class ImageProductionDialog:
         else:
             raise ValueError("请选择支持参考图的图像服务商。")
 
-    def apply_visual_refs(self, selected):
-        selected_ids = {item.key for item in selected}
+    def apply_visual_refs(self, selected, *, include=False):
+        self.sync_project()
+        selected_ids = {item.id if include else item.key for item in selected}
+        if not selected_ids <= {item.id for item in self.ref_images}:
+            raise ValueError(translate(self.window, "所选参考图已变化，请重新打开素材库。"))
+        previous = tuple(self.ref_images[index].id for index in self.refs.curselection()) if include else ()
         limit = IMAGE_PROVIDERS[self.provider.get()].references
+        if include:
+            selected_ids.update(previous[:max(0, limit - len(selected_ids))])
         if len(selected_ids) > limit:
             raise ValueError(translate(self.window, "本接口最多允许选择 {count} 张批准参考图。").format(count=limit))
         if selected_ids and self.mode() == TEXT:
@@ -309,10 +490,10 @@ class ImageProductionDialog:
         if self.mode() != EDIT or not selected:
             raise ValueError("请切换局部编辑，选择批准参考图和返修底图。")
         original = self.project.checked_image(self.path, selected[0])
-        box = self.select_rectangle(original, "在批准原图上标出修改范围")
-        if box:
+        def use_box(box):
             self.region = box
             self.box_note.set(f"返修底图选区 {box}")
+        self.select_rectangle(original, "在批准原图上标出修改范围", use_box)
 
     def settings(self):
         return ImageSettings(self.provider.get(), self.base.get().strip(), self.model.get().strip(),
@@ -323,7 +504,7 @@ class ImageProductionDialog:
         if self.project.rules == ENGLISH and self.kind() == "故事板" and self.mode() != EDIT:
             validator = self.production.validator_path()
             check_english_board_input(self.project, validator.with_name("plan_english_dialogue.py"))
-        prompt = self.prompt.get("1.0", "end-1c")
+        prompt = self.draft_text()
         job, request = prepare_job(self.project, self.path, settings, self.mode(), self.kind(),
                                   self.selected_shot(), prompt, [item.id for item in references],
                                   self.region or (), preview=preview, reference_kind=self.picked_reference_kind(references))
@@ -363,15 +544,38 @@ class ImageProductionDialog:
                                                     request_prompt=job_request_prompt(job, original)))
 
     def show_report(self, title, content):
-        dialog = tk.Toplevel(self.window)
-        dialog.title(translate(dialog, title))
-        dialog.geometry("830x580")
-        dialog.transient(self.window)
+        if self.embedded:
+            dialog = self.overlay_page("image_report", title)
+        else:
+            dialog = tk.Toplevel(self.window)
+            dialog.title(translate(dialog, title))
+            dialog.geometry("830x580")
+            dialog.transient(self.window)
         editor = self.production.editor(dialog)
         editor.pack(fill="both", expand=True, padx=10, pady=10)
         write_text(editor, content)
         editor.configure(state="disabled")
-        self.wait(dialog)
+        if not self.embedded:
+            self.wait(dialog)
+
+    def overlay_page(self, name, title):
+        self.restore_body()
+        self.overlay = ttk.Frame(self.window, name=name, padding=10)
+        header = ttk.Frame(self.overlay)
+        header.pack(fill="x", pady=(0, 6))
+        ttk.Label(header, text=translate(header, title), style="A.TLabel").pack(side="left")
+        ttk.Button(header, name="close_preview", text=translate(header, "返回"),
+                   command=self.restore_body).pack(side="right")
+        self.body.pack_forget()
+        self.overlay.pack(fill="both", expand=True)
+        return self.overlay
+
+    def restore_body(self):
+        if self.overlay is not None:
+            if self.overlay.winfo_exists():
+                self.overlay.destroy()
+            self.overlay = None
+            self.body.pack(fill="both", expand=True)
 
     def wait(self, dialog):
         dialog.grab_set()
@@ -379,7 +583,7 @@ class ImageProductionDialog:
         self.window.grab_set()
 
     def send(self):
-        if self.busy:
+        if not self.can_start():
             return
         settings, job, request = self.prepare(self.chosen_refs())
         destination = urlsplit(settings.base).netloc
@@ -399,10 +603,11 @@ class ImageProductionDialog:
         self.session[settings.provider] = settings
         self.project.image_jobs.append(job)
         try:
-            self.project.save(self.path)
+            self.persist()
         except Exception:
             self.project.image_jobs.pop()
             raise
+        self.saved_prompt = self.draft_text()
         self.tabs.select(1)
         self.refresh_jobs(job)
         self.start(job, lambda: submit_image(settings, request))
@@ -413,9 +618,18 @@ class ImageProductionDialog:
             for index, job in enumerate(self.project.image_jobs, 1)
         )
         if self.project.image_jobs:
-            index = self.project.image_jobs.index(current) if current else len(self.project.image_jobs) - 1
+            identity = current.get("id") if current else None
+            index = next((i for i, job in enumerate(self.project.image_jobs) if identity and job.get("id") == identity),
+                         len(self.project.image_jobs) - 1)
             self.jobs.current(index)
             self.show_job()
+        else:
+            self.jobs.set("")
+            self.outputs.configure(values=())
+            self.outputs.set("")
+            self.details.configure(state="normal")
+            write_text(self.details, "")
+            self.details.configure(state="disabled")
 
     def picked_job(self):
         index = self.jobs.current()
@@ -455,7 +669,7 @@ class ImageProductionDialog:
             self.tabs.select(0)
 
     def query(self):
-        if self.busy:
+        if not self.can_start():
             return
         job = self.picked_job()
         if not job.get("task_id") or job["status"] not in {"queued", "unknown", "submitting"}:
@@ -469,18 +683,25 @@ class ImageProductionDialog:
         self.start(job, lambda: query_image(settings, job["task_id"]))
 
     def clear_unknown(self):
-        if self.busy:
+        if not self.can_start():
             return
         job = self.picked_job()
         if job.get("task_id") or job["status"] not in {"unknown", "submitting"}:
             raise ValueError("这个操作用于没有任务号、结果未确认的记录。")
         if messagebox.askyesno(translate(self.window, "登记已核对"), translate(self.window, "请确认已在服务商后台查看是否受理和扣费，再结束本地等待。"), parent=self.window):
             job["status"] = "closed"
-            self.project.save(self.path)
+            self.persist()
             self.refresh_jobs(job)
+
+    def can_start(self):
+        if self.busy or self.job_path in ACTIVE_IMAGE_PROJECTS:
+            self.status.set(translate(self.window, "正在提交或查询，请等本次请求返回。"))
+            return False
+        return True
 
     def start(self, job, call):
         self.busy = True
+        ACTIVE_IMAGE_PROJECTS.add(self.job_path)
         self.status.set("正在向所选服务提交或查询…")
         pending = Queue()
 
@@ -496,7 +717,22 @@ class ImageProductionDialog:
             except Empty:
                 self.window.after(100, receive)
                 return
-            self.busy = False
+            try:
+                if self.embedded:
+                    self.sync_project()
+                    job_record = next((item for item in self.project.image_jobs if item.get("id") == job["id"]), None)
+                    if job_record is None or job_record.get("status") != job["status"]:
+                        raise ValueError(translate(self.window, "任务记录已变化，请先核对服务商后台。"))
+                else:
+                    job_record = job
+                finish(job_record, reply)
+            except (OSError, ValueError, RuntimeError) as error:
+                self.status.set(str(error))
+            finally:
+                self.busy = False
+                ACTIVE_IMAGE_PROJECTS.discard(self.job_path)
+
+        def finish(job, reply):
             try:
                 if isinstance(reply, Exception):
                     raise reply
@@ -511,7 +747,7 @@ class ImageProductionDialog:
             except Exception:
                 job.update(status="unknown", message="服务结果或候选文件无法登记，可按任务号继续查询。")
                 self.status.set(job["message"])
-            self.run(lambda: self.project.save(self.path))
+            self.persist()
             self.refresh_jobs(job)
 
         Thread(target=worker, daemon=True).start()
@@ -526,27 +762,39 @@ class ImageProductionDialog:
 
     def view_candidate(self):
         job, _, out = self.picked_output()
+        self.show_pictures(self.candidate_pictures(job, out))
+
+    def candidate_pictures(self, job, out):
         images = [(item.filename, path) for item, path in pinned_assets(self.project, self.path, job)]
         images = images[:1] + [("模型返回原图", candidate_path(self.path, out["received_sha256"], out["format"]))]
         if out.get("patch_sha"):
             images.append(("局部合成图", candidate_path(self.path, out["patch_sha"])))
-        self.show_pictures(images)
+        return images
 
     def compose(self):
         job, index, out = self.picked_output()
         if job["mode"] != EDIT or job["status"] != "ready":
             raise ValueError("请选择待核对的局部编辑候选。")
         path = candidate_path(self.path, out["sha256"])
-        box = self.select_rectangle(path, "在模型返回图上框选与批准原图对应的局部")
-        if box is None:
-            return
-        local_patch(self.project, self.path, job, out, box)
-        self.project.save(self.path)
-        self.show_job()
-        self.outputs.current(index)
-        detail = "局部按选区尺寸对齐。" if out["aligned"] else ""
-        self.status.set(f"{detail}已重新解码合成图，实测选区外 RGB 和透明度像素一致。")
-        self.view_candidate()
+        def apply_box(box):
+            current = self.current_candidate(job, index, out)
+            current_out = current["outputs"][index]
+            local_patch(self.project, self.path, current, current_out, box)
+            self.persist()
+            self.show_job()
+            self.outputs.current(index)
+            detail = "局部按选区尺寸对齐。" if current_out["aligned"] else ""
+            self.status.set(f"{detail}已重新解码合成图，实测选区外 RGB 和透明度像素一致。")
+            self.view_candidate()
+        self.select_rectangle(path, "在模型返回图上框选与批准原图对应的局部", apply_box)
+
+    def current_candidate(self, job, index, output):
+        self.sync_project()
+        current = next((item for item in self.project.image_jobs if item.get("id") == job["id"]), None)
+        outputs = current.get("outputs", ()) if current and current.get("status") == "ready" else ()
+        if index >= len(outputs) or outputs[index] != output:
+            raise ValueError(translate(self.window, "候选已变化，请重新核对。"))
+        return current
 
     def approve(self):
         if self.busy:
@@ -554,11 +802,21 @@ class ImageProductionDialog:
         job, index, out = self.picked_output()
         if job["status"] != "ready":
             raise ValueError("请选择待批准的候选。")
-        self.view_candidate()
-        dialog = tk.Toplevel(self.window)
-        dialog.title(translate(dialog, "批准候选图"))
-        dialog.geometry("720x270")
-        dialog.transient(self.window)
+        if self.embedded:
+            pictures = self.candidate_pictures(job, out)
+            self.show_pictures(pictures, on_approve=lambda: self.approval_form(job, index, out))
+        else:
+            self.view_candidate()
+            self.approval_form(job, index, out)
+
+    def approval_form(self, job, index, out):
+        if self.embedded:
+            dialog = self.overlay_page("image_approval", "批准候选图")
+        else:
+            dialog = tk.Toplevel(self.window)
+            dialog.title(translate(dialog, "批准候选图"))
+            dialog.geometry("720x270")
+            dialog.transient(self.window)
         panel = ttk.Frame(dialog, padding=10)
         panel.pack(fill="both", expand=True)
         default = self.default_name(job)
@@ -578,20 +836,25 @@ class ImageProductionDialog:
 
         def accept():
             try:
-                asset = approve_candidate(self.project, self.path, job, index, name.get(), version.get(),
+                current = self.current_candidate(job, index, out)
+                asset = approve_candidate(self.project, self.path, current, index, name.get(), version.get(),
                                           reason.get(), inspection.get(), replace_original=replace.get())
             except (ValueError, OSError) as exc:
                 messagebox.showerror(translate(dialog, "批准候选图"), str(exc), parent=dialog)
                 return
-            self.production.refresh()
-            self.refresh_refs()
-            self.refresh_jobs(job)
+            self.publish_project_state()
+            if not self.embedded:
+                self.production.refresh()
+            self.refresh_refs({self.ref_images[offset].id for offset in self.refs.curselection()})
+            self.refresh_jobs(current)
             self.status.set(f"已批准 {asset.filename}。请继续执行逐格复核。")
-            dialog.destroy()
+            cancel()
 
+        cancel = self.restore_body if self.embedded else dialog.destroy
         ttk.Button(bar, text=translate(bar, "确认批准"), command=accept).pack(side="left")
-        ttk.Button(bar, text=translate(bar, "取消"), command=dialog.destroy).pack(side="left", padx=6)
-        self.wait(dialog)
+        ttk.Button(bar, text=translate(bar, "取消"), command=cancel).pack(side="left", padx=6)
+        if not self.embedded:
+            self.wait(dialog)
 
     def default_name(self, job):
         if job["mode"] == EDIT:
@@ -605,28 +868,50 @@ class ImageProductionDialog:
         return {"角色": "other_characters_角色名_16x9.png", "道具 / HUD": "props_道具名_16x9.png",
                 "场景": "scene_地点名_main_16x9.png"}.get(job["kind"], "候选_16x9.png")
 
-    def show_pictures(self, pictures):
-        panel = tk.Toplevel(self.window)
-        panel.title(translate(panel, "图像核对"))
-        panel.geometry("1040x710")
-        panel.transient(self.window)
+    def show_pictures(self, pictures, *, on_approve=None):
+        if self.embedded:
+            panel = self.overlay_page("image_candidates", "图像核对")
+            if on_approve:
+                ttk.Button(panel, name="continue_approval", text=translate(panel, "继续批准"),
+                           command=lambda: self.run(on_approve), style="Primary.Workbench.TButton").pack(side="bottom")
+        else:
+            panel = tk.Toplevel(self.window)
+            panel.title(translate(panel, "图像核对"))
+            panel.geometry("1040x710")
+            panel.transient(self.window)
         tabs = ttk.Notebook(panel)
         tabs.pack(fill="both", expand=True, padx=8, pady=8)
         for title, path in pictures:
             section = ttk.Frame(tabs)
             tabs.add(section, text=translate(tabs, title))
             display_picture(section, path)
-        self.wait(panel)
+        if not self.embedded:
+            self.wait(panel)
 
-    def select_rectangle(self, path: Path, title: str):
-        return select_image_region(self.window, path, title)
+    def select_rectangle(self, path: Path, title: str, callback):
+        if self.embedded:
+            panel = self.overlay_page("image_region", title)
+            def accept(region):
+                self.restore_body()
+                self.run(lambda: callback(region))
+            select_image_region(self.window, path, title, mount=panel, on_select=accept)
+        else:
+            selection = select_image_region(self.window, path, title)
+            if selection is not None:
+                callback(selection)
 
 
-def select_image_region(parent, path, title, *, direction=False):
-    panel = tk.Toplevel(parent)
-    panel.title(title)
-    panel.transient(parent)
-    canvas, size, fitted, _ = display_picture(panel, path, zoom=False)
+def select_image_region(parent, path, title, *, direction=False, mount=None, on_select=None):
+    if mount is None:
+        panel = tk.Toplevel(parent)
+        panel.title(title)
+        panel.transient(parent.winfo_toplevel())
+        bounds = (880, 525)
+    else:
+        panel = mount
+        panel.update_idletasks()
+        bounds = (max(1, panel.winfo_width() - 20), max(1, panel.winfo_height() - 78))
+    canvas, size, fitted, _ = display_picture(panel, path, zoom=False, bounds=bounds)
     selected = None
     result = []
     start = None
@@ -663,23 +948,30 @@ def select_image_region(parent, path, title, *, direction=False):
 
     def accept():
         if selected:
-            result.append(selected)
-            panel.destroy()
+            if on_select is not None:
+                on_select(selected)
+            else:
+                result.append(selected)
+                panel.destroy()
 
     for event, action in (("<ButtonPress-1>", begin), ("<B1-Motion>", drag), ("<ButtonRelease-1>", finish)):
         canvas.bind(event, action)
     ttk.Button(controls, text=translate(controls, "确定选区"), command=accept).pack(side="right")
+    if mount is not None:
+        return None
+    previous_grab = parent.grab_current()
     panel.grab_set()
     parent.wait_window(panel)
-    parent.grab_set()
+    if previous_grab is not None and previous_grab.winfo_exists():
+        previous_grab.grab_set()
     return result[0] if result else None
 
 
-def display_picture(parent, path, *, zoom=True):
+def display_picture(parent, path, *, zoom=True, bounds=(880, 525)):
     with Image.open(path) as source:
         image = ImageOps.exif_transpose(source)
     fitted_image = image.copy()
-    fitted_image.thumbnail((880, 525), Image.Resampling.LANCZOS)
+    fitted_image.thumbnail(bounds, Image.Resampling.LANCZOS)
     section = ttk.Frame(parent)
     section.pack(fill="both", expand=True)
     section.rowconfigure(0, weight=1)

@@ -117,7 +117,8 @@ class ImagePane(ttk.LabelFrame):
         self.draw()
 
 
-def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot: str = "") -> None:
+def open_shot_review(parent: tk.Misc, result: ReviewResult, group: str = "", shot: str = "",
+                     *, mount: ttk.Frame | None = None):
     try:
         shots = load_shots(result)
     except (ValueError, OSError, BadZipFile) as exc:
@@ -127,13 +128,15 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
         messagebox.showinfo(translate(parent, "没有可对照的镜头"), translate(parent, "交付包中没有可读取的镜号记录。"), parent=parent)
         return
 
-    window = tk.Toplevel(parent)
-    window.title(window_title(window, "逐格复核"))
-    window.geometry("1250x850")
-    window.minsize(850, 650)
-    window.transient(parent)
-    # Keep the validated archive snapshot available until this review is closed.
-    window.grab_set()
+    window = mount
+    if window is None:
+        window = tk.Toplevel(parent)
+        window.title(window_title(window, "逐格复核"))
+        window.geometry("1250x850")
+        window.minsize(850, 650)
+        window.transient(parent)
+        # Keep the validated archive snapshot available until this review is closed.
+        window.grab_set()
     navigation = ttk.Frame(window, padding=(12, 8))
     navigation.pack(fill="x")
     selection = ttk.Combobox(navigation, values=[f"{row.group} / {row.shot}" for row in shots], state="readonly", width=28)
@@ -234,4 +237,6 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
     group_index = next((i for i, row in enumerate(shots) if row.group == group), 0)
     initial = next((i for i, row in enumerate(shots) if row.group == group and row.shot == normalized), group_index)
     show(initial)
-    parent.wait_window(window)
+    if mount is None:
+        parent.wait_window(window)
+    return window

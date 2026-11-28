@@ -127,6 +127,26 @@ def run_inside_launcher():
         root.update_idletasks()
         return navigation.nametowidget(navigation.select())
 
+    def visible_frame(root, name):
+        return wait_for(root, lambda: next((w for w in walk(root, (tk.Frame, ttk.Frame, ttk.LabelFrame))
+                                            if w.winfo_name() == name and w.winfo_ismapped()), None),
+                        f"Missing visible task frame {name}")
+
+    def pick_production_project(root, title, path):
+        click(show_page(root, PRODUCTION_TAB), title)
+        picker = visible_frame(root, "production_project_picker")
+        with patch.object(filedialog, "askopenfilename", return_value=str(path)) as file_picker:
+            named(picker, ttk.Button, "open_project").invoke()
+        assert file_picker.call_args.kwargs["parent"] is root
+        return picker
+
+    def close_current_task(root):
+        navigation = next(walk(root, ttk.Notebook))
+        page = navigation.nametowidget(navigation.select())
+        chip = page.winfo_name().replace("task_page_", "task_")
+        named(named(root, ttk.Frame, chip), ttk.Button, "close").invoke()
+        root.update_idletasks()
+
     def fail(reason):
         print(reason, file=sys.stderr, flush=True)
         faulthandler.dump_traceback()
@@ -212,6 +232,9 @@ def run_inside_launcher():
                 return
             if mode == "production-handoff":
                 self.inspect_production_handoff()
+                return
+            if mode == "production-workspace":
+                self.inspect_production_workspace()
                 return
             if mode == "mode-switch":
                 self.inspect_mode_switch(validator)
@@ -431,22 +454,22 @@ def run_inside_launcher():
             group.import_source(title, "R2", alternate)
             group.save(project_path)
             original = project_path.read_bytes()
-            show_page(self, PRODUCTION_TAB)
-            click(self, "剧本创作")
-            editor = next(walk(self, tk.Toplevel))
+            script_file = project_path.with_name(f"{title}.md")
+            script_file.write_text(body, encoding="utf-8")
+            click(show_page(self, PRODUCTION_TAB), "剧本创作")
+            editor = visible_frame(self, "planning_editor")
+            left = named(editor, tk.Text, "planning_source")
+            with patch.object(filedialog, "askopenfilename", return_value=str(script_file)):
+                named(editor, ttk.Button, "import_planning_source").invoke()
+            assert left.get("1.0", "end-1c") == body
             title_box = next(walk(editor, ttk.Entry))
-            title_box.delete(0, "end")
-            title_box.insert(0, title)
-            left = next(walk(editor, tk.Text))
-            left.insert("1.0", body)
+            assert title_box.get() == title
 
-            def choose_project(cancel=False):
-                choice = next(walk(editor, tk.Toplevel))
-                assert choice.title() == "将剧本带入分镜"
-                if cancel:
-                    click(choice, "取消")
-                else:
-                    click(choice, "加入已有项目")
+            named(editor, ttk.Button, "use_left_script").invoke()
+            picker = visible_frame(self, "script_target_picker")
+            named(picker, ttk.Button, "cancel_script_target").invoke()
+            assert project_path.read_bytes() == original
+            assert left.get("1.0", "end-1c") == body
 
             def fake_shots(settings, instructions, payload):
                 data = json.loads(payload)
@@ -456,78 +479,229 @@ def run_inside_launcher():
                                  '"fields":{"画面/事件":"值班员拿起钥匙","人物站位":"门右侧"}}]}',
                                  "fixture-shot-handoff")
 
-            def inspect_project():
-                project = next(walk(editor, tk.Toplevel))
-                tabs = next(walk(project, ttk.Notebook))
-                assert tabs.tab(tabs.select(), "text") == "镜头清单"
+            with (patch.object(messagebox, "askyesno", return_value=True),
+                  patch.object(filedialog, "askopenfilename", return_value=str(project_path)),
+                  patch.object(drafting_dialog, "request_text", side_effect=fake_shots)):
+                named(editor, ttk.Button, "use_left_script").invoke()
+                picker = visible_frame(self, "script_target_picker")
+                named(picker, ttk.Button, "existing_script_project").invoke()
+                project = visible_frame(self, "production_panel")
                 assert any(w.get() == f"{title} · R1" for w in walk(project, ttk.Combobox))
-                self.after(90, lambda: use_draft(project))
-                click(project, "AI 拆分镜")
-                project.destroy()
+                assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
 
-            def use_draft(project):
-                tool = next(walk(project, tk.Toplevel))
+                click(project, "AI 拆分镜")
+                tool = visible_frame(self, "drafting_panel")
                 tabs = next(walk(tool, ttk.Notebook))
                 assert tabs.tab(tabs.select(), "text") == "文本模型与历史"
                 for caption in ("文本模型 ID", "API Key"):
                     label = next(widget for widget in walk(tool, ttk.Label) if widget.cget("text") == caption)
                     entry = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+                    entry.delete(0, "end")
                     entry.insert(0, "synthetic")
                 click(tool, "调用模型起草")
-                self.after(100, lambda: accept_shots(tool))
-
-            def accept_shots(tool):
-                if not ProductionProject.open(project_path).text_drafts:
-                    self.after(100, lambda: accept_shots(tool))
-                    return
+                wait_for(self, lambda: ProductionProject.open(project_path).text_drafts,
+                         "Synthetic draft did not arrive in the embedded shot task")
                 click(tool, "采纳已选建议")
-                saved = ProductionProject.open(project_path)
-                assert len(saved.shots) == 1 and saved.shots[0].source == base.id
-                self.after(75, lambda: inspect_assets(tool, saved.shots[0].id))
+                grouped = ProductionProject.open(project_path)
+                assert len(grouped.shots) == 1 and grouped.shots[0].source == base.id
                 click(tool, "下一步：分析资产")
-                tool.destroy()
+            analysis = visible_frame(self, "planning_editor")
+            assert analysis is not editor
+            before = project_path.read_bytes()
+            original_source = named(analysis, tk.Text, "planning_source")
+            assert original_source.get("1.0", "end-1c") == body
+            assert original_source.cget("state") == "disabled"
+            assert editor.winfo_exists() and left.get("1.0", "end-1c") == body
+            assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
 
-            def inspect_assets(tool, shot_id):
-                analysis = next(walk(tool, tk.Toplevel))
-                assert analysis.title() == "资产分析"
-                before = project_path.read_bytes()
-                original_source = next(walk(analysis, tk.Text))
-                assert original_source.get("1.0", "end-1c") == body
-                assert original_source.cget("state") == "disabled"
+            click(analysis, "预览发送内容")
 
-                def inspect_request():
-                    preview = next(walk(analysis, tk.Toplevel))
-                    editor = next(walk(preview, tk.Text))
-                    assert editor.cget("state") == "disabled"
-                    content = editor.get("1.0", "end-1c")
-                    policy, material = content.split("\n\n用户资料\n", 1)
-                    assert policy.startswith("软件锁定规则\n") and "英文影片制作 v14.10.4" in policy
-                    assert shot_id not in policy and shot_id in material
-                    assert shot_id in content and "SB01-01" in content and "值班员拿起钥匙" in content
-                    assert alternate not in content and '"3": "值班员拿钥匙。"' in content
-                    preview.destroy()
+            def request_text():
+                rows = (widget.get("1.0", "end-1c") for widget in walk(self, tk.Text)
+                        if widget.winfo_ismapped() and widget.cget("state") == "disabled")
+                return next((value for value in rows if value.startswith("软件锁定规则\n")), None)
+            content = wait_for(self, request_text, "Asset request preview did not display the approved source")
+            policy, material = content.split("\n\n用户资料\n", 1)
+            assert "英文影片制作 v14.10.4" in policy
+            shot_id = grouped.shots[0].id
+            assert shot_id not in policy and shot_id in material
+            assert "SB01-01" in material and "值班员拿起钥匙" in material
+            assert alternate not in material and '"3": "值班员拿钥匙。"' in material
+            assert project_path.read_bytes() == before
+            print("Verified in-page script-to-shots-to-assets with exact approved revision, shot evidence and cancellation",
+                  flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
 
-                self.after(60, inspect_request)
-                click(analysis, "预览发送内容")
-                click(analysis, "关闭")
-                assert project_path.read_bytes() == before
+        def inspect_production_workspace(self):
+            from shutil import copytree
 
-            old_confirm, old_request, old_picker = messagebox.askyesno, drafting_dialog.request_text, filedialog.askopenfilename
-            try:
-                messagebox.askyesno = lambda *_args, **_kwargs: True
-                drafting_dialog.request_text = fake_shots
-                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
-                self.after(75, lambda: choose_project(cancel=True))
-                click(editor, "用左侧稿件拆分镜")
-                assert project_path.read_bytes() == original and left.get("1.0", "end-1c") == body
-                self.after(75, choose_project)
-                self.after(220, inspect_project)
-                click(editor, "用左侧稿件拆分镜")
-                assert left.get("1.0", "end-1c") == body
-                click(editor, "关闭")
-            finally:
-                messagebox.askyesno, drafting_dialog.request_text, filedialog.askopenfilename = old_confirm, old_request, old_picker
-            print("Verified script-to-shots-to-assets with the exact approved revision, shot evidence and cancellation", flush=True)
+            from src.production_project import ProductionProject
+
+            def check_error(title, detail, **_options):
+                raise AssertionError(f"{title}: {detail}")
+
+            from src import windows_launcher
+
+            examples = Path(windows_launcher.__file__).resolve().parents[1] / "Examples"
+            folder = project_path.with_name("复核独立工作区")
+            copytree(examples, folder)
+            first, second = (folder / f"SB{index:02d}.cfproject" for index in (1, 2))
+            initial = ProductionProject.open(first)
+            second_bytes = second.read_bytes()
+            navigation = next(walk(self, ttk.Notebook))
+
+            def next_stage():
+                work = visible_frame(self, "production_task_header")
+                named(work, ttk.Button, "next_stage").invoke()
+
+            def current_tool(frame):
+                return visible_frame(self, frame)
+
+            def select_page(page):
+                navigation.select(page)
+                self.update_idletasks()
+
+            def field(scope, caption):
+                label = next(widget for widget in walk(scope, ttk.Label) if widget.cget("text") == caption)
+                return label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+
+            with patch.object(messagebox, "showerror", side_effect=check_error):
+                pick_production_project(self, "分镜拆分", first)
+                shots = current_tool("production_panel")
+                shots_page = navigation.select()
+                table = next(widget for widget in walk(shots, ttk.Treeview) if widget.winfo_ismapped())
+                assert tuple(table.get_children()) == tuple(shot.id for shot in initial.shots)
+                assert not list(walk(self, tk.Toplevel))
+
+                pick_production_project(self, "提示词生成", first)
+                prompts = current_tool("production_panel")
+                prompts_page = navigation.select()
+                assert prompts is not shots and prompts_page != shots_page
+                prompt_file = folder / "本地公共提示词.md"
+                hint = "空信号站，右侧灯由暖色切换到稳定的绿灯。"
+                prompt_file.write_text(f"场景/总体状态：{hint}\n公共限制：保持柜体和门的相对位置。", encoding="utf-8")
+                with (patch.object(filedialog, "askopenfilename", return_value=str(prompt_file)),
+                      patch.object(messagebox, "askyesno", return_value=True)):
+                    click(prompts, "导入提示词 TXT / Markdown")
+                prompt_box = named(prompts, tk.Text, "production_prompt")
+                assert hint in prompt_box.get("1.0", "end-1c")
+
+                pick_production_project(self, "资产图生成", second)
+                other = current_tool("image_production_editor")
+                other_page = navigation.select()
+                assert other_page not in (shots_page, prompts_page)
+
+                select_page(shots_page)
+                table.selection_set(initial.shots[0].id)
+                click(shots, "编辑镜头")
+                edit = current_tool("production_subpanel")
+                shot_text = named(edit, tk.Text, "production_shot_fields")
+                raw = shot_text.get("1.0", "end-1c")
+                key = "动作起止"
+                action = "镜头观察关闭的门，右侧信号灯保持琥珀色。"
+                changed = raw.replace(f"{key}：{initial.shots[0].fields[key]}", f"{key}：{action}", 1)
+                assert changed != raw
+                shot_text.delete("1.0", "end")
+                shot_text.insert("1.0", changed)
+                click(edit, "应用镜头更改")
+                click(shots, "保存项目")
+                assert ProductionProject.open(first).shots[0].fields[key] == action
+                assert ProductionProject.open(first).prompt == initial.prompt
+
+                pick_production_project(self, "批准图像", first)
+                assets = current_tool("production_panel")
+                local_ref = folder / "local-lamp-reference.png"
+                Image.new("RGB", (640, 360), "steelblue").save(local_ref)
+                with patch.object(filedialog, "askopenfilename", return_value=str(local_ref)):
+                    click(assets, "导入批准 PNG")
+                binding = current_tool("production_subpanel")
+                field(binding, "处理理由").insert(0, "合成的灯号颜色对照样例")
+                field(binding, "实际核图记录").insert(0, "已打开原图并核对色块与画幅")
+                next(w for w in walk(binding, ttk.Checkbutton) if w.cget("text") == "仅用于来源比对").invoke()
+                click(binding, "绑定批准图像")
+                click(assets, "保存项目")
+
+                select_page(prompts_page)
+                assert hint in prompt_box.get("1.0", "end-1c"), "A sibling save replaced the unsaved prompt"
+                click(prompts, "保存项目")
+                saved = ProductionProject.open(first)
+                assert saved.shots[0].fields[key] == action and saved.prompt["场景/总体状态"] == hint
+                assert [shot.id for shot in saved.shots] == [shot.id for shot in initial.shots]
+                assert saved.images[:-1] == initial.images
+                assert saved.images[-1].reference_only and saved.images[-1].filename == local_ref.name
+                assert saved.checked_image(first, saved.images[-1]).read_bytes() == local_ref.read_bytes()
+                assert other.winfo_exists() and second.read_bytes() == second_bytes
+
+                select_page(shots_page)
+                close_current_task(self)
+                pick_production_project(self, "分镜拆分", first)
+                reopened = current_tool("production_panel")
+                assert reopened is not shots
+                next_stage()
+                linked = current_tool("planning_editor")
+                source = named(linked, tk.Text, "planning_source")
+                assert source.get("1.0", "end-1c") == saved.sources[0].text
+                assert source.cget("state") == "disabled"
+
+                asset_file = folder / "本地资产清单.md"
+                asset_file.write_text("场景：信号站\n道具：固定信号灯与左侧柜体", encoding="utf-8")
+                with patch.object(filedialog, "askopenfilename", return_value=str(asset_file)):
+                    named(linked, ttk.Button, "import_asset_report").invoke()
+                next_stage()
+                image_editor = current_tool("image_production_editor")
+                assert (first.with_suffix(".assets") / "asset-analysis.md").read_text(encoding="utf-8") == (
+                    asset_file.read_text(encoding="utf-8")
+                )
+                click(image_editor, "按图选择参考")
+                library = current_tool("media_gallery")
+                canvas = named(library, tk.Canvas, "media_cards")
+                wait_for(self, lambda: canvas.find_all(), "The same-group gallery did not render its cards")
+                canvas.event_generate("<Button-1>", x=45, y=40)
+                named(library, ttk.Button, "media_preview").invoke()
+                detail = current_tool("media_detail")
+                assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
+                named(detail, ttk.Button, "media_detail_close").invoke()
+                visible_frame(self, "media_gallery")
+                named(library, ttk.Button, "media_choose").invoke()
+                assert current_tool("image_production_editor") is image_editor
+                assert next(walk(image_editor, tk.Listbox)).curselection()
+
+                next_stage()
+                board = current_tool("image_production_editor")
+                assert board is not image_editor and board is not other
+                assert any(widget.get() == "故事板" for widget in walk(board, ttk.Combobox))
+                next_stage()
+                assert current_tool("production_panel") is prompts
+                next_stage()
+                delivery = current_tool("production_panel")
+                assert delivery is not prompts
+                click(delivery, "生成逐格复核预览")
+                review = current_tool("production_subpanel")
+                shot = next(widget for widget in walk(review, ttk.Combobox) if widget.winfo_ismapped())
+                assert shot.get() == "SB01 / SB01-01"
+                click(review, "返回")
+                with patch.object(messagebox, "askyesno", return_value=True):
+                    click(delivery, "确认本版画面")
+                output = project_path.with_suffix(".zip")
+                with patch.object(filedialog, "asksaveasfilename", return_value=str(output)):
+                    click(delivery, "验收并导出 ZIP")
+
+            with ZipFile(output) as packaged:
+                assert packaged.testzip() is None
+                names = packaged.namelist()
+                assert "README.txt" in names and not any(local_ref.name in name for name in names)
+                assert hint in packaged.read("SB01/SD2_prompt.txt").decode("utf-8-sig")
+                text = packaged.read("SB01/SB01_shot_details.txt").decode("utf-8-sig")
+                assert action in text
+                for member in names:
+                    if member.endswith(".png"):
+                        with Image.open(BytesIO(packaged.read(member))) as image:
+                            image.load()
+                            assert image.width * 9 == image.height * 16
+            assert second.read_bytes() == second_bytes
+            print("Verified embedded handoffs, mixed-project tasks, local imports, sibling saves, in-page media selection "
+                  "and real storyboard ZIP export", flush=True)
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
 
@@ -1645,36 +1819,40 @@ def run_inside_launcher():
 
             show_page(self, PRODUCTION_TAB)
             click(self, "剧本创作")
-            script = next(walk(self, tk.Toplevel))
-            assert script.title() == "剧本创作"
-            next(walk(script, tk.Text)).insert("1.0", "场景一：灯亮了。")
+            script = visible_frame(self, "planning_editor")
+            named(script, tk.Text, "planning_source").insert("1.0", "场景一：灯亮了。")
             filedialog.asksaveasfilename = lambda **_kwargs: str(draft)
             click(script, "另存左侧稿件")
             assert draft.read_text(encoding="utf-8") == "场景一：灯亮了。"
-            click(script, "关闭")
+            close_current_task(self)
+            show_page(self, PRODUCTION_TAB)
             click(self, "资产分析")
-            analysis = next(walk(self, tk.Toplevel))
-            assert analysis.title() == "资产分析"
+            picker = visible_frame(self, "production_project_picker")
+            named(picker, ttk.Button, "local_source").invoke()
+            analysis = visible_frame(self, "planning_editor")
+            assert analysis is not script
             filedialog.askopenfilename = lambda **_kwargs: str(draft)
             click(analysis, "导入 TXT / Markdown")
-            assert next(walk(analysis, tk.Text)).get("1.0", "end-1c").strip() == "场景一：灯亮了。"
-            click(analysis, "关闭")
+            assert named(analysis, tk.Text, "planning_source").get("1.0", "end-1c").strip() == "场景一：灯亮了。"
+            close_current_task(self)
             print("Verified offline script drafting and the asset analysis entry", flush=True)
 
             ProductionProject("服装动作试用", "EP01", "SB01").save(project_path)
             def open_reference(button):
                 filedialog.askopenfilename = lambda **_kwargs: str(project_path)
-                click(self, button)
+                show_page(self, PRODUCTION_TAB)
+                if button == "角色服装设计":
+                    pick_production_project(self, button, project_path)
+                else:
+                    click(self, button)
                 self.after(150, lambda: use_reference(button))
 
             def use_reference(button):
-                project = next(walk(self, tk.Toplevel))
-                chooser = next(walk(project, tk.Toplevel))
                 costume = button == "角色服装设计"
-                assert chooser.title() == button
                 if costume:
                     from src.reference_tools_dialog import COSTUMES
 
+                    chooser = visible_frame(self, "costume_reference_editor")
                     gallery = next(walk(chooser, tk.Listbox))
                     categories = next(walk(chooser, ttk.Combobox))
                     search = next(widget for widget in walk(chooser, ttk.Entry)
@@ -1693,32 +1871,51 @@ def run_inside_launcher():
                     search.insert(0, "c259")
                     assert gallery.get(0, "end") == ("白底浅蓝边护士服",)
                     assert gallery.curselection() == (0,) and confirm.instate(["!disabled"])
-                else:
-                    with patch.object(reference_tools_dialog, "open_director", side_effect=receive_still):
-                        click(chooser, "打开内置 3D 导演台")
-                self.after(80, lambda: check_image_job(project, costume))
-                click(chooser, "使用参考图进入生图")
-                project.destroy()
-                if costume:
+                    click(chooser, "使用参考图进入生图")
+                    image_job = visible_frame(self, "image_production_editor")
+                    assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
+                    check_image_configuration(image_job, costume)
+                    close_current_task(self)
                     open_reference("角色动作设计")
                 else:
+                    project = next(walk(self, tk.Toplevel))
+                    chooser = next(walk(project, tk.Toplevel))
+                    assert chooser.title() == button
+                    with patch.object(reference_tools_dialog, "open_director", side_effect=receive_still):
+                        click(chooser, "打开内置 3D 导演台")
+                    self.after(80, lambda: check_image_job(project))
+                    click(chooser, "使用参考图进入生图")
+                    project.destroy()
                     verify_reference_files()
 
-            def check_image_job(project, costume):
+            def check_image_job(project):
                 image_job = next(walk(project, tk.Toplevel))
                 assert image_job.title() == f"{APP_NAME_ZH} · 图像制片"
+                check_image_configuration(image_job, False)
+                image_job.destroy()
+
+            def check_image_configuration(image_job, costume):
                 assert any(widget.get() == "参考图生图" for widget in walk(image_job, ttk.Combobox))
                 refs = next(walk(image_job, tk.Listbox))
                 assert len(refs.curselection()) == 1
+
+                if costume:
+                    click(image_job, "预览本次发送")
+                    preview = visible_frame(self, "image_report")
+                    payload = next(walk(preview, tk.Text)).get("1.0", "end-1c")
+                    assert "仅指定服装" in payload
+                    named(preview, ttk.Button, "close_preview").invoke()
+                    assert image_job.winfo_exists()
+                    return
+
                 def preview():
                     window = next(walk(image_job, tk.Toplevel))
                     payload = next(walk(window, tk.Text)).get("1.0", "end-1c")
-                    assert ("仅指定服装" if costume else "仅指定人物动作") in payload
+                    assert "仅指定人物动作" in payload
                     window.destroy()
 
                 self.after(80, preview)
                 click(image_job, "预览本次发送")
-                image_job.destroy()
 
             def verify_reference_files():
                 saved = ProductionProject.open(project_path)
@@ -1817,16 +2014,14 @@ def run_inside_launcher():
                 button = next(w for w in walk(self, ttk.Button) if w.cget("text") == name)
                 assert button.winfo_viewable() and button.winfo_rooty() + button.winfo_height() <= self.winfo_rooty() + 700
             print("Verified bilingual home controls at the minimum window size", flush=True)
-            original_picker = filedialog.askopenfilename
-            filedialog.askopenfilename = lambda **_kwargs: str(project_path)
             routes = iter((
-                ("Shot planning", "Shot list", "", ""),
-                ("Approved images", "Approved images", "", ""),
-                ("Layout & handoff", "Approved images", f"{APP_NAME_EN} · Layout & handoff", "16:9 layout"),
-                ("Prompt drafting", "Shot list", f"{APP_NAME_EN} · Text production", "Text model & history"),
-                ("Asset image generation", "Approved images", f"{APP_NAME_EN} · Image production", "New image job"),
-                ("Storyboard generation", "Approved images", f"{APP_NAME_EN} · Image production", "New image job"),
-                ("Package storyboard group", "Text, layout & delivery", "", ""),
+                ("Shot planning", "production_panel", "Shot list"),
+                ("Approved images", "production_panel", "Approved images"),
+                ("Layout & handoff", "layout_editor", "16:9 layout"),
+                ("Prompt drafting", "production_panel", "Prompt drafting"),
+                ("Asset image generation", "image_production_editor", "New image job"),
+                ("Storyboard generation", "image_production_editor", "New image job"),
+                ("Package storyboard group", "production_panel", "Text, layout & delivery"),
             ))
 
             def next_route():
@@ -1835,32 +2030,21 @@ def run_inside_launcher():
                     finish()
                     return
                 print(f"Opening home route {route[0]}", flush=True)
-                click(self, route[0])
-                self.after(120, lambda: verify_view(route))
+                pick_production_project(self, route[0], project_path)
+                verify_view(route)
 
             def verify_view(route):
-                shortcut, tab_name, modal_name, modal_tab = route
-                panel = next(walk(self, tk.Toplevel), None)
-                tool = next(walk(panel, tk.Toplevel), None) if panel else None
-                image_route = shortcut in {"Asset image generation", "Storyboard generation"}
-                if panel is None or (modal_name and tool is None) or (image_route and not tool.winfo_viewable()):
-                    self.after(25, lambda: verify_view(route))
-                    return
-                tabs = next(walk(panel, ttk.Notebook))
+                shortcut, frame_name, tab_name = route
+                tool = visible_frame(self, frame_name)
+                assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
+                tabs = next(walk(tool, ttk.Notebook))
                 assert tabs.tab(tabs.select(), "text") == tab_name
-                if modal_name:
-                    tool_tabs = next(walk(tool, ttk.Notebook))
-                    assert tool.title() == modal_name and tool_tabs.tab(tool_tabs.select(), "text") == modal_tab
-                    if shortcut == "Prompt drafting":
-                        assert any(w.get() == "SD2 prompts" for w in walk(tool, ttk.Combobox))
-                    if shortcut == "Storyboard generation":
-                        assert any(w.get() == "Storyboard" for w in walk(tool, ttk.Combobox))
-                    tool.destroy()
-                self.after(30, lambda: close_route(panel))
-
-            def close_route(panel):
-                panel.destroy()
-                next_route()
+                if shortcut == "Prompt drafting":
+                    assert named(tool, tk.Text, "production_prompt")
+                if shortcut == "Storyboard generation":
+                    assert any(w.get() == "Storyboard" for w in walk(tool, ttk.Combobox))
+                close_current_task(self)
+                self.after_idle(next_route)
 
             def verify_repair():
                 panel = next(walk(self, tk.Toplevel))
@@ -1872,7 +2056,6 @@ def run_inside_launcher():
                 show_page(self, REVIEW_TAB)
                 self.after(80, verify_repair)
                 click(self, "Assets & repairs")
-                filedialog.askopenfilename = original_picker
                 click(self, "中文 / English")
                 assert chinese.cget("text") == "中文影片制作" and chinese.instate(["selected"])
                 print("Verified seven production routes and the bilingual five-page workbench", flush=True)
@@ -2293,10 +2476,7 @@ def run_inside_launcher():
 
             from src.production_project import ProductionProject
 
-            show_page(self, PRODUCTION_TAB)
-            with patch.object(filedialog, "askopenfilename", return_value="") as picker:
-                click(self, "资产图生成")
-                assert picker.call_args.kwargs["parent"] is self
+            pick_production_project(self, "资产图生成", "")
             assert next(walk(self, tk.Toplevel), None) is None
 
             project = ProductionProject("制片测试", "EP01", "SB06")
@@ -2313,42 +2493,26 @@ def run_inside_launcher():
 
             opening = patch.object(ProductionProject, "open", side_effect=delayed_read)
             forbidden_save = patch.object(ProductionProject, "save", side_effect=AssertionError("Opening rewrote the project"))
-            opening.start()
-            write = forbidden_save.start()
-            with patch.object(filedialog, "askopenfilename", return_value=str(project_path)) as picker:
-                click(self, "资产图生成")
-                assert picker.call_args.kwargs["parent"] is self
-            parent = next(walk(self, tk.Toplevel))
-
-            def allow_read():
-                if not reading.is_set():
-                    self.after(25, allow_read)
-                    return
+            with opening, forbidden_save as write:
+                parent = pick_production_project(self, "资产图生成", project_path)
+                wait_for(self, reading.is_set, "The selected project was not read in the background")
                 variables = (widget.cget("textvariable") for widget in walk(parent, ttk.Label))
                 assert any("正在打开项目" in self.getvar(value) for value in variables if value)
-                assert next(walk(parent, tk.Toplevel), None) is None
+                assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
+                assert not any(w.winfo_ismapped() and w.winfo_name() == "image_production_editor"
+                               for w in walk(self, ttk.Frame))
                 release.set()
-                self.after(25, inspect_loaded)
-
-            def inspect_loaded():
-                panel = next(walk(parent, tk.Toplevel), None)
-                if panel is None or not panel.winfo_viewable() or self.grab_current() is not panel:
-                    self.after(25, inspect_loaded)
-                    return
-                assert panel.title() == f"{APP_NAME_ZH} · 图像制片"
+                panel = visible_frame(self, "image_production_editor")
+                assert self.grab_current() is None
                 assert project_path.read_bytes() == original_bytes and not write.called
                 tabs = next(walk(panel, ttk.Notebook))
                 tabs.select(1)
                 assert any("历史图像任务的记录不完整" in widget.get("1.0", "end")
                            for widget in walk(panel, tk.Text))
-                panel.destroy()
-                opening.stop()
-                forbidden_save.stop()
-                print("Verified responsive direct asset opening with a delayed read and incomplete job history")
-                print("COMICFLOW_GUI_OK", flush=True)
-                self.after_idle(self.destroy)
-
-            self.after(25, allow_read)
+                close_current_task(self)
+            print("Verified responsive direct asset opening with a delayed read and incomplete job history")
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.after_idle(self.destroy)
 
         def inspect_candidate(self, dialog):
             from src.production_project import ProductionProject
@@ -2664,16 +2828,17 @@ def verify_windows_launcher(root=ROOT):
                                ("a-layout-125", ""), ("a-layout-150", ""),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
-                               ("production-handoff", f' "{archive}"'), ("image-entry", ""),
+                               ("production-handoff", f' "{archive}"'), ("production-workspace", f' "{archive}"'),
+                               ("image-entry", ""),
                                ("action-sequence", f' "{archive}"'), ("task-navigation", f' "{archive}"'),
                                ("dialogue-blocking", f' "{archive}"'),
                                ("ecommerce", f' "{archive}"'),
                                ("batch-center", f' "{archive}"'),
                                ("batch-file", f' "{folder / "制片-batch-center.cfbatch"}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
-            if mode in {"file-only", "mode-switch"}:
+            if mode in {"file-only", "mode-switch", "production-workspace"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
-            if mode.startswith("a-layout-") or mode in {"task-navigation", "dialogue-blocking"}:
+            if mode.startswith("a-layout-") or mode in {"task-navigation", "dialogue-blocking", "production-workspace"}:
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(
                 f'cmd.exe /d /c .\\Comic-Sequence-Studio.bat{argument}', cwd=root, env=launch_env,

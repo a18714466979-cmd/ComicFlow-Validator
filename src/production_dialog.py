@@ -1,6 +1,7 @@
 """Local authoring and delivery window for an SD2 storyboard group."""
 
 import json
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from queue import Empty, Queue
@@ -66,8 +67,21 @@ def read_fields(widget, fields):
     return {key: value.strip() for key, value in values.items() if value.strip()}
 
 
+def caption(widget, text):
+    widget._production_caption = text
+    widget.configure(text=translate(widget, text))
+    return widget
+
+
+def refresh_captions(widget):
+    for child in widget.winfo_children():
+        if hasattr(child, "_production_caption"):
+            child.configure(text=translate(child, child._production_caption))
+        refresh_captions(child)
+
+
 def field(parent, row, label, value, choices=None):
-    ttk.Label(parent, text=translate(parent, label)).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=3)
+    caption(ttk.Label(parent), label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=3)
     if choices is None:
         widget = ttk.Entry(parent, textvariable=value)
     else:
@@ -78,7 +92,8 @@ def field(parent, row, label, value, choices=None):
 
 
 class ProductionDialog:
-    def __init__(self, parent, validators, registry, text_session, image_session, rules, on_rules_changed):
+    def __init__(self, parent, validators, registry, text_session, image_session, rules, on_rules_changed,
+                 *, embedded=False, destination="group", on_save=None, on_stage=None, with_panel=True):
         self.validators = validators
         self.rules = rules
         self.on_rules_changed = on_rules_changed
@@ -89,42 +104,82 @@ class ProductionDialog:
         self.path = None
         self.previewed = None
         self.action_workspace = None
-        self.window = tk.Toplevel(parent)
-        self.window.title(window_title(self.window, "单组制片"))
-        self.window.geometry("1050x745")
-        self.window.minsize(820, 610)
-        self.window.transient(parent)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        top = ttk.Frame(self.window, padding=10)
+        self.embedded = embedded
+        self.with_panel = with_panel
+        self.destination = destination
+        self.on_save = on_save
+        self.on_stage = on_stage
+        self.overlay = None
+        self.overlay_has_form = False
+        self._baseline = None
+        self.source_ids = ()
+        if embedded:
+            self.window = parent.winfo_toplevel()
+            self.frame = ttk.Frame(parent, name="production_panel")
+            if with_panel:
+                self.frame.pack(fill="both", expand=True)
+        else:
+            self.window = tk.Toplevel(parent)
+            self.window.title(window_title(self.window, "单组制片"))
+            self.window.geometry("1050x745")
+            self.window.minsize(820, 610)
+            self.window.transient(parent)
+            self.window.grab_set()
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+            self.frame = self.window
+        self.body = ttk.Frame(self.frame)
+        self.body.pack(fill="both", expand=True)
+        top = ttk.Frame(self.body, padding=10)
         top.pack(fill="x")
-        self.file_buttons = self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open),
-                                         ("保存项目", self.save))
-        guides = ttk.Frame(self.window, padding=(10, 0, 10, 8))
-        guides.pack(fill="x")
-        self.production_tools = self.buttons(
-            guides, ("对白与分镜起草", self.open_drafting),
-            ("图像制片", self.open_image_production),
-            ("排版与交接", self.open_layout),
-            ("写提示词", lambda: self.open_drafting(task=SD2_TASK)),
-            ("复核与打包", lambda: self.tabs.select(3)),
-        )
-        ttk.Label(self.window, text=translate(self.window, DELIVERY_TARGET), padding=(10, 0, 10, 5)).pack(anchor="w")
+        if embedded:
+            self.file_buttons = self.buttons(top, ("保存项目", self.save))
+            self.production_tools = tuple(self.build_stage_links(top))
+        else:
+            self.file_buttons = self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open),
+                                             ("保存项目", self.save))
+            guides = ttk.Frame(self.body, padding=(10, 0, 10, 8))
+            guides.pack(fill="x")
+            self.production_tools = self.buttons(
+                guides, ("对白与分镜起草", self.open_drafting),
+                ("图像制片", self.open_image_production),
+                ("排版与交接", self.open_layout),
+                ("写提示词", lambda: self.open_drafting(task=SD2_TASK)),
+                ("复核与打包", lambda: self.tabs.select(3)),
+            )
+            ttk.Label(self.body, text=translate(self.body, DELIVERY_TARGET), padding=(10, 0, 10, 5)).pack(anchor="w")
         self.status = tk.StringVar(self.window, translate(self.window, "新建或打开项目后开始。"))
-        info = ttk.Frame(self.window, padding=(10, 0, 10, 6))
+        info = ttk.Frame(self.body, padding=(10, 0, 10, 6))
         info.pack(fill="x")
         self.rule_name = tk.StringVar(self.window)
         ttk.Label(info, textvariable=self.rule_name).pack(side="left")
         ttk.Label(info, textvariable=self.status).pack(side="left", padx=8)
-        self.tabs = ttk.Notebook(self.window)
+        self.tabs = ttk.Notebook(self.body)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.setup_group(self.tab("项目与组"))
         self.setup_shots(self.tab("镜头清单"))
         self.setup_images(self.tab("批准图像"))
         self.setup_delivery(self.tab("复核与交付"))
-        for index in range(4):
+        if self.embedded and self.destination == "prompts":
+            self.setup_prompt(self.tab("提示词生成"))
+        for index in range(len(self.tabs.tabs())):
             self.tabs.tab(index, state="disabled")
         self.show_rules(rules)
+
+    def build_stage_links(self, parent):
+        if self.on_stage is None:
+            return ()
+        links = {
+            "group": (("下一步：拆分镜", "shots"),),
+            "shots": (("项目与组", "group"),),
+            "assets": (("制作资产图", "generate_assets"),),
+            "deliver": (("批准图像", "assets"), ("排版与交接", "layout")),
+        }
+        return self.buttons(parent, *((label, lambda target=target: self.open_stage(target))
+                                       for label, target in links.get(self.destination, ())))
+
+    def open_stage(self, destination, **options):
+        self.save()
+        return self.on_stage(destination, **options)
 
     def guarded(self, task):
         try:
@@ -135,7 +190,7 @@ class ProductionDialog:
     def buttons(self, bar, *buttons):
         built = []
         for title, command in buttons:
-            button = ttk.Button(bar, text=translate(bar, title), command=lambda task=command: self.guarded(task))
+            button = caption(ttk.Button(bar, command=lambda task=command: self.guarded(task)), title)
             button.pack(side="left", padx=(0, 6))
             built.append(button)
         return built
@@ -145,7 +200,9 @@ class ProductionDialog:
         self.rule_name.set(f"{translate(self.window, RULE_LABELS[rules])} · v{rule_revision(rules)}")
         chinese = rules == CHINESE
         has_project = self.project is not None
-        self.tabs.tab(3, state="normal" if has_project else "disabled", text=translate(self.tabs, "文本与排版" if chinese else "复核与交付"))
+        self.tabs.tab(3, text=translate(self.tabs, "文本与排版" if chinese else "复核与交付"))
+        if not self.embedded:
+            self.tabs.tab(3, state="normal" if has_project else "disabled")
         for button in self.production_tools:
             button.state(["!disabled"] if has_project else ["disabled"])
         self.english_delivery.pack_forget()
@@ -154,30 +211,83 @@ class ProductionDialog:
 
     def tab(self, name):
         page = ttk.Frame(self.tabs, padding=10)
+        page._production_tab_caption = name
         self.tabs.add(page, text=translate(self.tabs, name))
         return page
 
-    def editor(self, parent, height=8):
-        return scrolledtext.ScrolledText(parent, height=height, width=55, wrap="word", undo=True)
+    def refresh_language(self):
+        refresh_captions(self.frame)
+        for page_id in self.tabs.tabs():
+            page = self.tabs.nametowidget(page_id)
+            title = page._production_tab_caption
+            if title == "复核与交付" and self.rules == CHINESE:
+                title = "文本与排版"
+            self.tabs.tab(page_id, text=translate(self.tabs, title))
+        self.rule_name.set(f"{translate(self.window, RULE_LABELS[self.rules])} · v{rule_revision(self.rules)}")
+        for table in (self.shots, self.images):
+            for key in table["columns"]:
+                table.heading(key, text=translate(table, key))
+        if self.project is not None:
+            self.show_shot_source()
+
+    def editor(self, parent, height=8, *, name=None):
+        names = {"name": name} if name else {}
+        return scrolledtext.ScrolledText(parent, height=height, width=55, wrap="word", undo=True, **names)
 
     def setup_group(self, page):
         top = ttk.Frame(page)
         top.pack(fill="x")
         self.name, self.episode, self.group = (tk.StringVar(self.window) for _ in range(3))
-        for row, (caption, value) in enumerate((("项目名", self.name), ("集次", self.episode), ("组号", self.group))):
-            field(top, row, caption, value)
+        for row, (label, value) in enumerate((("项目名", self.name), ("集次", self.episode), ("组号", self.group))):
+            field(top, row, label, value)
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=8)
         self.buttons(bar, ("导入批准剧本", self.import_source), ("查看原文和对白 ID", self.view_source),
                      ("编辑本组批准对白 JSON", self.import_dialogue))
         self.source = ttk.Combobox(bar, state="readonly", width=30)
         self.source.pack(side="left", expand=True, fill="x")
-        ttk.Label(page, text=translate(page, "制片记录 · 必填项按交付规则填写，可用「- 」追加行")).pack(anchor="w")
+        caption(ttk.Label(page), "制片记录 · 必填项按交付规则填写，可用「- 」追加行").pack(anchor="w")
         self.notes = self.editor(page, 18)
         self.notes.pack(fill="both", expand=True)
-        ttk.Label(page, text=translate(page, "SD2 公共说明 · 填写成片环境与约束")).pack(anchor="w", pady=(8, 0))
-        self.prompt = self.editor(page, 5)
-        self.prompt.pack(fill="both")
+        if self.destination != "prompts" or not self.embedded:
+            caption(ttk.Label(page), "SD2 公共说明 · 填写成片环境与约束").pack(anchor="w", pady=(8, 0))
+            self.prompt = self.editor(page, 5)
+            self.prompt.pack(fill="both")
+
+    def setup_prompt(self, page):
+        bar = ttk.Frame(page)
+        bar.pack(fill="x", pady=(0, 8))
+        self.buttons(bar, ("导入提示词 TXT / Markdown", self.import_prompt),
+                     ("调用模型起草提示词", lambda: self.open_drafting(task=SD2_TASK)))
+        hint = "SD2 公共说明 · 填写成片环境与约束"
+        caption(ttk.Label(page), hint).pack(anchor="w", pady=(0, 5))
+        self.prompt = self.editor(page, 12, name="production_prompt")
+        self.prompt.pack(fill="both", expand=True)
+
+    def import_prompt(self):
+        value = filedialog.askopenfilename(parent=self.window,
+                                           filetypes=((translate(self.window, "文本"), "*.txt *.md *.markdown"),))
+        if not value:
+            return
+        content = Path(value).read_text(encoding="utf-8-sig").strip()
+        if not content:
+            raise ValueError("所选提示词文件为空。")
+        before = self.prompt.get("1.0", "end-1c")
+        if before.strip() != fields_text(PROMPT_FIELDS, {}).strip() and not messagebox.askyesno(
+                translate(self.window, "提示词生成"), translate(self.window, "用导入文本替换当前 SD2 公共说明？"),
+                parent=self.window):
+            return
+        if any(line.startswith(tuple(f"{key}：" for key in PROMPT_FIELDS)) for line in content.splitlines()):
+            write_text(self.prompt, content)
+        else:
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            content = f"{PROMPT_FIELDS[0]}：{lines[0]}" + "".join(f"\n- {line}" for line in lines[1:])
+            write_text(self.prompt, f"{content}\n{PROMPT_FIELDS[1]}：")
+        try:
+            read_fields(self.prompt, PROMPT_FIELDS)
+        except ValueError:
+            write_text(self.prompt, before)
+            raise
 
     def setup_shots(self, page):
         bar = ttk.Frame(page)
@@ -193,6 +303,10 @@ class ProductionDialog:
         self.shot_source = tk.StringVar(page)
         ttk.Label(page, textvariable=self.shot_source, wraplength=740).pack(anchor="w", pady=(0, 6))
         self.source.bind("<<ComboboxSelected>>", lambda _event: self.show_shot_source())
+        if self.embedded:
+            self.shot_version = ttk.Combobox(page, name="production_shot_source", state="readonly", width=45)
+            self.shot_version.pack(anchor="w", pady=(0, 8))
+            self.shot_version.bind("<<ComboboxSelected>>", self.use_shot_source)
         self.shots = self.table(page, ("镜号", "源段", "净板文件", "对白 ID"), (85, 265, 240, 140))
         self.shots.bind("<Double-1>", lambda _event: self.guarded(self.edit_shot))
         ttk.Label(page, text=translate(page, "镜号和净板局部号按播放顺序生成。移动或插入后，在复核窗口重新核对故事板格与场景图的局部标签。")).pack(anchor="w", pady=(8, 0))
@@ -211,16 +325,25 @@ class ProductionDialog:
         self.images = self.table(page, ("文件名", "范围", "版本", "处理方式", "尺寸"), (335, 100, 65, 135, 100))
         self.images.bind("<Double-1>", lambda _event: self.guarded(self.view_image))
 
-    def open_media_library(self):
+    def open_media_library(self, *, selected=None, direct=False):
         from .media_gallery import open_media_gallery
         from .production_media import project_media_catalog, project_media_items
 
         english = getattr(self.window._root(), "ui_language", "zh") == "en"
-        open_media_gallery(
-            self.window, project_media_items(self.project, self.path, english=english),
-            catalog=project_media_catalog(self.path), selected=self.images.selection(), allow_import=True,
-            title=translate(self.window, "项目素材库"),
-        )
+        items = project_media_items(self.project, self.path, english=english)
+        catalog = project_media_catalog(self.path)
+        title = translate(self.window, "项目素材库")
+        selected = self.images.selection() if selected is None else selected
+        if not self.embedded:
+            return open_media_gallery(self.window, items, catalog=catalog, selected=selected, allow_import=True, title=title)
+        panel = self.subpanel(title, header=False)
+        try:
+            return open_media_gallery(self.window, items, catalog=catalog, selected=selected, allow_import=not direct,
+                                      title=title, native_only=direct, open_selected=direct, mount=panel,
+                                      on_close=panel.destroy)
+        except Exception:
+            panel.destroy()
+            raise
 
     def setup_delivery(self, page):
         forms = ttk.Frame(page)
@@ -272,21 +395,63 @@ class ProductionDialog:
             variable.set(selected)
 
     def update_group(self):
-        if self.project:
+        if self.project is None or not self.with_panel:
+            return
+        if not self.embedded or self.destination == "group":
             self.project.notes = read_fields(self.notes, self.group_form_fields)
-            self.project.prompt = read_fields(self.prompt, PROMPT_FIELDS)
             self.project.name, self.project.episode, self.project.group = (
                 item.get().strip() for item in (self.name, self.episode, self.group)
             )
             self.project.group = self.project.group.upper()
+        if not self.embedded or self.destination in {"group", "prompts"}:
+            self.project.prompt = read_fields(self.prompt, PROMPT_FIELDS)
+
+    def dirty(self):
+        if self.project is None:
+            return False
+        if self.overlay is not None and self.overlay.winfo_exists() and self.overlay_has_form:
+            return True
+        try:
+            self.update_group()
+        except ValueError:
+            return True
+        return self.project != self._baseline
 
     def save(self):
         if not self.project:
             raise ValueError("请先新建或打开项目。")
+        if self.overlay is not None and self.overlay.winfo_exists() and self.overlay_has_form:
+            raise ValueError("请先应用或取消当前表单，再保存项目。")
         self.update_group()
-        self.project.save(self.path)
+        if self.on_save is not None:
+            merged = self.on_save(self._baseline, self.project)
+            self.adopt_project(merged)
+        else:
+            self.project.save(self.path)
+            self._baseline = deepcopy(self.project)
         self.status.set(f"已保存 {self.path.name}")
         self.show_impacts()
+        return True
+
+    def latest_project(self):
+        return ProductionProject.open(self.path)
+
+    def adopt_project(self, project):
+        # Drafting, image and layout panels keep a reference to this controller's object.
+        self.project.__dict__.update(deepcopy(vars(project)))
+        self._baseline = deepcopy(self.project)
+        self.refresh_fields()
+        self.refresh_sources(self.selected_source_id())
+        self.refresh()
+
+    def sync_project(self, project=None):
+        if self.dirty():
+            return False
+        if project is None:
+            project = self.latest_project()
+        if project != self.project:
+            self.adopt_project(project)
+        return True
 
     def allow_leave(self):
         if not self.project:
@@ -372,19 +537,24 @@ class ProductionDialog:
         root.after(50, receive)
 
     def load(self, project, path, *, source_id="", has_registry=None):
-        self.project, self.path, self.previewed = project, path, None
+        self.project, self.path, self.previewed = (deepcopy(project) if self.embedded else project), path, None
+        self._baseline = deepcopy(self.project)
         self.show_rules(project.rules)
         self.on_rules_changed(project.rules)
-        for variable, value in zip((self.name, self.episode, self.group), (project.name, project.episode, project.group)):
-            variable.set(value)
-        self.group_form_fields = project.group_fields
-        write_text(self.notes, fields_text(self.group_form_fields, project.notes))
-        write_text(self.prompt, fields_text(PROMPT_FIELDS, project.prompt))
+        self.refresh_fields()
         self.baseline.set("")
         self.exception.set("")
-        for index in range(3):
-            self.tabs.tab(index, state="normal")
-        self.tabs.select(0)
+        if self.embedded:
+            chosen_tab = {"group": 0, "shots": 1, "assets": 2, "deliver": 3, "prompts": 4}.get(self.destination, 0)
+            self.tabs.tab(chosen_tab, state="normal")
+            self.tabs.select(chosen_tab)
+            for index in range(len(self.tabs.tabs())):
+                if index != chosen_tab:
+                    self.tabs.hide(index)
+        else:
+            for index in range(3):
+                self.tabs.tab(index, state="normal")
+            self.tabs.select(0)
         self.refresh_sources(source_id)
         self.refresh()
         registry = project_registry(path)
@@ -393,6 +563,22 @@ class ProductionDialog:
         if has_registry:
             self.registry.set(str(registry))
         self.status.set(path.name)
+
+    def refresh_fields(self):
+        project = self.project
+        for variable, value in zip((self.name, self.episode, self.group), (project.name, project.episode, project.group)):
+            variable.set(value)
+        self.group_form_fields = project.group_fields
+        for editor, content in ((self.notes, fields_text(self.group_form_fields, project.notes)),
+                                (self.prompt, fields_text(PROMPT_FIELDS, project.prompt))):
+            if editor.get("1.0", "end-1c") != content:
+                write_text(editor, content)
+
+    def selected_source_id(self):
+        index = self.source.current()
+        if 0 <= index < len(self.source_ids):
+            return self.source_ids[index]
+        return ""
 
     def go_to(self, destination, *, adjacent_path=None):
         if destination in {"layout", "handoff"}:
@@ -421,12 +607,20 @@ class ProductionDialog:
 
     def refresh_sources(self, preferred=""):
         sources = self.project.sources
+        self.source_ids = tuple(source.id for source in sources)
         self.source["values"] = tuple(f"{source.name} · {source.version}" for source in sources)
         if sources:
             index = next((i for i, source in enumerate(sources) if source.id == preferred), len(sources) - 1)
             self.source.current(index)
         else:
             self.source.set("")
+        if self.embedded:
+            self.shot_version["values"] = self.source["values"]
+            self.shot_version.set(self.source.get())
+        self.show_shot_source()
+
+    def use_shot_source(self, _event=None):
+        self.source.current(self.shot_version.current())
         self.show_shot_source()
 
     def show_shot_source(self):
@@ -449,10 +643,7 @@ class ProductionDialog:
                 self.refresh_sources(source.id)
 
     def show_text(self, title, content):
-        dialog = tk.Toplevel(self.window)
-        dialog.title(title)
-        dialog.geometry("760x550")
-        dialog.transient(self.window)
+        dialog = self.subpanel(title, "760x550")
         editor = self.editor(dialog)
         editor.pack(fill="both", expand=True, padx=10, pady=10)
         write_text(editor, content)
@@ -466,9 +657,7 @@ class ProductionDialog:
 
     def import_dialogue(self):
         source = self.current_source()
-        panel = tk.Toplevel(self.window)
-        panel.title(translate(panel, "导入本组批准对白"))
-        panel.transient(self.window)
+        panel = self.subpanel(translate(self.window, "导入本组批准对白"), form=True)
         boundary = "自然停顿切点" if self.rules == CHINESE else "整句分界"
         ttk.Label(panel, text=f"粘贴或打开批准对白 JSON。可用 sentence_ends 标同一 ID 的{boundary}。").pack(padx=10, pady=6)
         editor = self.editor(panel, 12)
@@ -500,13 +689,48 @@ class ProductionDialog:
         self.wait(panel)
 
     def wait(self, dialog):
+        if dialog == self.overlay:
+            return
         dialog.grab_set()
         self.window.wait_window(dialog)
-        self.window.grab_set()
+        if not self.embedded:
+            self.window.grab_set()
+
+    def subpanel(self, title, geometry="", *, form=False, header=True):
+        if not self.embedded:
+            panel = tk.Toplevel(self.window)
+            panel.title(title)
+            if geometry:
+                panel.geometry(geometry)
+            panel.transient(self.window)
+            return panel
+
+        panel = ttk.Frame(self.frame, name="production_subpanel")
+        if header:
+            bar = ttk.Frame(panel, padding=(10, 8))
+            bar.pack(fill="x")
+            ttk.Label(bar, text=title).pack(side="left", padx=(0, 8))
+            caption(ttk.Button(bar, command=panel.destroy), "返回").pack(side="right")
+        self.overlay = panel
+        self.overlay_has_form = form
+        self.body.pack_forget()
+        panel.pack(fill="both", expand=True)
+
+        def restore(event):
+            if event.widget == panel:
+                self.overlay = None
+                self.overlay_has_form = False
+                if self.body.winfo_exists():
+                    self.body.pack(fill="both", expand=True)
+
+        panel.bind("<Destroy>", restore, add="+")
+        return panel
 
     def open_drafting(self, *, task=None):
         from .drafting_dialog import DraftingDialog
 
+        if self.on_stage:
+            return self.open_stage("drafts", start_task=task, source_id=self.selected_source_id())
         self.save()
         self.wait(DraftingDialog(self, self.text_session, start_task=task).window)
 
@@ -530,7 +754,13 @@ class ProductionDialog:
             owner = self.window
             if self.shots.selection():
                 preferred_source = self.project.shots[self.shots.index(self.shots.selection()[0])].source
+            elif self.embedded:
+                preferred_source = self.selected_source_id()
         sources = shot_sources(self.project)
+        if self.on_stage:
+            identities = {source.id for source in sources}
+            chosen = preferred_source if preferred_source in identities else (sources[0].id if len(sources) == 1 else "")
+            return self.open_stage("inventory", source_id=chosen)
         if len(sources) == 1:
             source = sources[0]
         else:
@@ -577,6 +807,9 @@ class ProductionDialog:
     def open_image_production(self, *, kind="角色", reference_id="", reference_kind="", save_project=True):
         from .image_production_dialog import ImageProductionDialog
 
+        if self.on_stage:
+            destination = "generate_board" if kind == "故事板" else "generate_assets"
+            return self.open_stage(destination, reference_id=reference_id, reference_kind=reference_kind)
         if save_project:
             self.save()
         panel = ImageProductionDialog(self, self.image_session, kind=kind, reference_id=reference_id,
@@ -590,6 +823,8 @@ class ProductionDialog:
     def open_reference_design(self, kind):
         from .reference_tools_dialog import open_reference_tools
 
+        if self.on_stage:
+            return self.open_stage(kind)
         def use_reference(reference_id):
             self.refresh()
             self.guarded(lambda: self.open_image_production(reference_id=reference_id, reference_kind=kind))
@@ -602,6 +837,8 @@ class ProductionDialog:
 
         if self.project is None:
             raise ValueError("请先新建或打开项目。")
+        if self.on_stage:
+            return self.open_stage("action_sequence")
         if self.action_workspace is not None:
             self.action_workspace()
             return
@@ -610,10 +847,14 @@ class ProductionDialog:
     def open_layout(self, *, adjacent_path=None):
         from .layout_dialog import LayoutDialog
 
+        if self.on_stage:
+            return self.open_stage("layout", adjacent_path=adjacent_path)
         self.save()
         self.wait(LayoutDialog(self, adjacent_path=adjacent_path).window)
 
     def refresh(self):
+        selection = (self.shots.selection(), self.images.selection())
+        scroll = (self.shots.yview(), self.images.yview())
         self.shots.delete(*self.shots.get_children())
         self.images.delete(*self.images.get_children())
         image_names = {image.id: image.filename for image in self.project.images}
@@ -625,6 +866,11 @@ class ProductionDialog:
             self.images.insert("", "end", iid=image.id, values=(
                 image.filename, "参考原图" if image.reference_only else "正式交付", image.version,
                 image.action, f"{image.width}×{image.height}"))
+        for table, items, view in zip((self.shots, self.images), selection, scroll):
+            if items and table.exists(items[0]):
+                table.selection_set(items[0])
+            if view:
+                table.yview_moveto(view[0])
         self.show_impacts()
 
     def index(self, table, label):
@@ -647,10 +893,7 @@ class ProductionDialog:
         else:
             index = self.index(self.shots, "镜头")
             shot = self.project.shots[index]
-        panel = tk.Toplevel(self.window)
-        panel.title(f"{'插入' if insert else '编辑'}镜头 · {shot.id}")
-        panel.geometry("850x690")
-        panel.transient(self.window)
+        panel = self.subpanel(f"{'插入' if insert else '编辑'}镜头 · {shot.id}", "850x690", form=True)
         form = ttk.Frame(panel, padding=10)
         form.pack(fill="x")
         variables = [tk.StringVar(panel, value) for value in ("", shot.anchor, "", shot.scene, shot.plate_note)]
@@ -668,11 +911,11 @@ class ProductionDialog:
         field(form, 3, "地点", variables[3])
         field(form, 4, "净板机位说明", variables[4])
         ttk.Label(panel, text=translate(panel, "对白 · 单填 ID 使用本组已选范围。跨镜续说填写「D001 起始字符位 结束字符位」。")).pack(anchor="w", padx=10)
-        dialogue = self.editor(panel, 3)
+        dialogue = self.editor(panel, 3, name="production_shot_dialogue")
         dialogue.pack(fill="x", padx=10)
         write_text(dialogue, "\n".join(f"{identity} {start} {end}" for identity, start, end in shot.dialogue))
         ttk.Label(panel, text=translate(panel, "镜头内容 · 成片动作留空时沿用动作起止。")).pack(anchor="w", padx=10, pady=(7, 0))
-        editor = self.editor(panel, 15)
+        editor = self.editor(panel, 15, name="production_shot_fields")
         editor.pack(fill="both", expand=True, padx=10)
         write_text(editor, fields_text(SHOT_FIELDS, shot.fields))
 
@@ -730,9 +973,7 @@ class ProductionDialog:
         entries = AssetRegistry(Path(value)).records()
         if not entries:
             raise ValueError("这个资产登记库没有已批准记录。")
-        panel = tk.Toplevel(self.window)
-        panel.title(translate(panel, "选择登记的原图"))
-        panel.transient(self.window)
+        panel = self.subpanel(translate(self.window, "选择登记的原图"))
         form = ttk.Frame(panel, padding=10)
         form.pack(fill="x")
         selection = field(form, 0, "批准版本", tk.StringVar(panel), [
@@ -741,8 +982,12 @@ class ProductionDialog:
         approved = []
 
         def accept():
-            approved.append(entries[selection.current()])
+            chosen = entries[selection.current()]
             panel.destroy()
+            if self.embedded:
+                self.import_image(chosen)
+            else:
+                approved.append(chosen)
 
         form_footer = ttk.Frame(panel, padding=10)
         self.buttons(form_footer, ("选定原图", accept))
@@ -762,9 +1007,7 @@ class ProductionDialog:
             if not value:
                 return
             path = Path(value)
-        panel = tk.Toplevel(self.window)
-        panel.title(translate(panel, "绑定批准图像"))
-        panel.transient(self.window)
+        panel = self.subpanel(translate(self.window, "绑定批准图像"), form=True)
         form = ttk.Frame(panel, padding=10)
         form.pack(fill="x", expand=True)
         name, version, action, reason, inspection, originals = (
@@ -810,10 +1053,10 @@ class ProductionDialog:
 
     def view_image(self):
         image = self.project.images[self.index(self.images, "图像")]
+        if self.embedded:
+            return self.open_media_library(selected=(image.id,), direct=True)
         path = self.project.checked_image(self.path, image)
-        panel = tk.Toplevel(self.window)
-        panel.title(image.filename)
-        panel.transient(self.window)
+        panel = self.subpanel(image.filename)
         self.show_thumbnail(panel, path)
         ttk.Label(panel, text=f"{image.width}×{image.height} · {image.inspection}").pack(padx=10, pady=5)
         self.wait(panel)
@@ -850,6 +1093,8 @@ class ProductionDialog:
 
     def review_chinese_layout(self):
         self.save()
+        if self.embedded:
+            return self.open_pack_review(preview_chinese_layout)
         with TemporaryDirectory(prefix="comicflow-cn-layout-") as directory:
             archive = preview_chinese_layout(self.project, self.path, Path(directory))
             with ZipFile(archive) as stream:
@@ -867,6 +1112,10 @@ class ProductionDialog:
 
     def preview(self):
         self.save()
+        if self.embedded:
+            return self.open_pack_review(lambda project, path, directory: preview_project(
+                project, path, self.validator_path(), directory,
+            ), confirmable=True)
         with TemporaryDirectory(prefix="comicflow-review-") as temporary:
             archive = preview_project(self.project, self.path, self.validator_path(), Path(temporary))
             with ZipFile(archive) as stream:
@@ -876,6 +1125,41 @@ class ProductionDialog:
             self.previewed = self.project.fingerprint()
             write_text(self.report, "复核预览 ZIP 的 SHA-256\n" + sha256_file(archive) + "\n\n请确认本版画面。")
         self.registry.set(str(project_registry(self.path)))
+
+    def open_pack_review(self, make_preview, *, confirmable=False):
+        temporary = TemporaryDirectory(prefix="comicflow-review-")
+        panel = None
+        try:
+            archive = make_preview(self.project, self.path, Path(temporary.name))
+            with ZipFile(archive) as stream:
+                members = index_members(stream)
+            panel = self.subpanel(translate(self.window, "逐格复核"))
+            opened = open_shot_review(
+                self.window, ReviewResult(0, "", archive, members, []), group=self.project.group, mount=panel,
+            )
+            if opened is None:
+                panel.destroy()
+                temporary.cleanup()
+                return
+            if confirmable:
+                previewed = self.project.fingerprint()
+                digest = sha256_file(archive)
+
+            def close_preview(event):
+                if event.widget != panel:
+                    return
+                temporary.cleanup()
+                if confirmable and self.report.winfo_exists():
+                    self.previewed = previewed
+                    write_text(self.report, "复核预览 ZIP 的 SHA-256\n" + digest + "\n\n请确认本版画面。")
+                    self.registry.set(str(project_registry(self.path)))
+
+            panel.bind("<Destroy>", close_preview, add="+")
+        except Exception:
+            if panel is not None and panel.winfo_exists():
+                panel.destroy()
+            temporary.cleanup()
+            raise
 
     def preflight(self):
         self.update_group()

@@ -1,5 +1,6 @@
 """Local sheet composition and pair review in the production workbench."""
 
+from copy import deepcopy
 import tkinter as tk
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,22 +23,31 @@ from .storyboard_review import ReviewResult, index_members
 
 
 class LayoutDialog:
-    def __init__(self, production, *, adjacent_path=None):
+    def __init__(self, production, *, adjacent_path=None, mount=None):
         self.production = production
-        self.project, self.path = production.project, production.path
+        self.path = production.path
+        self.embedded = mount is not None
+        self.project = production.latest_project() if self.embedded else production.project
         self.chinese = self.project.rules == CHINESE
         self.workspace = None
         self.draft = None
         self.next_group = self.read_next(adjacent_path) if adjacent_path is not None else None
         self.boundary_seen = None
-        self.window = tk.Toplevel(production.window)
-        self.window.title(window_title(self.window, "排版与交接"))
-        self.window.geometry("1070x755")
-        self.window.minsize(830, 650)
-        self.window.transient(production.window)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.overlay = None
+        if self.embedded:
+            self.window = ttk.Frame(mount, name="layout_editor")
+            self.window.pack(fill="both", expand=True)
+        else:
+            self.window = tk.Toplevel(production.window)
+            self.window.title(window_title(self.window, "排版与交接"))
+            self.window.geometry("1070x755")
+            self.window.minsize(830, 650)
+            self.window.transient(production.window)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.window.bind("<Destroy>", self.cleanup, add="+")
-        tabs = ttk.Notebook(self.window)
+        self.body = ttk.Frame(self.window)
+        self.body.pack(fill="both", expand=True)
+        tabs = ttk.Notebook(self.body)
         tabs.pack(fill="both", expand=True, padx=10, pady=10)
         page, handoff = (ttk.Frame(tabs, padding=10) for _ in range(2))
         tabs.add(page, text=translate(tabs, "16:9 排版"))
@@ -57,6 +67,7 @@ class LayoutDialog:
 
     def protect(self, action):
         try:
+            self.sync_project()
             action()
         except (ValueError, OSError, IndexError, KeyError) as exc:
             messagebox.showerror(translate(self.window, "排版与交接"), translate(self.window, str(exc)), parent=self.window)
@@ -74,7 +85,7 @@ class LayoutDialog:
             guidance += " 如需重排已返修的净板，请选该正式净板，在受影响的镜头上按「绑定整图」恢复原窗口。"
         ttk.Label(page, text=translate(page, guidance),
                   wraplength=960).pack(anchor="w")
-        self.rows = self.production.table(page, ("镜头", "来源", "黑白板格", "彩色净板", "箭头"), (105, 185, 260, 260, 65))
+        self.rows = self.layout_table(page)
         self.rows.bind("<<TreeviewSelect>>", self.sync_source)
         bind = ttk.Frame(page)
         bind.pack(fill="x", pady=6)
@@ -132,6 +143,39 @@ class LayoutDialog:
         self.report.pack(fill="both", expand=True, pady=(7, 0))
         self.report.configure(state="disabled")
 
+    def layout_table(self, parent):
+        titles = ("镜头", "来源", "黑白板格", "彩色净板", "箭头")
+        widths = (105, 185, 230, 230, 65)
+        if hasattr(self.production, "table"):
+            return self.production.table(parent, titles, widths)
+        frame = ttk.Frame(parent)
+        frame.pack(fill="both", expand=True)
+        table = ttk.Treeview(frame, show="headings", columns=titles, selectmode="browse")
+        scroll = ttk.Scrollbar(frame, command=table.yview)
+        table.configure(yscrollcommand=scroll.set)
+        for title, width in zip(titles, widths):
+            table.heading(title, text=translate(table, title))
+            table.column(title, width=width)
+        scroll.pack(side="right", fill="y")
+        table.pack(fill="both", expand=True)
+        return table
+
+    def sync_project(self, project=None):
+        if not self.embedded:
+            return
+        latest = self.production.latest_project() if project is None else project
+        if latest == self.project:
+            return
+        index = self.asset.current()
+        selected_image = self.images[index].id if index >= 0 else ""
+        old = self.project
+        self.project = deepcopy(latest)
+        if (old.shots, old.images, old.layout) != (latest.shots, latest.images, latest.layout):
+            self.refresh()
+            index = next((i for i, item in enumerate(self.images) if item.id == selected_image), None)
+            if index is not None:
+                self.asset.current(index)
+
     def refresh(self):
         before = self.rows.selection()
         self.images = list(self.project.images)
@@ -174,8 +218,17 @@ class LayoutDialog:
             self.asset.set("")
 
     def save(self):
-        self.project.save(self.path)
-        self.production.refresh()
+        persist = getattr(self.production, "save_project", None) if self.embedded else None
+        if persist is not None:
+            project = persist(self.project)
+            if project is not None:
+                self.sync_project(project)
+        else:
+            self.project.save(self.path)
+            if self.embedded:
+                self.production.notify_project(self.project)
+            else:
+                self.production.refresh()
 
     def bind_image(self, cropped):
         identity = self.chosen()
@@ -184,18 +237,27 @@ class LayoutDialog:
             raise ValueError("请在「批准图像」里导入原图，再选作排版输入。")
         asset = self.images[index]
         path = self.project.checked_image(self.path, asset)
-        box = select_image_region(self.window, path, "框选同镜的有效画面，保存时调整为 16:9") if cropped else None
-        if cropped and box is None:
-            return
-        old = self.project.layout.get("inputs", {}).get(identity, {}).get("marks", [])
-        if self.kind() == "board" and old and not messagebox.askyesno(
-            translate(self.window, "更新故事板绑定"), translate(self.window, "换图或换选区需重新确认原有箭头。是否更新本镜绑定？"), parent=self.window
-        ):
-            return
-        actual = bind_window(self.project, self.path, identity, self.kind(), asset.id, box)
-        self.save()
-        self.refresh()
-        self.layout_status.set(f"当前窗口 {actual} · {actual[2]-actual[0]}×{actual[3]-actual[1]}")
+        kind = self.kind()
+
+        def use_box(box):
+            latest = next((image for image in self.project.images if image.id == asset.id), None)
+            if latest is None or latest.digest != asset.digest:
+                raise ValueError("批准图已变化，请重新选择。")
+            old = self.project.layout.get("inputs", {}).get(identity, {}).get("marks", [])
+            if kind == "board" and old and not messagebox.askyesno(
+                translate(self.window, "更新故事板绑定"),
+                translate(self.window, "换图或换选区需重新确认原有箭头。是否更新本镜绑定？"), parent=self.window,
+            ):
+                return
+            actual = bind_window(self.project, self.path, identity, kind, asset.id, box)
+            self.save()
+            self.refresh()
+            self.layout_status.set(f"当前窗口 {actual} · {actual[2]-actual[0]}×{actual[3]-actual[1]}")
+
+        if cropped:
+            self.select_region(path, "框选同镜的有效画面，保存时调整为 16:9", use_box)
+        else:
+            use_box(None)
 
     def mark(self):
         shot_id = self.chosen()
@@ -207,11 +269,29 @@ class LayoutDialog:
         if asset is None:
             raise ValueError("批准的故事板原图已移除。")
         path = self.project.checked_image(self.path, asset)
-        points = select_image_region(self.window, path, f"只在绑定窗口 {tuple(original['box'])} 内画箭头", direction=True)
-        if points:
-            add_mark(self.project, shot_id, self.color.get(), self.mark_target.get(), *points)
+        color, target = self.color.get(), self.mark_target.get()
+
+        def use_points(points):
+            latest = self.project.layout.get("inputs", {}).get(shot_id, {}).get("board")
+            if latest != original:
+                raise ValueError("故事板绑定已变化，请重新确认箭头。")
+            add_mark(self.project, shot_id, color, target, *points)
             self.save()
             self.refresh()
+        self.select_region(path, f"只在绑定窗口 {tuple(original['box'])} 内画箭头", use_points, direction=True)
+
+    def select_region(self, path, title, operation, *, direction=False):
+        if self.embedded:
+            page = self.preview_page("layout_region", title)
+
+            def finish(selection):
+                self.restore_body()
+                self.protect(lambda: operation(selection))
+            select_image_region(self.window, path, title, direction=direction, mount=page, on_select=finish)
+        else:
+            selection = select_image_region(self.window, path, title, direction=direction)
+            if selection is not None:
+                operation(selection)
 
     def unmark(self):
         history = self.project.layout.get("inputs", {}).get(self.chosen(), {}).get("marks", [])
@@ -228,10 +308,7 @@ class LayoutDialog:
         packed_scenes, packed_board, note = self.chinese_options()
         self.draft = render_layout(self.project, self.path, Path(self.workspace.name), self.mixed.get(),
                                    pack_scenes=packed_scenes, pack_board=packed_board, budget_note=note)
-        dialog = tk.Toplevel(self.window)
-        dialog.title(translate(dialog, "排版预览"))
-        dialog.transient(self.window)
-        dialog.geometry("1020x700")
+        dialog = self.preview_page("layout_preview", "排版预览")
         tabs = ttk.Notebook(dialog)
         tabs.pack(fill="both", expand=True, padx=8, pady=8)
         detail = []
@@ -260,7 +337,36 @@ class LayoutDialog:
                 display_picture(page, self.project.checked_image(self.path, asset))
             detail.insert(0, self.draft.chinese["budget"])
         self.layout_status.set("；".join(detail) or f"排版预览 {len(self.draft.sheets)} 张，板面无空槽。")
-        self.wait(dialog)
+        if not self.embedded:
+            self.wait(dialog)
+
+    def preview_page(self, name, title, on_back=None):
+        if not self.embedded:
+            window = tk.Toplevel(self.window)
+            window.title(translate(window, title))
+            window.transient(self.window)
+            window.geometry("1020x700")
+            return window
+        self.restore_body()
+        self.overlay = ttk.Frame(self.window, name=name, padding=10)
+        header = ttk.Frame(self.overlay)
+        header.pack(fill="x")
+        ttk.Label(header, text=translate(header, title)).pack(side="left")
+
+        def back():
+            self.restore_body()
+            if on_back:
+                on_back()
+        ttk.Button(header, name="close_preview", text=translate(header, "返回"), command=back).pack(side="right")
+        self.body.pack_forget()
+        self.overlay.pack(fill="both", expand=True)
+        return self.overlay
+
+    def restore_body(self):
+        if self.overlay is not None:
+            self.overlay.destroy()
+            self.overlay = None
+            self.body.pack(fill="both", expand=True)
 
     def chinese_options(self):
         return [self.pack_scenes.get(), self.pack_board.get(), self.budget_note.get().strip()] if self.chinese else [False, False, ""]
@@ -273,11 +379,15 @@ class LayoutDialog:
         review = simpledialog.askstring(translate(self.window, "批准本次排版"), translate(self.window, "记录实际核对结果，包含板格、净板与可读性。"), parent=self.window)
         if review is None:
             return
+        self.sync_project()
         apply_layout(self.project, self.path, self.draft, review)
         self.draft = None
-        self.production.group_form_fields = self.project.group_fields
-        write_text(self.production.notes, fields_text(self.production.group_form_fields, self.project.notes))
-        self.production.refresh()
+        if self.embedded:
+            self.production.notify_project(self.project)
+        else:
+            self.production.group_form_fields = self.project.group_fields
+            write_text(self.production.notes, fields_text(self.production.group_form_fields, self.project.notes))
+            self.production.refresh()
         self.refresh()
         tab = "文本与排版" if self.chinese else "复核与交付"
         self.layout_status.set(f"正式图和镜头绑定已更新。请在「{tab}」核对图片和两份 TXT。")
@@ -328,9 +438,9 @@ class LayoutDialog:
         if findings:
             summary += "\n\n" + findings
         self.report_text(summary)
-        dialog = tk.Toplevel(self.window)
-        dialog.title(translate(dialog, "对照前组末镜与后组首镜"))
-        dialog.transient(self.window)
+        checked = (self.project.fingerprint(), right.fingerprint()) if not issues else None
+        dialog = self.preview_page("layout_boundary", "对照前组末镜与后组首镜",
+                                   on_back=lambda: setattr(self, "boundary_seen", checked))
         body = ttk.Frame(dialog, padding=8)
         body.pack(fill="both", expand=True)
         for n, ((project, path), index) in enumerate(zip(groups, (-1, 0))):
@@ -356,9 +466,9 @@ class LayoutDialog:
         editor.pack(fill="x", padx=9, pady=(0, 8))
         editor.insert("1.0", summary)
         editor.configure(state="disabled")
-        self.wait(dialog)
-        if not issues:
-            self.boundary_seen = (self.project.fingerprint(), right.fingerprint())
+        if not self.embedded:
+            self.wait(dialog)
+            self.boundary_seen = checked
 
     def approve_boundary(self):
         right = self.projects()[1][0]
@@ -392,7 +502,8 @@ class LayoutDialog:
                 members = index_members(archive)
             open_shot_review(self.window, ReviewResult(0, result.report, result.output, members, []), group=self.project.group,
                              shot=f"{self.project.group}-{len(self.project.shots):02d}")
-            self.window.grab_set()
+            if not self.embedded:
+                self.window.grab_set()
 
     def defer(self):
         identity = self.chosen()
@@ -414,7 +525,8 @@ class LayoutDialog:
         if filename:
             previous = ProductionProject.open(Path(filename))
             adopt_pending(previous, self.project)
-            self.production.refresh_sources()
+            if not self.embedded:
+                self.production.refresh_sources()
             self.save()
             self.refresh()
             self.report_text(f"已接收 {len(previous.pending_shots)} 镜，沿用批准来源和源镜 ID。请补绑本组板格与净板。")

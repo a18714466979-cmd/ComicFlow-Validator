@@ -121,30 +121,42 @@ def save_new_text(path, content):
 
 
 def open_storyboard_planning(parent, text_session, *, task="script", approved_script=None, rules=ENGLISH,
-                             on_use_script=None, approved_title=None, shot_context=None):
+                             on_use_script=None, approved_title=None, shot_context=None, embedded=False,
+                             on_use_assets=None, on_change=None, on_close=None):
     return PlanningDialog(parent, text_session, task, approved_script, rules, on_use_script=on_use_script,
-                          approved_title=approved_title, shot_context=shot_context)
+                          approved_title=approved_title, shot_context=shot_context, embedded=embedded,
+                          on_use_assets=on_use_assets, on_change=on_change, on_close=on_close)
 
 
 class PlanningDialog:
     def __init__(self, parent, session, task, approved_script, rules, *, on_use_script=None, approved_title=None,
-                 shot_context=None):
+                 shot_context=None, embedded=False, on_use_assets=None, on_change=None, on_close=None):
         self.task, self.rules = task, rules
+        self.session = session
         self.on_use_script = on_use_script
-        linked_source = task == "assets" and bool(approved_script) and shot_context is not None
-        self.shot_context = shot_context if linked_source else None
+        self.on_use_assets = on_use_assets
+        self.on_change = on_change
+        self.on_close = on_close
+        self.embedded = embedded
+        self.linked_source = task == "assets" and bool(approved_script) and shot_context is not None
+        self.shot_context = shot_context if self.linked_source else None
         self.busy = False
         self.english = getattr(parent._root(), "ui_language", "zh") == "en"
-        self.window = tk.Toplevel(parent)
-        self.window.title(self.tr("剧本创作", "Script writing") if task == "script"
-                          else self.tr("资产分析", "Asset analysis"))
-        self.window.geometry("1040x680")
-        self.window.minsize(780, 540)
-        self.window.transient(parent)
-        self.window.grab_set()
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self.labels = []
+        self.target_editor = None
+        self.preview_panel = None
+        if embedded:
+            self.window = parent.winfo_toplevel()
+        else:
+            self.window = tk.Toplevel(parent)
+            self.window.title(self.dialog_title())
+            self.window.geometry("1040x680")
+            self.window.minsize(780, 540)
+            self.window.transient(parent)
+            self.window.grab_set()
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
 
-        panel = ttk.Frame(self.window, padding=12)
+        self.frame = panel = ttk.Frame(parent if embedded else self.window, name="planning_editor", padding=12)
         panel.pack(fill="both", expand=True)
         self.status = tk.StringVar(panel)
         title = approved_title or (self.tr("批准剧本", "Approved script") if approved_script
@@ -152,78 +164,157 @@ class PlanningDialog:
         self.title = tk.StringVar(panel, title)
         toolbar = ttk.Frame(panel)
         toolbar.pack(fill="x", pady=(0, 8))
-        ttk.Label(toolbar, text=self.tr("稿件标题", "Document title")).pack(side="left")
+        self.caption(ttk.Label(toolbar), "稿件标题", "Document title").pack(side="left")
         self.title_entry = ttk.Entry(toolbar, textvariable=self.title, width=30)
         self.title_entry.pack(side="left", padx=8)
-        self.import_button = self.button(toolbar, "导入 TXT / Markdown", "Open TXT / Markdown", self.load_source)
+        self.import_button = self.button(toolbar, "导入 TXT / Markdown", "Open TXT / Markdown", self.load_source,
+                                         name="import_planning_source")
 
         panes = ttk.Panedwindow(panel, orient="horizontal")
         panes.pack(fill="both", expand=True)
         labels = (("创作要求或剧本正文", "Brief or script text"), ("模型草稿 · 待核对", "Model draft · Review required"))
         if task == "assets":
             labels = (("待分析剧本", "Script to analyze"), ("角色、场景、道具清单", "Characters, sets and props"))
-        self.source, self.output = (self.editor(panes, self.tr(*label)) for label in labels)
+        self.source, self.output = (self.editor(panes, name, label) for name, label in
+                                    zip(("planning_source", "planning_output"), labels))
         if approved_script:
             self.source.insert("1.0", approved_script)
-        if linked_source:
+        if self.linked_source:
             for widget in (self.source, self.title_entry, self.import_button):
                 widget.configure(state="disabled")
-            note = self.tr("已带入项目剧本和本组分镜。要分析其他稿件，可从首页打开资产分析。",
-                           "The project script and current group's shots are linked. Open Asset Analysis from home for another draft.")
-            ttk.Label(panel, text=note, wraplength=740).pack(anchor="w", pady=(7, 0))
+            self.caption(ttk.Label(panel, wraplength=740),
+                         "已带入项目剧本和本组分镜。要分析其他稿件，可从首页打开资产分析。",
+                         "The project script and current group's shots are linked. Open Asset Analysis from home for another draft."
+                         ).pack(anchor="w", pady=(7, 0))
 
         tools = ttk.Frame(panel)
         tools.pack(fill="x", pady=(9, 6))
-        ttk.Label(tools, text=self.tr("文本模型", "Text model")).pack(side="left", padx=(0, 6))
-        self.settings = tuple(item for item in reversed(session.values()) if item.model and item.api_key)
-        model_labels = [f"{item.provider} · {item.model}" for item in self.settings]
-        self.models = ttk.Combobox(tools, state="readonly" if self.settings else "disabled",
-                                   values=model_labels, width=30)
+        self.caption(ttk.Label(tools), "文本模型", "Text model").pack(side="left", padx=(0, 6))
+        self.settings = ()
+        self.models = ttk.Combobox(tools, state="disabled", width=30)
         self.models.pack(side="left", padx=(0, 6))
-        if self.settings:
-            self.models.current(0)
-        else:
-            self.status.set(self.tr("AI 功能需先在「API 接入」设置文本模型和密钥。",
-                                    "Set up a text model and key in API connections to use AI."))
         self.button(tools, "预览发送内容", "Preview request", self.preview)
         self.send = self.button(tools, "调用模型写草稿" if task == "script" else "调用模型分析资产",
                                 "Draft with AI" if task == "script" else "Analyze with AI", self.generate)
-        if not self.settings:
-            self.send.state(["disabled"])
+        self.refresh_models()
         self.handoff_buttons = ()
         if task == "script" and on_use_script is not None:
             handoff = ttk.Frame(panel)
             handoff.pack(fill="x", pady=(0, 6))
             self.handoff_buttons = (
                 self.button(handoff, "用左侧稿件拆分镜", "Plan shots with left draft",
-                            lambda: self.use_script(self.source)),
+                            lambda: self.use_script(self.source), name="use_left_script"),
                 self.button(handoff, "用右侧候选拆分镜", "Plan shots with right candidate",
-                            lambda: self.use_script(self.output)),
+                            lambda: self.use_script(self.output), name="use_right_script"),
             )
+            if embedded:
+                self.build_target_picker(panel, before=panes)
         actions = ttk.Frame(panel)
         actions.pack(fill="x")
+        self.import_report = None
         if task == "script":
-            self.button(actions, "另存左侧稿件", "Save left draft as", lambda: self.save(self.source, ".md"))
-        self.button(actions, "另存右侧候选", "Save right candidate as", lambda: self.save(self.output, ".md"))
-        self.button(actions, "关闭", "Close", self.close)
+            self.button(actions, "另存左侧稿件", "Save left draft as", lambda: self.save_text(self.source, ".md"))
+        elif embedded:
+            self.import_report = self.button(actions, "导入本地资产清单", "Import local asset report",
+                                             lambda: self.load_source(self.output), name="import_asset_report")
+            if on_use_assets is not None:
+                self.handoff_buttons = (self.button(actions, "制作资产图", "Make asset images", self.use_assets,
+                                                    name="use_asset_report"),)
+        self.button(actions, "另存右侧候选", "Save right candidate as", lambda: self.save_text(self.output, ".md"))
+        if not embedded or on_close is not None:
+            self.button(actions, "关闭", "Close", self.close)
         ttk.Label(panel, textvariable=self.status, wraplength=740).pack(anchor="w", pady=(7, 0))
+        self.saved = {editor: self.editor_text(editor) for editor in (self.source, self.output)}
+        self.refresh_saved_title()
+        if embedded:
+            for editor in self.saved:
+                editor.edit_modified(False)
+                editor.bind("<<Modified>>", self.text_changed, add="+")
+            self.title.trace_add("write", lambda *_: self.changed())
+            panel.bind("<Map>", lambda event: self.refresh_models() if event.widget is panel else None)
 
     def tr(self, chinese, english):
         return english if self.english else chinese
 
-    def button(self, parent, chinese, english, action):
-        button = ttk.Button(parent, text=self.tr(chinese, english), command=action)
+    def dialog_title(self):
+        return self.tr("剧本创作", "Script writing") if self.task == "script" else self.tr("资产分析", "Asset analysis")
+
+    def caption(self, widget, chinese, english):
+        self.labels.append((widget, chinese, english))
+        widget.configure(text=self.tr(chinese, english))
+        return widget
+
+    def refresh_language(self):
+        notice = self.model_notice()
+        self.english = getattr(self.window._root(), "ui_language", "zh") == "en"
+        for widget, chinese, english in self.labels:
+            widget.configure(text=self.tr(chinese, english))
+        if self.status.get() == notice:
+            self.status.set(self.model_notice())
+        self.refresh_preview()
+
+    def model_notice(self):
+        return self.tr("AI 功能需先在「API 接入」设置文本模型和密钥。",
+                       "Set up a text model and key in API connections to use AI.")
+
+    def refresh_models(self):
+        if self.busy:
+            return
+        index = self.models.current()
+        previous = self.settings[index] if index >= 0 else None
+        self.settings = tuple(item for item in reversed(self.session.values()) if item.model and item.api_key)
+        self.models.configure(values=[f"{item.provider} · {item.model}" for item in self.settings],
+                              state="readonly" if self.settings else "disabled")
+        self.send.state(["!disabled"] if self.settings else ["disabled"])
+        warning = self.model_notice()
+        if self.settings:
+            selected = next((i for i, item in enumerate(self.settings) if item == previous), 0)
+            self.models.current(selected)
+            if self.status.get() == warning:
+                self.status.set("")
+        else:
+            self.models.set("")
+            if not self.status.get():
+                self.status.set(warning)
+
+    def update_linked_source(self, approved_script, approved_title, shot_context):
+        """Refresh the source of a linked asset task and keep its right-hand report."""
+        if not self.linked_source or self.busy:
+            return False
+        if (self.editor_text(self.source), self.title.get(), self.shot_context) == (
+            approved_script, approved_title, shot_context,
+        ):
+            return True
+        self.shot_context = shot_context
+        self.source.configure(state="normal")
+        self.source.delete("1.0", "end")
+        self.source.insert("1.0", approved_script)
+        self.source.configure(state="disabled")
+        self.saved[self.source] = approved_script
+        self.title.set(approved_title)
+        self.refresh_saved_title()
+        if self.editor_text(self.output).strip():
+            self.status.set(self.tr("分镜已更新，请对照当前镜头核对右侧清单再继续。",
+                                    "The shots changed. Review the current shots against the report before continuing."))
+        self.refresh_preview()
+        self.changed()
+        return True
+
+    def button(self, parent, chinese, english, action, *, name=None):
+        options = {"name": name} if name else {}
+        button = self.caption(ttk.Button(parent, command=action, **options), chinese, english)
         button.pack(side="left", padx=(0, 5))
         return button
 
-    def editor(self, parent, caption):
-        frame = ttk.LabelFrame(parent, text=caption, padding=8)
+    def editor(self, parent, name, labels):
+        frame = self.caption(ttk.LabelFrame(parent, padding=8), *labels)
         parent.add(frame, weight=1)
-        editor = scrolledtext.ScrolledText(frame, wrap="word", undo=True, width=43)
+        editor = scrolledtext.ScrolledText(frame, name=name, wrap="word", undo=True, width=43)
         editor.pack(fill="both", expand=True)
         return editor
 
-    def load_source(self):
+    def load_source(self, editor=None):
+        editor = self.source if editor is None else editor
         path = filedialog.askopenfilename(parent=self.window, filetypes=(
             (self.tr("文本稿件", "Text documents"), ("*.txt", "*.md", "*.markdown")),))
         if not path:
@@ -233,13 +324,20 @@ class PlanningDialog:
         except (OSError, UnicodeError):
             self.status.set(self.tr("读取失败，请选择 UTF-8 编码的文本。", "Unable to read this file. Choose UTF-8 text."))
             return
-        if self.source.get("1.0", "end-1c").strip() and not messagebox.askyesno(
-                self.window.title(), self.tr("用该文件替换左侧编辑区的文字？", "Replace the text in the left editor?"),
-                parent=self.window):
+        replacement = (
+            self.tr("用该文件替换左侧编辑区的文字？", "Replace the text in the left editor?")
+            if editor is self.source else
+            self.tr("用该文件替换右侧资产清单？", "Replace the asset report on the right?")
+        )
+        if self.editor_text(editor).strip() and not messagebox.askyesno(self.dialog_title(), replacement, parent=self.window):
             return
-        self.source.delete("1.0", "end")
-        self.source.insert("1.0", content)
-        self.title.set(Path(path).stem)
+        editor.delete("1.0", "end")
+        editor.insert("1.0", content)
+        self.saved[editor] = content
+        if editor is self.source:
+            self.title.set(Path(path).stem)
+        self.refresh_saved_title()
+        self.changed()
 
     def request_data(self):
         source = self.source.get("1.0", "end-1c")
@@ -254,6 +352,11 @@ class PlanningDialog:
         if not content.strip():
             self.status.set(self.tr("所选编辑区还没有剧本。", "The selected editor has no script yet."))
             return
+        if getattr(self, "embedded", False):
+            self.target_editor = editor
+            self.target_picker.pack(fill="x", before=self.target_picker_anchor, pady=(0, 7))
+            self.new_project.focus_set()
+            return
         title = self.title.get().strip() or self.tr("未命名", "Untitled")
         pane = self.tr("左侧稿件", "left draft") if editor is self.source else self.tr("右侧候选", "right candidate")
         prompt = self.tr(f"采用「{title}」的{pane}作为分镜剧本？请确认所选内容已核对。",
@@ -266,7 +369,69 @@ class PlanningDialog:
             self.status.set(self.error_text(str(exc)))
             return
         if used:
+            if hasattr(self, "saved"):
+                self.saved[editor] = content
+                self.refresh_saved_title()
             self.status.set(self.tr("已带入分镜制片。", "Script sent to shot planning."))
+
+    def build_target_picker(self, parent, *, before):
+        self.target_picker_anchor = before
+        self.target_picker = ttk.LabelFrame(parent, name="script_target_picker", padding=8)
+        self.caption(self.target_picker, "选择分镜项目", "Choose a shot project")
+        self.new_project = self.button(self.target_picker, "新建项目并拆分镜", "Create project and plan shots",
+                                       lambda: self.attach_script(existing=False), name="new_script_project")
+        self.button(self.target_picker, "加入已有项目", "Add to an existing project",
+                    lambda: self.attach_script(existing=True), name="existing_script_project")
+        self.button(self.target_picker, "取消", "Cancel", self.hide_target_picker, name="cancel_script_target")
+
+    def hide_target_picker(self):
+        self.target_picker.pack_forget()
+        self.target_editor = None
+
+    def attach_script(self, *, existing):
+        editor = self.target_editor
+        if self.busy or editor is None:
+            return
+        content = self.editor_text(editor)
+        if not content.strip():
+            self.status.set(self.tr("所选编辑区还没有剧本。", "The selected editor has no script yet."))
+            return
+        title = self.title.get().strip() or self.tr("未命名", "Untitled")
+        pane = self.tr("左侧稿件", "left draft") if editor is self.source else self.tr("右侧候选", "right candidate")
+        prompt = self.tr(f"采用「{title}」的{pane}作为分镜剧本？请确认所选内容已核对。",
+                         f"Use the {pane} of ‘{title}’ as the script for shot planning? Confirm that you reviewed it.")
+        if not messagebox.askyesno(self.dialog_title(), prompt, parent=self.window):
+            return
+        try:
+            used = self.on_use_script(title, content, existing=existing)
+        except (OSError, ValueError, RuntimeError, tk.TclError) as exc:
+            self.status.set(self.error_text(str(exc)))
+            return
+        if used:
+            self.saved[editor] = content
+            self.refresh_saved_title()
+            self.hide_target_picker()
+            self.status.set(self.tr("已带入分镜制片。", "Script sent to shot planning."))
+            self.changed()
+
+    def use_assets(self):
+        if self.busy:
+            return
+        content = self.editor_text(self.output)
+        if not content.strip():
+            self.status.set(self.tr("请先填写、导入或生成资产清单。", "Enter, import or generate an asset report first."))
+            return
+        title = self.title.get().strip() or self.tr("未命名", "Untitled")
+        try:
+            used = self.on_use_assets(title, content)
+        except (OSError, ValueError, RuntimeError, tk.TclError) as error:
+            self.status.set(self.error_text(str(error)))
+            return
+        if used:
+            self.saved[self.output] = content
+            self.refresh_saved_title()
+            self.status.set(self.tr("已带入资产图制作。", "Asset report sent to image production."))
+            self.changed()
 
     def preview(self):
         try:
@@ -274,18 +439,46 @@ class PlanningDialog:
         except ValueError:
             self.status.set(self.tr("请先填写创作要求或剧本。", "Enter a brief or script first."))
             return
+        if self.embedded:
+            if self.preview_panel is None:
+                self.preview_panel = ttk.Frame(self.frame, name="planning_request_preview", padding=10)
+                self.button(self.preview_panel, "返回编辑", "Return to editor", self.preview_panel.place_forget,
+                            name="return_to_planning")
+                self.preview_text = scrolledtext.ScrolledText(self.preview_panel, name="planning_preview_text",
+                                                              wrap="word")
+                self.preview_text.pack(fill="both", expand=True, pady=(7, 0))
+            self.render_preview(self.preview_text, instructions, payload)
+            self.preview_panel.place(relwidth=1, relheight=1)
+            self.preview_panel.lift()
+            self.preview_text.focus_set()
+            return
         window = tk.Toplevel(self.window)
         window.title(self.tr("预览发送内容", "Preview request"))
         window.geometry("720x500")
         window.transient(self.window)
         editor = scrolledtext.ScrolledText(window, wrap="word")
         editor.pack(fill="both", expand=True, padx=10, pady=10)
-        editor.insert("1.0", f"{translate(window, '软件锁定规则')}\n{locked_text_instructions(instructions)}\n\n"
-                             f"{translate(window, '用户资料')}\n{payload}")
-        editor.configure(state="disabled")
+        self.render_preview(editor, instructions, payload)
         window.grab_set()
         self.window.wait_window(window)
         self.window.grab_set()
+
+    def render_preview(self, editor, instructions, payload):
+        editor.configure(state="normal")
+        editor.delete("1.0", "end")
+        editor.insert("1.0", f"{translate(self.window, '软件锁定规则')}\n{locked_text_instructions(instructions)}\n\n"
+                             f"{translate(self.window, '用户资料')}\n{payload}")
+        editor.configure(state="disabled")
+
+    def refresh_preview(self):
+        if self.preview_panel is not None and self.preview_panel.winfo_manager():
+            try:
+                _, _, instructions, payload = self.request_data()
+            except ValueError:
+                return
+            position = self.preview_text.yview()[0]
+            self.render_preview(self.preview_text, instructions, payload)
+            self.preview_text.yview_moveto(position)
 
     def generate(self):
         if self.busy or self.models.current() < 0:
@@ -305,21 +498,24 @@ class PlanningDialog:
         )
         if self.output.get("1.0", "end-1c").strip():
             confirm += "\n" + self.tr("新候选会替换右侧编辑区的内容。", "The new candidate will replace the right editor.")
-        if not messagebox.askyesno(self.window.title(), confirm, parent=self.window):
+        if not messagebox.askyesno(self.dialog_title(), confirm, parent=self.window):
             return
         pending = Queue()
         self.busy = True
         controls = (self.send, self.import_button, self.title_entry, self.source, self.output, self.models,
                     *self.handoff_buttons)
+        if self.import_report is not None:
+            controls += (self.import_report,)
         states = [(widget, widget.cget("state")) for widget in controls]
         for widget, _ in states:
             widget.configure(state="disabled")
         self.status.set(self.tr("正在生成候选…", "Generating a candidate…"))
+        english = self.english
 
         def worker():
             try:
                 reply = request_text(settings, instructions, payload)
-                text = (asset_report(reply.text, title, source, english=self.english, shot_context=self.shot_context)
+                text = (asset_report(reply.text, title, source, english=english, shot_context=self.shot_context)
                         if self.task == "assets" else reply.text)
                 pending.put((text, None))
             except (OSError, ValueError) as exc:
@@ -328,6 +524,8 @@ class PlanningDialog:
                 pending.put((None, self.tr("服务调用未完成。", "The service request did not complete.")))
 
         def receive():
+            if not self.frame.winfo_exists():
+                return
             try:
                 text, error = pending.get_nowait()
             except Empty:
@@ -342,6 +540,8 @@ class PlanningDialog:
                 self.output.delete("1.0", "end")
                 self.output.insert("1.0", text)
                 self.status.set(self.tr("候选已生成，核对后可另存。", "Candidate ready. Review it before exporting."))
+            self.refresh_models()
+            self.changed()
 
         Thread(target=worker, daemon=True).start()
         self.window.after(100, receive)
@@ -355,28 +555,70 @@ class PlanningDialog:
         }
         return labels.get(message, translate(self.window, message)) if self.english else message
 
-    def save(self, editor, extension):
-        content = editor.get("1.0", "end-1c")
+    def editor_text(self, editor):
+        return editor.get("1.0", "end-1c")
+
+    def text_changed(self, event):
+        if event.widget.edit_modified():
+            event.widget.edit_modified(False)
+            self.changed()
+
+    def changed(self):
+        if self.on_change is not None:
+            self.on_change()
+
+    def refresh_saved_title(self):
+        self.saved_title = self.title.get()
+
+    def unsaved_editors(self):
+        current = [(editor, self.editor_text(editor)) for editor in self.saved]
+        editors = [editor for editor, text in current if text.strip() and text != self.saved[editor]]
+        if not editors and self.title.get() != self.saved_title:
+            primary = next((editor for editor, text in current if text.strip()), None)
+            if primary is not None:
+                editors.append(primary)
+        return editors
+
+    def dirty(self):
+        return bool(self.unsaved_editors())
+
+    def save(self):
+        for editor in self.unsaved_editors():
+            if not self.save_text(editor, ".md"):
+                return False
+        return True
+
+    def save_text(self, editor, extension):
+        content = self.editor_text(editor)
         if not content.strip():
             self.status.set(self.tr("没有可保存的内容。", "There is no content to save."))
-            return
+            return False
         path = filedialog.asksaveasfilename(parent=self.window, defaultextension=extension,
                                             initialfile="candidate.md" if editor is self.output else "script.md",
                                             filetypes=(("Markdown", "*.md"), ("TXT", "*.txt")),
                                             confirmoverwrite=False)
         if not path:
-            return
+            return False
         try:
             save_new_text(Path(path), content)
         except FileExistsError:
             self.status.set(self.tr("该文件已存在，请另选文件名。", "That file already exists. Choose a different name."))
+            return False
         except OSError:
             self.status.set(self.tr("保存失败，请检查目录是否可写。", "Unable to save. Check that the folder is writable."))
+            return False
         else:
+            self.saved[editor] = content
+            self.refresh_saved_title()
+            self.changed()
             self.status.set(self.tr(f"已另存到 {path}", f"Saved a new file to {path}"))
+            return True
 
     def close(self):
         if self.busy:
             self.status.set(self.tr("请等待当前模型请求完成。", "Wait for the current request to finish."))
+        elif self.embedded:
+            if self.on_close is not None:
+                self.on_close()
         else:
             self.window.destroy()

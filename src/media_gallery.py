@@ -56,18 +56,20 @@ def _time(milliseconds):
 
 
 def open_media_gallery(parent, items, *, catalog=None, on_select=None, selected=(), allow_import=False,
-                       title=None, on_change=None, native_only=False, select_types=None, open_selected=False):
-    """Open a modal contact sheet. Selection callbacks receive ordered MediaItems."""
+                       title=None, on_change=None, native_only=False, select_types=None, open_selected=False,
+                       mount=None, on_close=None):
+    """Open a contact sheet in a workflow page or its own modal window."""
     gallery = MediaGallery(parent, items, catalog, on_select, selected, allow_import, title,
-                           on_change, native_only, select_types)
+                           on_change, native_only, select_types, mount, on_close)
     if open_selected and gallery.active():
-        gallery.window.after_idle(gallery.preview)
+        gallery.direct_preview = mount is not None
+        gallery.preview_timer = gallery.window.after_idle(gallery.preview)
     return gallery.window
 
 
 class MediaGallery:
     def __init__(self, parent, items, catalog, on_select, selected, allow_import, title,
-                 on_change, native_only, select_types):
+                 on_change, native_only, select_types, mount, on_close):
         self.english = getattr(parent._root(), "ui_language", "zh") == "en"
         self.catalog = catalog
         self.native = tuple(items)
@@ -76,6 +78,8 @@ class MediaGallery:
         self.select_types = frozenset(select_types) if select_types is not None else None
         self.on_select = on_select
         self.on_change = on_change
+        self.on_close = on_close
+        self.embedded = mount is not None
         self.selected = dict.fromkeys(selected)
         self.cursor = None
         self.items = ()
@@ -94,14 +98,22 @@ class MediaGallery:
         self.import_count = 0
         self.draw_timer = None
         self.poll_timer = None
-        self.old_grab = parent.grab_current()
-        self.window = tk.Toplevel(parent, name="media_gallery", bg=BACKGROUND)
-        self.window.title(title or self.t("素材图库", "Media library"))
-        self.window.transient(parent.winfo_toplevel())
-        self.window.geometry("950x660")
-        self.window.minsize(680, 480)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.window.bind("<Escape>", lambda _event: self.close())
+        self.preview_timer = None
+        self.detail = None
+        self.direct_preview = False
+        self.old_grab = parent.grab_current() if not self.embedded else None
+        self.title = title or self.t("素材图库", "Media library")
+        if self.embedded:
+            self.window = ttk.Frame(mount, name="media_gallery")
+            self.window.pack(fill="both", expand=True)
+        else:
+            self.window = tk.Toplevel(parent, name="media_gallery", bg=BACKGROUND)
+            self.window.title(self.title)
+            self.window.transient(parent.winfo_toplevel())
+            self.window.geometry("950x660")
+            self.window.minsize(680, 480)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+            self.window.bind("<Escape>", lambda _event: self.close())
         self.window.bind("<Destroy>", self.destroyed)
         self.build(allow_import and catalog is not None and not native_only)
         try:
@@ -109,7 +121,8 @@ class MediaGallery:
         except (OSError, ValueError):
             self.window.destroy()
             raise
-        self.window.grab_set()
+        if not self.embedded:
+            self.window.grab_set()
         self.canvas.focus_set()
 
     def t(self, zh, en):
@@ -117,6 +130,7 @@ class MediaGallery:
 
     def build(self, can_import):
         body = ttk.Frame(self.window, padding=(16, 14))
+        self.body = body
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(1, weight=1)
@@ -155,6 +169,8 @@ class MediaGallery:
         self.canvas.bind("<Button-4>", lambda _event: self.scroll_by("scroll", -3, "units"))
         self.canvas.bind("<Button-5>", lambda _event: self.scroll_by("scroll", 3, "units"))
         self.canvas.bind("<Return>", lambda _event: self.preview())
+        if self.embedded:
+            self.canvas.bind("<Escape>", lambda _event: self.close())
         self.canvas.bind("<space>", self.select_focused)
         self.canvas.bind("<FocusIn>", lambda _event: self.schedule_draw())
         self.canvas.bind("<FocusOut>", lambda _event: self.schedule_draw())
@@ -197,8 +213,9 @@ class MediaGallery:
             self.choose_button = ttk.Button(actions, name="media_choose", text=self.t("使用所选素材", "Use selection"),
                                             command=self.choose, style="Primary.Workbench.TButton")
             self.choose_button.pack(side="left")
-        else:
-            ttk.Button(actions, text=self.t("关闭", "Close"), command=self.close,
+        if self.on_select is None or self.embedded:
+            caption = self.t("返回", "Back") if self.embedded else self.t("关闭", "Close")
+            ttk.Button(actions, name="media_close", text=caption, command=self.close,
                        style="Workbench.TButton").pack(side="left")
 
     def filter_control(self, parent, column, name, caption):
@@ -412,7 +429,7 @@ class MediaGallery:
                 self.refresh(focus=imported[0].key if imported else None)
             except (OSError, ValueError) as error:
                 self.update_status(self.t("操作未保存。", "Changes could not be saved."))
-                messagebox.showerror(self.window.title(), _media_error(error, self.english), parent=self.window)
+                messagebox.showerror(self.title, _media_error(error, self.english), parent=self.window)
             else:
                 if cancelled and not imported:
                     self.update_status(self.t("已取消导入。", "Import cancelled."))
@@ -536,8 +553,22 @@ class MediaGallery:
             self.status.set(self.t("正在取消…", "Cancelling…"))
 
     def preview(self):
-        if self.active() is not None:
-            MediaDetail(self, self.filtered, self.cursor)
+        self.preview_timer = None
+        if self.active() is not None and self.detail is None:
+            detail = MediaDetail(self, self.filtered, self.cursor)
+            if self.embedded:
+                self.detail = detail
+                self.body.pack_forget()
+                detail.window.pack(fill="both", expand=True)
+                detail.canvas.focus_set()
+
+    def back_from_detail(self):
+        self.detail = None
+        if self.direct_preview:
+            self.close()
+        else:
+            self.body.pack(fill="both", expand=True)
+            self.canvas.focus_set()
 
     def choose(self):
         selection = tuple(item for item in self.current_selected() if self.selectable(item))
@@ -545,16 +576,18 @@ class MediaGallery:
             try:
                 self.on_select(selection)
             except (OSError, ValueError) as error:
-                messagebox.showerror(self.window.title(), _media_error(error, self.english), parent=self.window)
+                messagebox.showerror(self.title, _media_error(error, self.english), parent=self.window)
                 return
             self.close()
 
     def close(self):
         _close_popup(self.window, self.old_grab)
+        if self.on_close is not None:
+            self.on_close()
 
     def destroyed(self, event):
         if event.widget == self.window:
-            for timer in (self.draw_timer, self.poll_timer):
+            for timer in (self.draw_timer, self.poll_timer, self.preview_timer):
                 if timer is not None:
                     self.window.after_cancel(timer)
             if self.operation_stop is not None:
@@ -574,13 +607,16 @@ class MediaDetail:
         self.gallery = gallery
         self.items = items
         self.index = next(i for i, item in enumerate(items) if item.key == key)
-        self.old_grab = gallery.window.grab_current()
-        self.window = tk.Toplevel(gallery.window, name="media_detail", bg=BACKGROUND)
-        self.window.transient(gallery.window)
-        self.window.geometry("880x660")
-        self.window.minsize(620, 460)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.window.bind("<Escape>", lambda _event: self.close())
+        self.old_grab = gallery.window.grab_current() if not gallery.embedded else None
+        if gallery.embedded:
+            self.window = ttk.Frame(gallery.window, name="media_detail")
+        else:
+            self.window = tk.Toplevel(gallery.window, name="media_detail", bg=BACKGROUND)
+            self.window.transient(gallery.window)
+            self.window.geometry("880x660")
+            self.window.minsize(620, 460)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+            self.window.bind("<Escape>", lambda _event: self.close())
         self.window.bind("<Destroy>", self.destroyed)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="media-detail")
         self.future = None
@@ -597,7 +633,8 @@ class MediaDetail:
         self.setting_scale = False
         self.build()
         self.load()
-        self.window.grab_set()
+        if not gallery.embedded:
+            self.window.grab_set()
         self.canvas.focus_set()
 
     @property
@@ -644,6 +681,8 @@ class MediaDetail:
         self.canvas.bind("<space>", lambda _event: self.toggle_play())
         self.canvas.bind("<plus>", lambda _event: self.enlarge(1.25))
         self.canvas.bind("<minus>", lambda _event: self.enlarge(0.8))
+        if self.gallery.embedded:
+            self.canvas.bind("<Escape>", lambda _event: self.close())
 
         self.transport = ttk.Frame(body)
         self.transport.grid(row=3, column=0, sticky="ew", pady=(9, 0))
@@ -685,7 +724,8 @@ class MediaDetail:
         self.next = self.button(pages, "media_next", "下一项", "Next", lambda: self.navigate(1))
         self.counter = ttk.Label(pages, foreground=MUTED)
         self.counter.pack(side="left", padx=(2, 0))
-        ttk.Button(lower, text=self.t("关闭", "Close"), command=self.close,
+        caption = self.t("返回", "Back") if self.gallery.embedded else self.t("关闭", "Close")
+        ttk.Button(lower, name="media_detail_close", text=caption, command=self.close,
                    style="Workbench.TButton").grid(row=1, column=1, sticky="e")
 
     def resize_header(self, width):
@@ -716,7 +756,8 @@ class MediaDetail:
         self.name.configure(text=self.item.display_name)
         category = CATEGORIES.get(self.item.category, CATEGORIES["unclassified"])
         self.source.configure(text=" · ".join(x for x in (self.t(*category), self.item.purpose, str(self.item.path)) if x))
-        self.window.title(self.t("素材预览", "Media preview"))
+        if not self.gallery.embedded:
+            self.window.title(self.t("素材预览", "Media preview"))
         self.counter.configure(text=f"{self.index + 1} / {len(self.items)}")
         self.previous.configure(state="normal" if self.index else "disabled")
         self.next.configure(state="normal" if self.index < len(self.items) - 1 else "disabled")
@@ -956,6 +997,8 @@ class MediaDetail:
 
     def close(self):
         _close_popup(self.window, self.old_grab)
+        if self.gallery.embedded:
+            self.gallery.back_from_detail()
 
     def destroyed(self, event):
         if event.widget == self.window:
