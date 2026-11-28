@@ -1,0 +1,2475 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 5487bbc..56d3793 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1,6 +1,6 @@
+ import "./styles/index.css";
+ import { useEffect, useState } from "react";
+-import { ArrowDown, ArrowRight, BookOpen, Boxes, Check, Clock3, Hand, House, Keyboard, MousePointer2, Plus, Route, Sparkles, Trash2, Users, X } from "lucide-react";
++import { ArrowDown, ArrowRight, BookOpen, Boxes, Check, Clock3, Hand, House, Keyboard, Layers3, MousePointer2, Plus, Route, Sparkles, Trash2, Users, X } from "lucide-react";
+ import { DirectorDeskShell } from "./app/layout/DirectorDeskShell";
+ import { DirectorCanvas } from "./editor/canvas/DirectorCanvas";
+ import { ViewportSensitivitySettings } from "./editor/canvas/ViewportSensitivitySettings";
+@@ -10,6 +10,8 @@ import {
+   postDirectorDeskMessageToHost,
+ } from "./editor/io/hostBridge";
+ import { useDirectorStore } from "./editor/store/directorStore";
++import { useMotionClipSession } from "./editor/runtime/motionClipSession";
++import { motionClipLabels } from "./editor/panels/motionClipWorkspaceLabels";
+ import {
+   createDirectorDeskRecord,
+   deleteDirectorDeskRecord,
+@@ -188,11 +190,13 @@ function isEditableShortcutTarget(target: EventTarget | null) {
+ }
+ 
+ export default function App() {
++  const english = new URLSearchParams(window.location.search).get("language") === "en";
+   const benchmarkMode = getPerformanceBenchmarkMode(window.location.search);
+   const viewMode = useDirectorStore((state) => state.viewMode);
+   const setViewMode = useDirectorStore((state) => state.setViewMode);
+   const motionStudioOpen = useDirectorStore((state) => state.motionStudioOpen);
+   const setMotionStudioOpen = useDirectorStore((state) => state.setMotionStudioOpen);
++  const clipActive = useMotionClipSession((state) => state.active);
+   const [directorDeskView, setDirectorDeskView] = useState(createInitialDirectorDeskViewState);
+   const { records: directorDesks, activeDeskId, screen } = directorDeskView;
+ 
+@@ -212,9 +216,11 @@ export default function App() {
+     if (loadScene) {
+       useDirectorStore.getState().openScopedScene(id);
+     }
++    useMotionClipSession.getState().close();
+   }
+ 
+   function backToHome() {
++    useMotionClipSession.getState().close();
+     const records = ensureDirectorDeskRecords();
+     setDirectorDeskView({ records, activeDeskId, screen: "home" });
+     updateUrlDirectorDeskInstanceId(null);
+@@ -308,6 +314,8 @@ export default function App() {
+       if (key === "z" && !event.shiftKey) {
+         event.preventDefault();
+         useDirectorStore.getState().undo();
++        const clip = useMotionClipSession.getState();
++        if (clip.active) clip.seek(clip.time);
+       }
+     }
+ 
+@@ -542,6 +550,7 @@ export default function App() {
+             aria-label={motionStudioOpen ? "关闭运镜工作台" : "打开运镜工作台"}
+             aria-pressed={motionStudioOpen}
+             onClick={() => {
++              useMotionClipSession.getState().close();
+               setViewMode("director");
+               setMotionStudioOpen(!motionStudioOpen);
+             }}
+@@ -549,6 +558,29 @@ export default function App() {
+             <Route aria-hidden="true" size={15} />
+             运镜
+           </button>
++          <button
++            className={`top-bar-motion-button top-bar-action-clip${clipActive ? " is-active" : ""}`}
++            aria-label={motionClipLabels(english).title}
++            aria-pressed={clipActive}
++            data-testid="motion-clip-toggle"
++            title={motionClipLabels(english).title}
++            type="button"
++            onClick={() => {
++              const clip = useMotionClipSession.getState();
++              if (clip.active) {
++                clip.close();
++              } else {
++                const state = useDirectorStore.getState();
++                const actor = state.project.objects.find((item) => item.id === state.selectedObjectId && item.kind === "character" && item.visible);
++                setMotionStudioOpen(false);
++                state.setCameraMotionPlaying(false);
++                clip.open(actor?.id ?? null);
++              }
++            }}
++          >
++            <Layers3 aria-hidden="true" size={15} />
++            {motionClipLabels(english).title}
++          </button>
+           <ViewportSensitivitySettings />
+           <PerformanceSettings />
+         </div>
+@@ -564,7 +596,7 @@ export default function App() {
+           </button>
+         </div>
+       </header>
+-      <DirectorDeskShell>
++      <DirectorDeskShell english={english}>
+         <DirectorCanvas />
+       </DirectorDeskShell>
+     </div>
+diff --git a/src/app/layout/DirectorDeskShell.tsx b/src/app/layout/DirectorDeskShell.tsx
+index ce98cd9..9ac77ee 100644
+--- a/src/app/layout/DirectorDeskShell.tsx
++++ b/src/app/layout/DirectorDeskShell.tsx
+@@ -1,9 +1,12 @@
+ import type { ReactNode } from "react";
++import { MotionClipWorkspace } from "../../editor/panels/MotionClipWorkspace";
+ import { ObjectTreePanel } from "../../editor/panels/ObjectTreePanel";
+ import { RightPanel } from "../../editor/panels/RightPanel";
++import { useMotionClipSession } from "../../editor/runtime/motionClipSession";
+ import { useDirectorStore } from "../../editor/store/directorStore";
+ 
+-export function DirectorDeskShell({ children }: { children: ReactNode }) {
++export function DirectorDeskShell({ children, english = false }: { children: ReactNode; english?: boolean }) {
++  const clipActive = useMotionClipSession((state) => state.active);
+   const viewportPanelsCollapsed = useDirectorStore((state) => state.viewportPanelsCollapsed);
+   const motionStudioOpen = useDirectorStore((state) => state.motionStudioOpen);
+   const cameraPilotMode = useDirectorStore((state) => state.cameraPilotMode);
+@@ -21,6 +24,7 @@ export function DirectorDeskShell({ children }: { children: ReactNode }) {
+     <div
+       className={[
+         "director-shell director-shell-fullbleed",
++        clipActive ? "is-action-clip" : "",
+         viewportPanelsCollapsed ? "is-sidebars-collapsed" : "",
+         motionStudioOpen && !isCameraPiloting && !isCameraPreviewing ? "is-motion-studio-open" : "",
+         isCameraPiloting ? "is-camera-piloting" : "",
+@@ -37,13 +41,13 @@ export function DirectorDeskShell({ children }: { children: ReactNode }) {
+       >
+         <ObjectTreePanel />
+       </aside>
+-      <aside
++      {clipActive ? <MotionClipWorkspace english={english} /> : <aside
+         className="right-sidebar director-sidebar"
+         aria-hidden={viewportPanelsCollapsed ? "true" : undefined}
+         aria-label="属性"
+       >
+         <RightPanel />
+-      </aside>
++      </aside>}
+     </div>
+   );
+ }
+diff --git a/src/editor/canvas/SceneRoot.tsx b/src/editor/canvas/SceneRoot.tsx
+index 7b040f2..d87ca35 100644
+--- a/src/editor/canvas/SceneRoot.tsx
++++ b/src/editor/canvas/SceneRoot.tsx
+@@ -68,6 +68,9 @@ import { parseImportedCharacterActionId } from "../schema/importedCharacterActio
+ import { GROUND_PLANE_SIZE, createGroundMaterialTexture, getGroundMaterialPreset } from "./groundMaterialPresets";
+ import { getRuntimePlaybackProgress, subscribeRuntimePlayback } from "../runtime/playbackRuntime";
+ import { disposeIsolatedModelMaterials, isolateAndTintModelMaterials } from "../runtime/modelMaterialTint";
++import { sampleMotionActor, sampleMotionProp, type MotionClipActorPose, type MotionClipHolder } from "../schema/motionClip";
++import { useMotionClipSession } from "../runtime/motionClipSession";
++import { CLIP_PROP_VISUAL_CENTER_Y, ClipPropFollower } from "../runtime/ClipPropFollower";
+ import {
+   createCameraTrackingSmoothingState,
+   getRuntimeCameraPlaybackSnapshot,
+@@ -175,13 +178,16 @@ function ViewportTransformControls({
+ }
+ 
+ function NormalizedImportedObject({ color, object }: { color?: string; object: Object3D }) {
+-  const { clone, normalization } = useMemo(() => {
++  const { clone, normalization, centerY } = useMemo(() => {
+     const clonedObject = cloneSkeleton(object) as Object3D;
+     clonedObject.updateMatrixWorld(true);
++    const bounds = new Box3().setFromObject(clonedObject);
++    const normalized = getImportedModelNormalization(bounds);
+ 
+     return {
+       clone: clonedObject,
+-      normalization: getImportedModelNormalization(new Box3().setFromObject(clonedObject)),
++      normalization: normalized,
++      centerY: bounds.getSize(new Vector3()).y * normalized.scale / 2,
+     };
+   }, [object]);
+ 
+@@ -192,6 +198,7 @@ function NormalizedImportedObject({ color, object }: { color?: string; object: O
+     <group
+       position={normalization.position}
+       scale={[normalization.scale, normalization.scale, normalization.scale]}
++      userData={{ [CLIP_PROP_VISUAL_CENTER_Y]: centerY }}
+     >
+       <primitive object={clone} />
+     </group>
+@@ -310,6 +317,9 @@ function ObjectSceneNode({
+   motionTimeSeconds = 0,
+   motionDurationSeconds = 6,
+   motionProgress = 0,
++  clipOwnsTransform = false,
++  clipActorPose = false,
++  clipPropHolder,
+ }: {
+   asset?: DirectorAssetRef;
+   item: DirectorObject;
+@@ -326,6 +336,9 @@ function ObjectSceneNode({
+   motionTimeSeconds?: number;
+   motionDurationSeconds?: number;
+   motionProgress?: number;
++  clipOwnsTransform?: boolean;
++  clipActorPose?: boolean;
++  clipPropHolder?: MotionClipHolder | null;
+ }) {
+   const groupRef = useRef<Group>(null!);
+   const [measuredCharacterLabel, setMeasuredCharacterLabel] = useState<{
+@@ -352,9 +365,10 @@ function ObjectSceneNode({
+     measuredCharacterLabel?.key === characterLabelKey ? measuredCharacterLabel.y : fallbackCharacterLabelY;
+   const focusOffsetY = item.kind === "character" ? Math.max(0.8, characterLabelY * 0.58) : 0.75;
+   const pilotTargetState = pilotLockedTargetId === item.id ? "locked" : pilotHoveredTargetId === item.id ? "hovered" : null;
+-  const routeActionPresetId = characterActionPreview?.objectId === item.id
++  const previewAction = characterActionPreview?.objectId === item.id
+     ? characterActionPreview.actionPresetId
+     : runtimeActionPresetId;
++  const routeActionPresetId = clipActorPose ? null : previewAction;
+   const resolvedActionPresetId = routeActionPresetId ?? (motionWalking ? "walk-cycle" : null);
+   const importedActionRef = parseImportedCharacterActionId(resolvedActionPresetId);
+   const importedAnimationAsset = importedActionRef
+@@ -415,6 +429,7 @@ function ObjectSceneNode({
+   );
+ 
+   useEffect(() => subscribeRuntimePlayback((progress) => {
++    if (clipOwnsTransform) return;
+     const group = groupRef.current;
+     if (!group?.position?.set || !group.rotation?.set || !group.scale?.set) return;
+     if (item.motionPath?.keyframes.length) {
+@@ -431,7 +446,19 @@ function ObjectSceneNode({
+     }
+     const nextAction = getObjectMotionActionPresetId(item, progress, motionDurationSeconds);
+     setRuntimeActionPresetId((current) => current === nextAction ? current : nextAction);
+-  }), [item, motionDurationSeconds, motionObjects, motionScene]);
++  }), [clipOwnsTransform, item, motionDurationSeconds, motionObjects, motionScene]);
++
++  const appliedHolder = useRef(false);
++  useLayoutEffect(() => {
++    // React Three Fiber may reuse unchanged tuples after an imperative hand binding.
++    if (appliedHolder.current && !clipPropHolder && groupRef.current?.position?.set) {
++      groupRef.current.position.set(...item.transform.position);
++      groupRef.current.rotation.set(...item.transform.rotation);
++      groupRef.current.scale.set(...item.transform.scale);
++      groupRef.current.updateMatrixWorld(true);
++    }
++    appliedHolder.current = Boolean(clipPropHolder);
++  }, [clipPropHolder, item.transform]);
+ 
+   function commitTransformFromViewport() {
+     const group = groupRef.current;
+@@ -495,7 +522,8 @@ function ObjectSceneNode({
+               motionWalking={motionWalking}
+               onLabelAnchorYChange={handleCharacterLabelAnchorYChange}
+               rigState={animatedCharacterRig}
+-              runtimeMotion={{ duration: motionDurationSeconds, object: item }}
++              clipPose={clipActorPose}
++              runtimeMotion={clipActorPose ? undefined : { duration: motionDurationSeconds, object: item }}
+             />
+           </Suspense>
+           {showLabels ? (
+@@ -509,6 +537,14 @@ function ObjectSceneNode({
+       ) : item.kind === "prop" && item.geometryType ? (
+         <GeometryPrimitiveModel color={item.color} geometryType={item.geometryType} />
+       ) : null}
++      {clipPropHolder ? (
++        <ClipPropFollower
++          prop={groupRef}
++          holder={clipPropHolder}
++          baseTransform={item.transform}
++          visualCenterY={asset?.sourceType === "model" ? 0.5 : getGeometryCenterY(item.geometryType)}
++        />
++      ) : null}
+     </group>
+   );
+ 
+@@ -1249,6 +1285,36 @@ function CharacterRouteRig({
+ 
+ export type SceneRootRenderMode = "interactive" | "director-monitor" | "clean-camera";
+ 
++function getGeometryCenterY(geometry?: GeometryPrimitiveType) {
++  switch (geometry) {
++    case "sphere":
++    case "cone":
++    case "pyramid":
++      return 0.55;
++    case "cylinder":
++      return 0.6;
++    case "torus":
++      return 0.14;
++    default:
++      return 0.5;
++  }
++}
++
++function withClipPose(item: DirectorObject, pose: MotionClipActorPose): DirectorObject {
++  const rig = item.characterRig;
++  return {
++    ...item,
++    transform: pose.transform,
++    characterRig: {
++      ...rig,
++      rigType: rig?.rigType ?? "ue4-mannequin",
++      posePresetId: null,
++      actionPresetId: null,
++      controls: pose.controls,
++    },
++  };
++}
++
+ export function SceneRoot({ renderMode = "interactive" }: { renderMode?: SceneRootRenderMode }) {
+   const sceneRootRef = useRef<Group>(null);
+   const scene = useDirectorStore((state) => state.project.scene);
+@@ -1269,6 +1335,11 @@ export function SceneRoot({ renderMode = "interactive" }: { renderMode?: SceneRo
+   const showCharacterRoutes = useDirectorStore((state) => state.showCharacterRoutes);
+   const selectObject = useDirectorStore((state) => state.selectObject);
+   const selectCrowd = useDirectorStore((state) => state.selectCrowd);
++  const savedClip = useDirectorStore((state) => state.project.motionClip);
++  const clipActive = useMotionClipSession((state) => state.active);
++  const clipTime = useMotionClipSession((state) => state.time);
++  const clipDraftActor = useMotionClipSession((state) => state.draftActor);
++  const clip = clipActive ? savedClip : undefined;
+   const interactive = renderMode === "interactive";
+   const effectiveViewMode = renderMode === "clean-camera" ? "camera" : renderMode === "director-monitor" ? "director" : viewMode;
+   const translationSnap = scene.snapToGrid ? 1 : null;
+@@ -1352,7 +1423,13 @@ export function SceneRoot({ renderMode = "interactive" }: { renderMode?: SceneRo
+         .filter((item) => item.visible && item.kind !== "camera")
+         .map((item) => {
+           const asset = item.assetRefId ? assetsById.get(item.assetRefId) : undefined;
+-          const hasMotion = Boolean(item.motionPath?.keyframes?.length);
++          const clipPose = clipActive && item.kind === "character"
++            ? clipDraftActor?.actorId === item.id ? clipDraftActor : sampleMotionActor(clip, item.id, clipTime)
++            : undefined;
++          const clipOwnsProp = item.kind === "prop" && (clip?.propTracks.some((track) => track.propId === item.id) ?? false);
++          const holder = clipOwnsProp ? sampleMotionProp(clip, item.id, clipTime) : undefined;
++          const clipOwnsTransform = Boolean(clipPose) || clipOwnsProp;
++          const hasMotion = !clipOwnsTransform && Boolean(item.motionPath?.keyframes?.length);
+           const motionWalking = cameraMotionPlaying
+             && item.kind === "character"
+             && hasMotion
+@@ -1360,9 +1437,9 @@ export function SceneRoot({ renderMode = "interactive" }: { renderMode?: SceneRo
+           const motionTransform = hasMotion
+             ? getObjectMotionSnapshot(item, cameraMotionProgress, activeMotionDuration)
+             : item.transform;
+-          const renderedItem = {
++          const renderedItem = clipPose ? withClipPose(item, clipPose) : {
+             ...item,
+-            transform: constrainObjectMotionTransform(item, motionTransform, scene, objects),
++            transform: clipOwnsProp ? item.transform : constrainObjectMotionTransform(item, motionTransform, scene, objects),
+           };
+ 
+           return (
+@@ -1377,12 +1454,16 @@ export function SceneRoot({ renderMode = "interactive" }: { renderMode?: SceneRo
+               motionTimeSeconds={cameraMotionProgress * activeMotionDuration}
+               motionProgress={cameraMotionProgress}
+               motionWalking={motionWalking}
++              clipActorPose={Boolean(clipPose)}
++              clipOwnsTransform={clipOwnsTransform}
++              clipPropHolder={holder}
+               selected={interactive && !item.crowdId && item.id === selectedObjectId}
+               showLabels={interactive && scene.showLabels && cameraPilotMode === "idle"}
+               transformMode={transformMode}
+               transformable={
+                 interactive
+                 && !motionStudioOpen
++                && (!clipActive || (item.kind !== "character" && item.kind !== "prop"))
+                 && !item.locked
+                 && cameraPilotMode === "idle"
+                 && !selectedObjectMotionKeyframeId
+@@ -1400,7 +1481,7 @@ export function SceneRoot({ renderMode = "interactive" }: { renderMode?: SceneRo
+             objects={objects}
+             selected={selectedCrowdId === crowdId}
+             transformMode={transformMode}
+-            transformable={cameraPilotMode === "idle" && !(crowdLocksById.get(crowdId) ?? false)}
++            transformable={!clipActive && cameraPilotMode === "idle" && !(crowdLocksById.get(crowdId) ?? false)}
+             translationSnap={translationSnap}
+           />
+         )
+diff --git a/src/editor/panels/MotionClipTimeline.tsx b/src/editor/panels/MotionClipTimeline.tsx
+new file mode 100644
+index 0000000..e601048
+--- /dev/null
++++ b/src/editor/panels/MotionClipTimeline.tsx
+@@ -0,0 +1,115 @@
++import { useEffect, useState, type HTMLAttributes } from "react";
++import { Pause, Play, SkipBack } from "lucide-react";
++import { MAX_MOTION_CLIP_SECONDS, MIN_MOTION_CLIP_SECONDS, type MotionClip } from "../schema/motionClip";
++import type { DirectorObject } from "../schema/directorProject";
++import type { ClipLabels } from "./motionClipWorkspaceLabels";
++
++export function ClipNumberField({ value, onCommit, onEdit, min, max, step, ...props }: {
++  value: number;
++  onCommit: (value: number) => void;
++  onEdit?: () => void;
++  min?: number;
++  max?: number;
++  step: number;
++} & Pick<HTMLAttributes<HTMLInputElement>, "aria-label" | "className"> & {
++  "data-testid"?: string;
++}) {
++  const [draft, setDraft] = useState<string | null>(null);
++  useEffect(() => setDraft(null), [value]);
++  return (
++    <input {...props} type="number" step={step} min={min} max={max} value={draft ?? value}
++      onFocus={onEdit} onChange={(event) => setDraft(event.currentTarget.value)}
++      onBlur={(event) => {
++        const number = event.currentTarget.valueAsNumber;
++        if (draft !== null && Number.isFinite(number)) onCommit(number);
++        setDraft(null);
++      }}
++      onKeyDown={(event) => {
++        if (event.key === "Enter") event.currentTarget.blur();
++      }} />
++  );
++}
++
++type Track = { item: DirectorObject; frames: { id: string; time: number; interpolation?: "linear" | "hold" }[] };
++
++export function trackName(item: DirectorObject, english: boolean) {
++  return english ? item.name.replace(/^角色(?=\s*\d+$)/, "Character").replace(/^道具(?=\s*\d+$)/, "Prop") : item.name;
++}
++
++export function MotionClipTimeline({ labels, english, clip, time, playing, loop,
++  tracks, selectedId, onSeek, onDuration, onPlay, onLoop, onTrack, onFrame, onSave, onOpen }: {
++  labels: ClipLabels;
++  english: boolean;
++  clip: MotionClip;
++  time: number;
++  playing: boolean;
++  loop: boolean;
++  tracks: Track[];
++  selectedId: string | null;
++  onSeek: (time: number) => void;
++  onDuration: (duration: number) => void;
++  onPlay: () => void;
++  onLoop: (loop: boolean) => void;
++  onTrack: (item: DirectorObject) => void;
++  onFrame: (item: DirectorObject, time: number) => void;
++  onSave: () => void;
++  onOpen: () => void;
++}) {
++  return (
++    <section className="motion-clip-timeline" aria-label={labels.timeline} data-testid="motion-clip-panel">
++      <div className="motion-clip-timeline-header">
++        <div className="motion-clip-playback">
++          <button type="button" title={labels.start} aria-label={labels.start} onClick={() => onSeek(0)}>
++            <SkipBack aria-hidden="true" size={15} />
++          </button>
++          <button type="button" title={playing ? labels.pause : labels.play}
++            aria-label={playing ? labels.pause : labels.play} data-testid="motion-clip-play" onClick={onPlay}>
++            {playing ? <Pause aria-hidden="true" size={15} /> : <Play aria-hidden="true" size={15} />}
++          </button>
++          <label className="motion-clip-loop"><input type="checkbox" checked={loop} data-testid="motion-clip-loop"
++            onChange={(event) => onLoop(event.currentTarget.checked)} />{labels.loop}</label>
++        </div>
++        <div className="motion-clip-time-fields">
++          <label>{labels.time}<ClipNumberField aria-label={labels.time} data-testid="motion-clip-time"
++            value={time} onCommit={onSeek} onEdit={playing ? onPlay : undefined} min={0} max={clip.duration} step={.001} /></label>
++          <label>{labels.duration}<ClipNumberField aria-label={labels.duration} data-testid="motion-clip-duration"
++            value={clip.duration} onCommit={onDuration} min={MIN_MOTION_CLIP_SECONDS} max={MAX_MOTION_CLIP_SECONDS} step={.1} /></label>
++        </div>
++        <div className="motion-clip-files">
++          <button type="button" data-testid="motion-clip-save" onClick={onSave}>{labels.save}</button>
++          <button type="button" data-testid="motion-clip-open" onClick={onOpen}>{labels.open}</button>
++        </div>
++      </div>
++      <div className="motion-clip-ruler">
++        <input type="range" aria-label={labels.scrub} min={0} max={clip.duration} step={.001} value={time}
++          data-testid="motion-clip-scrub" onChange={(event) => onSeek(event.currentTarget.valueAsNumber)} />
++        <div className="motion-clip-scale" aria-hidden="true">
++          {[0, .25, .5, .75, 1].map((fraction) => (
++            <span key={fraction}>{Number((clip.duration * fraction).toFixed(2))}{labels.second}</span>
++          ))}
++        </div>
++      </div>
++      <div className="motion-clip-lanes">
++        {tracks.length ? tracks.map(({ item, frames }) => (
++          <div key={item.id} className="motion-clip-track" data-testid={`motion-clip-track-${item.id}`}>
++            <button type="button" className="motion-clip-track-label" title={trackName(item, english)}
++              aria-pressed={selectedId === item.id} onClick={() => onTrack(item)}>{trackName(item, english)}</button>
++            <div className="motion-clip-lane" data-kind={item.kind}>
++              {frames.map((frame) => {
++                const caption = `${trackName(item, english)} · ${frame.time}${labels.second}${frame.interpolation === "hold" ? ` · ${labels.hold}` : ""}`;
++                return <button key={frame.id} type="button" title={caption} aria-label={caption}
++                  aria-pressed={selectedId === item.id && time === frame.time}
++                  data-testid={`motion-clip-${item.kind === "prop" ? "prop-key" : "key"}-${frame.id}`}
++                  className={frame.interpolation === "hold" ? "is-held" : undefined}
++                  style={{ insetInlineStart: `${frame.time / clip.duration * 100}%` }}
++                  onClick={() => onFrame(item, frame.time)} />;
++              })}
++              <span className="motion-clip-time-marker" aria-hidden="true"
++                style={{ insetInlineStart: `${time / clip.duration * 100}%` }} />
++            </div>
++          </div>
++        )) : <p className="motion-clip-hint">{labels.emptyTracks}</p>}
++      </div>
++    </section>
++  );
++}
+diff --git a/src/editor/panels/MotionClipWorkspace.tsx b/src/editor/panels/MotionClipWorkspace.tsx
+new file mode 100644
+index 0000000..2259aeb
+--- /dev/null
++++ b/src/editor/panels/MotionClipWorkspace.tsx
+@@ -0,0 +1,391 @@
++import { useEffect, useRef, useState, type ChangeEvent } from "react";
++import { ChevronRight } from "lucide-react";
++import { parseProject } from "../io/importProjectJson";
++import { serializeProject } from "../io/exportProjectJson";
++import { MANNEQUIN_POSE_PRESETS } from "../presets/mannequinPosePresets";
++import type { DirectorAssetRef, DirectorObject, DirectorTransform } from "../schema/directorProject";
++import {
++  createMotionClip, normalizeMotionClipTime, removeMotionActorFrame, removeMotionPropFrame, resizeMotionClip,
++  sampleMotionActor, sampleMotionProp, upsertMotionActorFrame, upsertMotionPropFrame,
++  type MotionClipActorKeyframe, type MotionClipHolder,
++} from "../schema/motionClip";
++import { useMotionClipSession, type MotionClipActorDraft } from "../runtime/motionClipSession";
++import { getBodyTypePoseLimit } from "../runtime/mannequin/mannequinPose";
++import { useDirectorStore } from "../store/directorStore";
++import { ClipNumberField, MotionClipTimeline, trackName } from "./MotionClipTimeline";
++import { clipJointGroups, englishPoseNames } from "./motionClipLabels";
++import { motionClipLabels, type ClipLabels } from "./motionClipWorkspaceLabels";
++
++const EMPTY_CLIP = createMotionClip();
++const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
++const AXES = ["X", "Y", "Z"] as const;
++const DEGREES_PER_RADIAN = 180 / Math.PI;
++
++type EditTab = "actor" | "prop";
++
++function supportedPose(actor: DirectorObject, assets: DirectorAssetRef[]) {
++  const readiness = assets.find((asset) => asset.id === actor.assetRefId)?.characterImportReadiness;
++  return Boolean(actor.characterRig) && (!readiness || readiness === "ready");
++}
++
++function holderChoice(holder: MotionClipHolder | null | undefined) {
++  return holder ? `actor:${holder.actorId}:${holder.hand}` : "floor";
++}
++
++function holderForChoice(value: string, actors: DirectorObject[], previous: MotionClipHolder | null | undefined) {
++  if (holderChoice(previous) === value) return previous ?? null;
++  for (const actor of actors) {
++    if (value === `actor:${actor.id}:left`) return { actorId: actor.id, hand: "left" } as const;
++    if (value === `actor:${actor.id}:right`) return { actorId: actor.id, hand: "right" } as const;
++  }
++  return null;
++}
++
++function TransformFields({ transform, labels, onChange }: {
++  transform: DirectorTransform;
++  labels: ClipLabels;
++  onChange: (transform: DirectorTransform) => void;
++}) {
++  return <>{(["position", "rotation"] as const).map((field) => (
++    <fieldset className="motion-clip-coordinate" key={field}>
++      <legend>{labels[field]}</legend>
++      <div>{AXES.map((axis, index) => (
++        <label key={axis}><span>{axis}</span>
++          <ClipNumberField aria-label={`${labels[field]} ${axis}`} step={field === "position" ? .05 : 1}
++            data-testid={`motion-clip-actor-${field}-${axis.toLowerCase()}`}
++            value={Number((transform[field][index] * (field === "rotation" ? DEGREES_PER_RADIAN : 1)).toFixed(3))}
++            onCommit={(value) => {
++              const values = [...transform[field]] as DirectorTransform[typeof field];
++              values[index] = field === "rotation" ? value / DEGREES_PER_RADIAN : value;
++              onChange({ ...transform, [field]: values });
++            }} />
++        </label>
++      ))}</div>
++    </fieldset>
++  ))}</>;
++}
++
++function PoseFields({ controls, angleLimit, english, labels, onChange }: {
++  controls: Record<string, number>;
++  angleLimit: number;
++  english: boolean;
++  labels: ClipLabels;
++  onChange: (controls: Record<string, number>) => void;
++}) {
++  const [joint, setJoint] = useState("rightShoulder.pitch");
++  const height = joint === "body.offsetY";
++  const max = height ? 2 : angleLimit;
++  const min = -max;
++  const step = height ? .01 : 1;
++  const sliderValue = Math.max(min, Math.min(max, controls[joint] ?? 0));
++  function updateJoint(value: number) {
++    onChange({ ...controls, [joint]: Math.max(min, Math.min(max, value)) });
++  }
++  return <>
++    <label>{labels.posePreset}
++      <select value="" data-testid="motion-clip-pose-preset" onChange={(event) => {
++        const preset = MANNEQUIN_POSE_PRESETS.find((item) => item.id === event.currentTarget.value);
++        if (preset) onChange({ ...preset.controls });
++      }}>
++        <option value="">{labels.choosePreset}</option>
++        {MANNEQUIN_POSE_PRESETS.map((preset) => (
++          <option key={preset.id} value={preset.id}>{english ? englishPoseNames[preset.id] : preset.label}</option>
++        ))}
++      </select>
++    </label>
++    <details className="motion-clip-disclosure" open>
++      <summary><ChevronRight aria-hidden="true" size={14} />{labels.joint}</summary>
++      <select aria-label={labels.joint} data-testid="motion-clip-joint" value={joint}
++        onChange={(event) => setJoint(event.currentTarget.value)}>
++        {clipJointGroups.map((group) => (
++          <optgroup key={group.names[1]} label={group.names[+english]}>
++            {group.controls.map((control) => (
++              <option key={control.id} value={control.id} data-testid={`motion-clip-joint-${control.id}`}>
++                {group.names[+english]} · {control.names[+english]}
++              </option>
++            ))}
++          </optgroup>
++        ))}
++      </select>
++      <div className="motion-clip-joint-value">
++        <input type="range" min={min} max={max} step={step} value={sliderValue}
++          aria-label={height ? labels.height : labels.degrees} data-testid="motion-clip-joint-slider"
++          onChange={(event) => updateJoint(event.currentTarget.valueAsNumber)} />
++        <ClipNumberField key={joint} aria-label={height ? labels.height : labels.degrees} data-testid="motion-clip-joint-angle"
++          value={Number(sliderValue.toFixed(3))} onCommit={updateJoint} min={min} max={max} step={step} />
++      </div>
++    </details>
++  </>;
++}
++
++function KeyframeActions({ frame, duration, labels, onMove, onDuplicate, onDelete }: {
++  frame: MotionClipActorKeyframe;
++  duration: number;
++  labels: ClipLabels;
++  onMove: (time: number) => void;
++  onDuplicate: (time: number) => void;
++  onDelete: () => void;
++}) {
++  const [target, setTarget] = useState(() => frame.time + .25 <= duration ? frame.time + .25 : Math.max(0, frame.time - .25));
++  return <div className="motion-clip-key-edit">
++    <label>{labels.keyTime}
++      <ClipNumberField data-testid="motion-clip-key-time" value={target} step={.001} min={0} max={duration}
++        onCommit={(value) => setTarget(normalizeMotionClipTime(value, duration))} />
++    </label>
++    <div className="motion-clip-actions">
++      <button type="button" data-testid="motion-clip-move" onClick={() => onMove(target)}>{labels.move}</button>
++      <button type="button" data-testid="motion-clip-duplicate" onClick={() => onDuplicate(target)}>{labels.copy}</button>
++      <button type="button" data-testid="motion-clip-delete" onClick={onDelete}>{labels.delete}</button>
++    </div>
++  </div>;
++}
++
++export function MotionClipWorkspace({ english }: { english: boolean }) {
++  const project = useDirectorStore((state) => state.project);
++  const selectedObjectId = useDirectorStore((state) => state.selectedObjectId);
++  const canUndo = useDirectorStore((state) => state.undoStack.length > 0);
++  const session = useMotionClipSession();
++  const labels = motionClipLabels(english);
++  const clip = project.motionClip ?? EMPTY_CLIP;
++  const [tab, setTab] = useState<EditTab>("actor");
++  const [propId, setPropId] = useState<string | null>(null);
++  const [newInterpolation, setNewInterpolation] = useState<"linear" | "hold">("linear");
++  const [newHolderChoice, setNewHolderChoice] = useState<string | null>(null);
++  const [notice, setNotice] = useState("");
++  const fileRef = useRef<HTMLInputElement>(null);
++  const openFileRequest = useRef(0);
++  const time = normalizeMotionClipTime(session.time, clip.duration);
++  const actors = project.objects.filter((item) => item.kind === "character" && item.visible);
++  const props = project.objects.filter((item) => item.kind === "prop" && item.visible);
++  const actor = actors.find((item) => item.id === session.selectedActorId) ?? actors[0];
++  const prop = props.find((item) => item.id === propId) ?? props[0];
++  const pose = actor && (session.draftActor?.actorId === actor.id ? session.draftActor
++    : sampleMotionActor(clip, actor.id, time) ?? { transform: actor.transform, controls: actor.characterRig?.controls ?? {} });
++  const actorTrack = clip.actorTracks.find((track) => track.actorId === actor?.id);
++  const propTrack = clip.propTracks.find((track) => track.propId === prop?.id);
++  const currentActorKey = actorTrack?.keyframes.find((frame) => frame.time === time);
++  const currentPropKey = propTrack?.keyframes.find((frame) => frame.time === time);
++  const holder = prop && sampleMotionProp(clip, prop.id, time);
++  const tracks = project.objects.flatMap((item) => {
++    const track = item.kind === "character" ? clip.actorTracks.find((candidate) => candidate.actorId === item.id)
++      : item.kind === "prop" ? clip.propTracks.find((candidate) => candidate.propId === item.id) : undefined;
++    return item.visible && (track || item.id === actor?.id || (tab === "prop" && item.id === prop?.id))
++      ? [{ item, frames: track?.keyframes ?? [] }] : [];
++  });
++
++  useEffect(() => {
++    const selected = project.objects.find((item) => item.id === selectedObjectId && item.visible);
++    if (selected?.kind === "character") {
++      const { selectedActorId, selectActor } = useMotionClipSession.getState();
++      if (selected.id !== selectedActorId) selectActor(selected.id);
++      setTab("actor");
++    } else if (selected?.kind === "prop") {
++      setPropId(selected.id);
++      setTab("prop");
++    }
++  }, [selectedObjectId]);
++
++  useEffect(() => {
++    if (!session.playing) return;
++    let request: number;
++    let previous = performance.now();
++    function next(now: number) {
++      const state = useMotionClipSession.getState();
++      state.advance(Math.max(0, now - previous) / 1000, clip.duration);
++      previous = now;
++      request = requestAnimationFrame(next);
++    }
++    request = requestAnimationFrame(next);
++    return () => cancelAnimationFrame(request);
++  }, [session.playing, clip.duration]);
++
++  useEffect(() => () => { openFileRequest.current += 1; }, []);
++
++  useEffect(() => {
++    const state = useMotionClipSession.getState();
++    if (state.time > clip.duration) state.seek(clip.duration);
++  }, [clip.duration]);
++
++  const seek = (value: number) => {
++    setNotice("");
++    setNewHolderChoice(null);
++    session.seek(normalizeMotionClipTime(value, clip.duration));
++  };
++
++  function changeDuration(value: number) {
++    const shorter = resizeMotionClip(clip, value);
++    if ([...clip.actorTracks, ...clip.propTracks].some((track) => track.keyframes.some((frame) => frame.time > shorter.duration))) {
++      setNotice(labels.unsafeDuration);
++      return;
++    }
++    useDirectorStore.getState().setMotionClip(shorter);
++    if (time > shorter.duration) session.seek(shorter.duration);
++    setNotice("");
++  }
++
++  function selectTrack(item: DirectorObject) {
++    setNewHolderChoice(null);
++    setNotice("");
++    if (item.kind === "character") {
++      setTab("actor");
++      session.selectActor(item.id);
++    } else {
++      setTab("prop");
++      setPropId(item.id);
++      session.seek(time);
++    }
++    useDirectorStore.getState().selectObject(item.id);
++  }
++
++  function setPose(patch: Partial<Omit<MotionClipActorDraft, "actorId">>) {
++    if (actor && pose) session.setDraftActor({ actorId: actor.id, transform: pose.transform, controls: pose.controls, ...patch });
++  }
++
++  function saveActorKey() {
++    if (!actor || !pose) return;
++    useDirectorStore.getState().setMotionClip(upsertMotionActorFrame(clip, actor.id, {
++      id: currentActorKey?.id ?? crypto.randomUUID(), time, transform: pose.transform, controls: pose.controls,
++      interpolation: currentActorKey?.interpolation ?? newInterpolation,
++    }));
++    session.seek(time);
++    setNotice("");
++  }
++
++  function changeInterpolation(interpolation: "linear" | "hold") {
++    setNewInterpolation(interpolation);
++    if (actor && currentActorKey) useDirectorStore.getState().setMotionClip(
++      upsertMotionActorFrame(clip, actor.id, { ...currentActorKey, interpolation })
++    );
++  }
++
++  function relocateActorKey(target: number, copy: boolean) {
++    if (!actor || !currentActorKey) return;
++    target = normalizeMotionClipTime(target, clip.duration);
++    if (actorTrack?.keyframes.some((frame) => frame.time === target)) {
++      setNotice(labels.keyConflict);
++      return;
++    }
++    useDirectorStore.getState().setMotionClip(upsertMotionActorFrame(clip, actor.id, {
++      ...currentActorKey, id: copy ? crypto.randomUUID() : currentActorKey.id, time: target,
++    }));
++    seek(target);
++  }
++
++  function savePropKey() {
++    if (!prop) return;
++    const choice = newHolderChoice ?? holderChoice(holder);
++    useDirectorStore.getState().setMotionClip(upsertMotionPropFrame(clip, prop.id, {
++      id: currentPropKey?.id ?? crypto.randomUUID(), time, holder: holderForChoice(choice, actors, holder),
++    }));
++    setNewHolderChoice(null);
++    setNotice("");
++  }
++
++  function saveProject() {
++    const link = document.createElement("a");
++    const url = URL.createObjectURL(new Blob([serializeProject(project)], { type: "application/json" }));
++    link.href = url;
++    link.download = "director-action-clip.json";
++    document.body.append(link);
++    link.click();
++    link.remove();
++    window.setTimeout(() => URL.revokeObjectURL(url), 5_000);
++    setNotice(labels.saved);
++  }
++
++  async function openProject(event: ChangeEvent<HTMLInputElement>) {
++    const file = event.currentTarget.files?.[0];
++    event.currentTarget.value = "";
++    if (!file) return;
++    const request = ++openFileRequest.current;
++    try {
++      if (file.size > MAX_PROJECT_BYTES) throw new RangeError();
++      const loaded = parseProject(await file.text());
++      if (request !== openFileRequest.current) return;
++      useDirectorStore.getState().replaceProject(loaded);
++      const first = loaded.objects.find((item) => item.kind === "character" && item.visible);
++      useMotionClipSession.getState().open(first?.id ?? null);
++      setTab("actor");
++      setPropId(null);
++      setNewHolderChoice(null);
++      setNotice(labels.opened);
++    } catch {
++      if (request === openFileRequest.current) setNotice(labels.openFailed);
++    }
++  }
++
++  return <>
++    <aside className="right-sidebar director-sidebar motion-clip-inspector" aria-label={labels.title}>
++      <div className="motion-clip-inspector-header">
++        <h2>{labels.title}</h2>
++        <button type="button" data-testid="motion-clip-undo" disabled={!canUndo} onClick={() => {
++          useDirectorStore.getState().undo();
++          seek(time);
++        }}>{labels.undo}</button>
++      </div>
++      <div className="motion-clip-tabs" role="group" aria-label={labels.title}>
++        <button type="button" aria-pressed={tab === "actor"} data-testid="motion-clip-actor-tab"
++          onClick={() => setTab("actor")}>{labels.actorTab}</button>
++        <button type="button" aria-pressed={tab === "prop"} data-testid="motion-clip-prop-tab"
++          onClick={() => setTab("prop")}>{labels.propTab}</button>
++      </div>
++      <div className="motion-clip-inspector-scroll">
++      {notice && <p className="motion-clip-notice" role="status" data-testid="motion-clip-status">{notice}</p>}
++      {tab === "actor" ? actor && pose ? <div className="motion-clip-editor">
++        <label>{labels.actor}<select data-testid="motion-clip-actor" value={actor.id} onChange={(event) => {
++          const selected = actors.find((item) => item.id === event.currentTarget.value);
++          if (selected) selectTrack(selected);
++        }}>{actors.map((item) => <option key={item.id} value={item.id}>{trackName(item, english)}</option>)}</select></label>
++        <TransformFields transform={pose.transform} labels={labels} onChange={(transform) => setPose({ transform })} />
++        {supportedPose(actor, project.assets)
++          ? <PoseFields key={actor.id} controls={pose.controls} labels={labels} english={english}
++            angleLimit={actor.assetRefId && actor.characterRig?.rigType === "mixamo" ? 180 : getBodyTypePoseLimit(actor.bodyType)}
++            onChange={(controls) => setPose({ controls })} />
++          : <p className="motion-clip-hint">{labels.noHumanoidPose}</p>}
++        <label>{labels.interpolation}<select data-testid="motion-clip-interpolation"
++          value={currentActorKey?.interpolation ?? newInterpolation}
++          onChange={(event) => changeInterpolation(event.currentTarget.value === "hold" ? "hold" : "linear")}>
++          <option value="linear">{labels.linear}</option><option value="hold">{labels.hold}</option>
++        </select></label>
++        {session.draftActor?.actorId === actor.id && <p className="motion-clip-hint">{labels.draft}</p>}
++        {currentActorKey && <KeyframeActions key={`${currentActorKey.id}:${currentActorKey.time}`} frame={currentActorKey}
++          labels={labels} duration={clip.duration} onMove={(value) => relocateActorKey(value, false)}
++          onDuplicate={(value) => relocateActorKey(value, true)} onDelete={() => {
++            useDirectorStore.getState().setMotionClip(removeMotionActorFrame(clip, actor.id, currentActorKey.id));
++            seek(time);
++          }} />}
++      </div> : <p className="motion-clip-hint">{labels.noActor}</p> : prop ? <div className="motion-clip-editor">
++        <label>{labels.prop}<select data-testid="motion-clip-prop" value={prop.id} onChange={(event) => {
++          const selected = props.find((item) => item.id === event.currentTarget.value);
++          if (selected) selectTrack(selected);
++        }}>{props.map((item) => <option key={item.id} value={item.id}>{trackName(item, english)}</option>)}</select></label>
++        <label>{labels.hand}<select data-testid="motion-clip-prop-holder" value={newHolderChoice ?? holderChoice(holder)}
++          onChange={(event) => setNewHolderChoice(event.currentTarget.value)}>
++          <option value="floor">{labels.floor}</option>
++          {actors.filter((item) => supportedPose(item, project.assets)).map((item) => (
++            <optgroup key={item.id} label={trackName(item, english)}>
++              <option value={`actor:${item.id}:left`}>{trackName(item, english)} · {labels.leftHand}</option>
++              <option value={`actor:${item.id}:right`}>{trackName(item, english)} · {labels.rightHand}</option>
++            </optgroup>
++          ))}
++        </select></label>
++        {currentPropKey && <button type="button" data-testid="motion-clip-prop-delete" onClick={() => {
++          useDirectorStore.getState().setMotionClip(removeMotionPropFrame(clip, prop.id, currentPropKey.id));
++          seek(time);
++        }}>{labels.deletePropKey}</button>}
++      </div> : <p className="motion-clip-hint">{labels.noProp}</p>}
++      </div>
++      {tab === "actor" ? actor && <button type="button" className="motion-clip-primary" data-testid="motion-clip-add" onClick={saveActorKey}>
++        {currentActorKey ? labels.updateKey : labels.addKey}
++      </button> : prop && <button type="button" className="motion-clip-primary" data-testid="motion-clip-prop-add" onClick={savePropKey}>
++        {currentPropKey ? labels.updatePropKey : labels.addPropKey}
++      </button>}
++      <input type="file" hidden accept=".json,application/json" ref={fileRef} data-testid="motion-clip-project-file" onChange={openProject} />
++    </aside>
++    <MotionClipTimeline labels={labels} english={english} clip={clip} time={time} playing={session.playing} loop={session.loop}
++      tracks={tracks} selectedId={tab === "actor" ? actor?.id ?? null : prop?.id ?? null} onSeek={seek} onDuration={changeDuration}
++      onPlay={() => { setNotice(""); setNewHolderChoice(null); session.togglePlayback(clip.duration); }}
++      onLoop={session.setLoop} onTrack={selectTrack} onFrame={(item, target) => { selectTrack(item); seek(target); }}
++      onSave={saveProject} onOpen={() => fileRef.current?.click()} />
++  </>;
++}
+diff --git a/src/editor/panels/motionClipLabels.ts b/src/editor/panels/motionClipLabels.ts
+new file mode 100644
+index 0000000..a7a25ba
+--- /dev/null
++++ b/src/editor/panels/motionClipLabels.ts
+@@ -0,0 +1,35 @@
++import type { PosePresetId } from "../schema/poseSchema";
++
++export const englishPoseNames: Record<PosePresetId, string> = {
++  stand: "Stand", "t-pose": "T-pose", walk: "Walk", run: "Run", sit: "Sit", crouch: "Crouch",
++  "kneel-one": "Kneel on one knee", "kneel-two": "Kneel on both knees", "hands-on-hips": "Hands on hips",
++  lean: "Lean", bow: "Bow", think: "Think", fight: "Staged stance", kick: "Leg raised", throw: "Arm swing",
++  push: "Push", wave: "Wave", reach: "Reach", "cross-arms": "Cross arms", phone: "Phone pose",
++};
++
++const bodyParts = [
++  ["body", "身体", "Body"], ["torso", "躯干", "Torso"], ["head", "头部", "Head"],
++  ["leftShoulder", "左肩", "Left shoulder"], ["rightShoulder", "右肩", "Right shoulder"],
++  ["leftElbow", "左肘", "Left elbow"], ["rightElbow", "右肘", "Right elbow"],
++  ["leftHand", "左手", "Left hand"], ["rightHand", "右手", "Right hand"],
++  ["leftHip", "左髋", "Left hip"], ["rightHip", "右髋", "Right hip"],
++  ["leftKnee", "左膝", "Left knee"], ["rightKnee", "右膝", "Right knee"],
++  ["leftFoot", "左脚", "Left foot"], ["rightFoot", "右脚", "Right foot"],
++] as const;
++
++const axes = {
++  pitch: ["前后转", "Pitch"], yaw: ["左右转", "Yaw"], roll: ["侧转", "Roll"],
++  spread: ["外展", "Spread"], twist: ["扭转", "Twist"], bend: ["弯曲", "Bend"],
++  offsetY: ["高度", "Height"],
++} as const;
++
++function jointAxes(bodyPart: string): (keyof typeof axes)[] {
++  if (/Elbow|Knee/.test(bodyPart)) return ["bend"];
++  if (/Shoulder|Hip/.test(bodyPart)) return ["pitch", "spread", "twist"];
++  return bodyPart === "body" ? ["pitch", "yaw", "roll", "offsetY"] : ["pitch", "yaw", "roll"];
++}
++
++export const clipJointGroups = bodyParts.map(([bodyPart, zh, en]) => ({
++  names: [zh, en],
++  controls: jointAxes(bodyPart).map((axis) => ({ id: `${bodyPart}.${axis}`, names: axes[axis] })),
++}));
+diff --git a/src/editor/panels/motionClipWorkspaceLabels.ts b/src/editor/panels/motionClipWorkspaceLabels.ts
+new file mode 100644
+index 0000000..3a1b564
+--- /dev/null
++++ b/src/editor/panels/motionClipWorkspaceLabels.ts
+@@ -0,0 +1,35 @@
++const zh = {
++  title: "动作片段", timeline: "动作片段时间轴", start: "回到起点", play: "播放片段", pause: "暂停片段", loop: "循环",
++  time: "时间（秒）", duration: "时长（秒）", scrub: "拖动预览时间", second: " 秒", save: "保存工程", open: "打开工程",
++  emptyTracks: "添加人物或道具，然后记录第一个关键帧。", actorTab: "人物轨", propTab: "道具轨", actor: "人物",
++  prop: "道具", noActor: "先在视口工具栏添加人物。", noProp: "先在视口工具栏添加道具。", position: "位置",
++  rotation: "朝向（°）", posePreset: "姿势预设", choosePreset: "选择姿势", joint: "关节微调", degrees: "角度（°）",
++  height: "高度", interpolation: "到下一帧", linear: "线性过渡", hold: "保持至下一帧", keyTime: "目标时间（秒）",
++  addKey: "添加关键帧", updateKey: "更新关键帧", move: "移动", copy: "复制", delete: "删除", undo: "撤销",
++  draft: "姿势已调整，记录关键帧后保存。", unsafeDuration: "片段不能短于最后一个关键帧。请先移动或删除超出时长的关键帧。",
++  keyConflict: "这个时间已有关键帧，请选择其他时间。", hand: "从此时刻开始跟随", floor: "留在场景位置", leftHand: "左手",
++  rightHand: "右手", addPropKey: "记录道具归属", updatePropKey: "更新道具归属", deletePropKey: "删除归属关键帧",
++  noHumanoidPose: "此模型可记录位置和朝向，姿势编辑需要兼容的人形骨架。", saved: "已导出动作工程。",
++  opened: "已打开导演台工程。", openFailed: "无法打开导演台工程。请选择有效的 JSON 文件，大小不超过 32 MiB。",
++} as const;
++
++const en = {
++  title: "Action clip", timeline: "Action clip timeline", start: "Back to start", play: "Play clip", pause: "Pause clip", loop: "Loop",
++  time: "Time (s)", duration: "Duration (s)", scrub: "Scrub preview time", second: " s", save: "Save project", open: "Open project",
++  emptyTracks: "Add a character or prop, then record a keyframe.", actorTab: "Characters", propTab: "Props", actor: "Character",
++  prop: "Prop", noActor: "Add a character from the viewport toolbar.", noProp: "Add a prop from the viewport toolbar.", position: "Position",
++  rotation: "Orientation (°)", posePreset: "Pose preset", choosePreset: "Choose a pose", joint: "Adjust joint", degrees: "Angle (°)",
++  height: "Height", interpolation: "To next key", linear: "Interpolate", hold: "Hold until next key", keyTime: "Target time (s)",
++  addKey: "Add keyframe", updateKey: "Update keyframe", move: "Move", copy: "Duplicate", delete: "Delete", undo: "Undo",
++  draft: "Pose edited. Record a keyframe to save it.", unsafeDuration: "The duration cannot end before the final keyframe. Move or delete later keys first.",
++  keyConflict: "A keyframe already exists at that time. Choose a different time.", hand: "Follow from this time", floor: "Scene position", leftHand: "Left hand",
++  rightHand: "Right hand", addPropKey: "Set prop holder", updatePropKey: "Update prop holder", deletePropKey: "Delete holder keyframe",
++  noHumanoidPose: "This model can key position and orientation. Pose editing requires a compatible human rig.", saved: "Action project exported.",
++  opened: "Director project opened.", openFailed: "Unable to open the director project. Choose a valid JSON file no larger than 32 MiB.",
++} as const satisfies Record<keyof typeof zh, string>;
++
++export type ClipLabels = Record<keyof typeof zh, string>;
++
++export function motionClipLabels(english: boolean): ClipLabels {
++  return english ? en : zh;
++}
+diff --git a/src/editor/runtime/CharacterModel.tsx b/src/editor/runtime/CharacterModel.tsx
+index 82359f2..664785f 100644
+--- a/src/editor/runtime/CharacterModel.tsx
++++ b/src/editor/runtime/CharacterModel.tsx
+@@ -20,6 +20,7 @@ interface CharacterModelProps {
+   orientationCorrection?: [number, number, number];
+   runtimeMotion?: { duration: number; object: DirectorObject };
+   boneMap?: DirectorCharacterBoneMap;
++  clipPose?: boolean;
+ }
+ 
+ class CharacterModelBoundary extends Component<
+@@ -55,6 +56,7 @@ export function CharacterModel({
+   rigState,
+   runtimeMotion,
+   boneMap,
++  clipPose,
+ }: CharacterModelProps) {
+   const fallback = (
+     <PrimitiveMannequin
+@@ -62,6 +64,7 @@ export function CharacterModel({
+       color={color}
+       rigState={rigState}
+       runtimeMotion={runtimeMotion}
++      clipPose={clipPose}
+     />
+   );
+ 
+@@ -80,6 +83,7 @@ export function CharacterModel({
+           runtimeMotion={runtimeMotion}
+           boneMap={boneMap}
+           color={color}
++          clipPose={clipPose}
+         />
+       </CharacterModelBoundary>
+     );
+diff --git a/src/editor/runtime/ClipPropFollower.tsx b/src/editor/runtime/ClipPropFollower.tsx
+new file mode 100644
+index 0000000..d2ee5b4
+--- /dev/null
++++ b/src/editor/runtime/ClipPropFollower.tsx
+@@ -0,0 +1,91 @@
++import { useFrame } from "@react-three/fiber";
++import { useMemo, useRef, type MutableRefObject } from "react";
++import { Euler, Quaternion, Vector3, type Group, type Object3D } from "three";
++import type { DirectorTransform } from "../schema/directorProject";
++import type { MotionClipHolder } from "../schema/motionClip";
++import type { DirectorCharacterBoneMap } from "../schema/semanticBody";
++import {
++  DIRECTOR_CHARACTER_BONE_MAP_USER_DATA_KEY,
++  findSemanticBodyPartNode,
++  getDirectorObjectSceneNodeName,
++} from "./semanticBodyTracking";
++
++export const CLIP_PROP_VISUAL_CENTER_Y = "clipPropVisualCenterY";
++
++function isUnderOwner(node: Object3D, owner: Object3D) {
++  for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
++    if (ancestor === owner) return true;
++  }
++  return false;
++}
++
++export function createClipPropTransform() {
++  const center = new Vector3();
++  const rotation = new Quaternion();
++  const parentRotation = new Quaternion();
++  const gripRotation = new Quaternion();
++  const gripEuler = new Euler();
++  const visualOffset = new Vector3();
++
++  return (prop: Object3D, hand: Object3D, base: DirectorTransform, centerY: number, grip?: DirectorTransform) => {
++    const parent = prop.parent;
++    if (!parent) return;
++    center.set(0, 0, 0);
++    if (grip) center.fromArray(grip.position);
++    hand.localToWorld(center);
++    parent.worldToLocal(center);
++    parent.getWorldQuaternion(parentRotation).invert();
++    hand.getWorldQuaternion(rotation);
++    const [x, y, z] = grip?.rotation ?? base.rotation;
++    gripRotation.setFromEuler(gripEuler.set(x, y, z));
++    rotation.premultiply(parentRotation).multiply(gripRotation).normalize();
++    prop.scale.fromArray(base.scale);
++    if (grip) prop.scale.multiply(visualOffset.fromArray(grip.scale));
++    // Primitives and normalized imports sit on their origin. Grip their visual
++    // center, retaining the prop's authored size independently of the hand rig.
++    visualOffset.set(0, centerY * prop.scale.y, 0).applyQuaternion(rotation);
++    prop.position.copy(center).sub(visualOffset);
++    prop.quaternion.copy(rotation);
++    prop.updateMatrixWorld(true);
++  };
++}
++
++export function ClipPropFollower({
++  prop,
++  holder,
++  baseTransform,
++  visualCenterY,
++}: {
++  prop: MutableRefObject<Group>;
++  holder: MotionClipHolder;
++  baseTransform: DirectorTransform;
++  visualCenterY: number;
++}) {
++  const transformProp = useMemo(createClipPropTransform, []);
++  const saved = useRef<{ owner: Object3D; hand: Object3D; side: "left" | "right" } | null>(null);
++
++  useFrame(() => {
++    const object = prop.current;
++    if (!object) return;
++    const ownerName = getDirectorObjectSceneNodeName(holder.actorId);
++    const owner = object.parent?.children.find((child) => child.name === ownerName);
++    if (owner && (!saved.current || saved.current.owner !== owner
++      || saved.current.side !== holder.hand || !isUnderOwner(saved.current.hand, owner))) {
++      const boneMap = owner.userData[DIRECTOR_CHARACTER_BONE_MAP_USER_DATA_KEY] as DirectorCharacterBoneMap | undefined;
++      const hand = findSemanticBodyPartNode(owner, holder.hand === "left" ? "leftHand" : "rightHand", boneMap);
++      saved.current = hand ? { owner, hand, side: holder.hand } : null;
++    }
++    if (owner && saved.current?.owner === owner) {
++      const importedCenter = object.children.find((child) => child.userData[CLIP_PROP_VISUAL_CENTER_Y] != null)
++        ?.userData[CLIP_PROP_VISUAL_CENTER_Y] as number | undefined;
++      transformProp(object, saved.current.hand, baseTransform, importedCenter ?? visualCenterY, holder.offset);
++    } else {
++      // A hidden owner or model still loading can have no renderable palm yet.
++      object.position.fromArray(baseTransform.position);
++      object.rotation.set(...baseTransform.rotation);
++      object.scale.fromArray(baseTransform.scale);
++      object.updateMatrixWorld(true);
++    }
++  });
++  return null;
++}
+diff --git a/src/editor/runtime/MixamoCharacterModel.tsx b/src/editor/runtime/MixamoCharacterModel.tsx
+index 558606e..fb17a1f 100644
+--- a/src/editor/runtime/MixamoCharacterModel.tsx
++++ b/src/editor/runtime/MixamoCharacterModel.tsx
+@@ -18,8 +18,8 @@ import { clone as cloneSkeleton, retargetClip } from "three/examples/jsm/utils/S
+ import { getCharacterActionPreset } from "../presets/characterActionPresets";
+ import { getObjectMotionActionSample } from "../schema/objectMotion";
+ import type { CharacterRigState, DirectorModelFormat, DirectorObject } from "../schema/directorProject";
+-import type { DirectorCharacterBoneMap } from "../schema/semanticBody";
+-import { getSemanticBodyPartForBoneName } from "./semanticBodyTracking";
++import type { DirectorCharacterBoneMap, DirectorCharacterBonePart } from "../schema/semanticBody";
++import { findSemanticBodyPartNode, getSemanticBodyPartForBoneName } from "./semanticBodyTracking";
+ import { getRuntimePlaybackProgress } from "./playbackRuntime";
+ import { VIEWPORT_OBJECT_LABEL_VERTICAL_GAP } from "../schema/viewportLabels";
+ import { disposeIsolatedModelMaterials, isolateAndTintModelMaterials } from "./modelMaterialTint";
+@@ -36,6 +36,7 @@ interface MixamoCharacterModelProps {
+   runtimeMotion?: { duration: number; object: DirectorObject };
+   boneMap?: DirectorCharacterBoneMap;
+   color?: string;
++  clipPose?: boolean;
+ }
+ 
+ export interface ExternalCharacterAnimation {
+@@ -120,8 +121,22 @@ const BONE_MAP = {
+   rightHip: "mixamorig:RightUpLeg",
+   leftKnee: "mixamorig:LeftLeg",
+   rightKnee: "mixamorig:RightLeg",
++  leftFoot: "mixamorig:LeftFoot",
++  rightFoot: "mixamorig:RightFoot",
+ } as const;
+ 
++type Joint = keyof typeof BONE_MAP;
++
++const CLIP_SEMANTIC_JOINTS: [DirectorCharacterBonePart, Joint][] = [
++  ["waist", "body"], ["chest", "torso"], ["head", "head"],
++  ["leftUpperArm", "leftShoulder"], ["rightUpperArm", "rightShoulder"],
++  ["leftForearm", "leftElbow"], ["rightForearm", "rightElbow"],
++  ["leftHand", "leftHand"], ["rightHand", "rightHand"],
++  ["leftThigh", "leftHip"], ["rightThigh", "rightHip"],
++  ["leftCalf", "leftKnee"], ["rightCalf", "rightKnee"],
++  ["leftFoot", "leftFoot"], ["rightFoot", "rightFoot"],
++];
++
+ function degrees(value: number) {
+   return value * Math.PI / 180;
+ }
+@@ -353,9 +368,7 @@ export function prepareMixamoAnimationClip(
+   return clip;
+ }
+ 
+-function rotationForBone(name: string, controls: Record<string, number>): [number, number, number] | null {
+-  const normalizedName = getCanonicalHumanoidBoneName(name);
+-  const joint = Object.entries(BONE_MAP).find(([, bone]) => getCanonicalHumanoidBoneName(bone) === normalizedName)?.[0];
++function rotationForJoint(joint: Joint | undefined, controls: Record<string, number>): [number, number, number] | null {
+   if (!joint) return null;
+   const pitch = degrees(controls[`${joint}.pitch`] ?? controls[`${joint}.bend`] ?? 0);
+   const yaw = degrees(controls[`${joint}.yaw`] ?? controls[`${joint}.twist`] ?? 0);
+@@ -556,6 +569,7 @@ function LoadedMixamoCharacter({
+   rigState,
+   runtimeMotion,
+   onLabelAnchorYChange,
++  clipPose,
+ }: Omit<MixamoCharacterModelProps, "url"> & {
+   allowExternalAnimations?: boolean;
+   nativeActionClipNames?: NativeActionClipNames;
+@@ -586,6 +600,15 @@ function LoadedMixamoCharacter({
+       ),
+     };
+   }, [orientationCorrection, source]);
++  const clipJoints = useMemo(() => {
++    if (!clipPose) return null;
++    const mappedJoints = new Map<string, Joint>();
++    for (const [part, joint] of CLIP_SEMANTIC_JOINTS) {
++      const node = findSemanticBodyPartNode(scene, part, boneMap);
++      if (node && !mappedJoints.has(node.uuid)) mappedJoints.set(node.uuid, joint);
++    }
++    return mappedJoints;
++  }, [boneMap, clipPose, scene]);
+ 
+   useLayoutEffect(() => {
+     isolateAndTintModelMaterials(scene, color);
+@@ -602,11 +625,13 @@ function LoadedMixamoCharacter({
+     scene.traverse((object) => {
+       const rest = restPose.get(object.uuid);
+       if (!rest) return;
+-      const rotation = rotationForBone(object.name, controls);
++      const joint = clipJoints ? clipJoints.get(object.uuid) : (Object.keys(BONE_MAP) as Joint[])
++        .find((name) => getCanonicalHumanoidBoneName(BONE_MAP[name]) === getCanonicalHumanoidBoneName(object.name));
++      const rotation = rotationForJoint(joint, controls);
+       if (rotation) object.quaternion.multiply(new Quaternion().setFromEuler(new Euler(...rotation)));
+     });
+     onLabelAnchorYChange?.(1.8 + VIEWPORT_OBJECT_LABEL_VERTICAL_GAP + (controls["body.offsetY"] ?? 0));
+-  }, [animationUrl, externalAnimation, nativeClip, onLabelAnchorYChange, restPose, rigState?.controls, scene]);
++  }, [animationUrl, clipJoints, externalAnimation, nativeClip, onLabelAnchorYChange, restPose, rigState?.controls, scene]);
+ 
+   const preparedNativeClip = useMemo(
+     () => nativeClip?.clone() ?? null,
+diff --git a/src/editor/runtime/PrimitiveMannequin.tsx b/src/editor/runtime/PrimitiveMannequin.tsx
+index fefbeec..966d397 100644
+--- a/src/editor/runtime/PrimitiveMannequin.tsx
++++ b/src/editor/runtime/PrimitiveMannequin.tsx
+@@ -7,8 +7,9 @@ interface PrimitiveMannequinProps {
+   color?: string;
+   rigState?: CharacterRigState;
+   runtimeMotion?: { duration: number; object: DirectorObject };
++  clipPose?: boolean;
+ }
+ 
+-export function PrimitiveMannequin({ bodyType, color = "#4F8EF7", rigState, runtimeMotion }: PrimitiveMannequinProps) {
+-  return <ProceduralMannequin bodyType={bodyType} color={color} rigState={rigState} runtimeMotion={runtimeMotion} />;
++export function PrimitiveMannequin({ bodyType, color = "#4F8EF7", rigState, runtimeMotion, clipPose }: PrimitiveMannequinProps) {
++  return <ProceduralMannequin bodyType={bodyType} color={color} rigState={rigState} runtimeMotion={runtimeMotion} clipPose={clipPose} />;
+ }
+diff --git a/src/editor/runtime/__tests__/CharacterModel.test.tsx b/src/editor/runtime/__tests__/CharacterModel.test.tsx
+index 3648844..5e73698 100644
+--- a/src/editor/runtime/__tests__/CharacterModel.test.tsx
++++ b/src/editor/runtime/__tests__/CharacterModel.test.tsx
+@@ -9,8 +9,8 @@ vi.mock("../UE4MannequinModel", () => ({
+ }));
+ 
+ vi.mock("../PrimitiveMannequin", () => ({
+-  PrimitiveMannequin: ({ bodyType }: { bodyType?: string }) => (
+-    <div data-body-type={bodyType} data-testid="mock-procedural-mannequin" />
++  PrimitiveMannequin: ({ bodyType, clipPose }: { bodyType?: string; clipPose?: boolean }) => (
++    <div data-body-type={bodyType} data-clip-pose={clipPose} data-testid="mock-procedural-mannequin" />
+   ),
+ }));
+ 
+@@ -37,10 +37,11 @@ vi.mock("../MixamoCharacterModel", () => ({
+   ),
+ }));
+ 
+-it("renders the built-in UE4 mannequin for generated director characters", () => {
++it("renders the embedded procedural mannequin for the saved built-in rig identifier", () => {
+   render(
+     <CharacterModel
+       bodyType="female"
++      clipPose
+       rigState={{
+         rigType: "ue4-mannequin",
+         posePresetId: "stand",
+@@ -49,8 +50,10 @@ it("renders the built-in UE4 mannequin for generated director characters", () =>
+     />
+   );
+ 
+-  expect(screen.getByTestId("mock-ue4-mannequin")).toHaveAttribute("data-body-type", "female");
+-  expect(screen.queryByTestId("mock-procedural-mannequin")).not.toBeInTheDocument();
++  const mannequin = screen.getByTestId("mock-procedural-mannequin");
++  expect(mannequin).toHaveAttribute("data-body-type", "female");
++  expect(mannequin).toHaveAttribute("data-clip-pose", "true");
++  expect(screen.queryByTestId("mock-ue4-mannequin")).not.toBeInTheDocument();
+ });
+ 
+ it("keeps the procedural mannequin fallback for non-UE4 rigs", () => {
+diff --git a/src/editor/runtime/__tests__/ClipPropFollower.test.ts b/src/editor/runtime/__tests__/ClipPropFollower.test.ts
+new file mode 100644
+index 0000000..49e2e86
+--- /dev/null
++++ b/src/editor/runtime/__tests__/ClipPropFollower.test.ts
+@@ -0,0 +1,66 @@
++import { Group, Vector3 } from "three";
++import type { DirectorTransform } from "../../schema/directorProject";
++import { createClipPropTransform } from "../ClipPropFollower";
++
++const base: DirectorTransform = { position: [7, 0, 6], rotation: [0, 0, 0], scale: [0.28, 0.055, 0.15] };
++
++function handOf(scene: Group, x: number, armAngle: number) {
++  const actor = new Group();
++  const elbow = new Group();
++  const palm = new Group();
++  scene.add(actor);
++  actor.position.x = x;
++  actor.add(elbow);
++  elbow.position.set(0.28, 1.6, 0);
++  elbow.rotation.x = armAngle;
++  elbow.add(palm);
++  palm.position.set(0, -0.38, 0.06);
++  return { actor, elbow, palm };
++}
++
++it("anchors a single prop to its selected hand through arm and body changes in a transformed scene", () => {
++  const scene = new Group();
++  scene.position.set(8, -3, 6);
++  scene.rotation.y = 0.63;
++  scene.scale.setScalar(1.3);
++  const giver = handOf(scene, -0.65, -1.4);
++  const receiver = handOf(scene, 0.65, -1.1);
++  const prop = new Group();
++  scene.add(prop);
++  const apply = createClipPropTransform();
++  const center = () => prop.localToWorld(new Vector3(0, 0.5, 0));
++  const worldGrip = (hand: Group) => hand.getWorldPosition(new Vector3());
++
++  apply(prop, giver.palm, base, 0.5);
++  const start = center();
++  expect(start.distanceTo(worldGrip(giver.palm))).toBeLessThan(1e-7);
++  giver.actor.rotation.y = 0.3;
++  giver.elbow.rotation.x = -1.8;
++  apply(prop, giver.palm, base, 0.5);
++  expect(center().distanceTo(start)).toBeGreaterThan(0.1);
++  expect(center().distanceTo(worldGrip(giver.palm))).toBeLessThan(1e-7);
++
++  apply(prop, receiver.palm, base, 0.5);
++  expect(center().distanceTo(worldGrip(receiver.palm))).toBeLessThan(1e-7);
++  expect(center().distanceTo(worldGrip(giver.palm))).toBeGreaterThan(0.3);
++  expect(scene.children.filter((child) => child === prop)).toHaveLength(1);
++  expect(prop.scale.toArray()).toEqual(base.scale);
++  // Re-evaluating a time or seeking back uses the same palm/world transform.
++  const afterSwitch = center();
++  apply(prop, giver.palm, base, 0.5);
++  apply(prop, receiver.palm, base, 0.5);
++  expect(center().distanceTo(afterSwitch)).toBeLessThan(1e-7);
++});
++
++it("supports an explicitly authored offset in the holder's hand space", () => {
++  const scene = new Group();
++  const { palm } = handOf(scene, 1.5, -1.2);
++  const prop = new Group();
++  scene.add(prop);
++  const grip: DirectorTransform = { position: [0, 0.07, 0.015], rotation: [0.15, 0.25, 0], scale: [2, 1, 0.5] };
++  createClipPropTransform()(prop, palm, base, 0.5, grip);
++  const gripPosition = palm.localToWorld(new Vector3(...grip.position));
++  const center = prop.localToWorld(new Vector3(0, 0.5, 0));
++  expect(center.distanceTo(gripPosition)).toBeLessThan(1e-7);
++  expect(prop.scale.toArray()).toEqual([0.56, 0.055, 0.075]);
++});
+diff --git a/src/editor/runtime/mannequin/ProceduralMannequin.tsx b/src/editor/runtime/mannequin/ProceduralMannequin.tsx
+index d059f20..b3f29ac 100644
+--- a/src/editor/runtime/mannequin/ProceduralMannequin.tsx
++++ b/src/editor/runtime/mannequin/ProceduralMannequin.tsx
+@@ -13,6 +13,7 @@ interface ProceduralMannequinProps {
+   color?: string;
+   rigState?: CharacterRigState;
+   runtimeMotion?: { duration: number; object: DirectorObject };
++  clipPose?: boolean;
+ }
+ 
+ function clampDegrees(value: number, bodyType?: CharacterBodyType) {
+@@ -32,7 +33,7 @@ function getLimbRotation(
+   ];
+ }
+ 
+-export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, runtimeMotion }: ProceduralMannequinProps) {
++export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, runtimeMotion, clipPose }: ProceduralMannequinProps) {
+   const preset = getBodyPreset(bodyType);
+   const controls = rigState?.controls ?? {};
+   const p = preset.proportions;
+@@ -105,7 +106,13 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+   }), [controls, preset.bodyType, runtimeMotion]);
+ 
+   return (
+-    <group ref={bodyRef} name={`procedural-${preset.bodyType}`} rotation={bodyRotation} scale={preset.defaultScale}>
++    <group
++      ref={bodyRef}
++      name={`procedural-${preset.bodyType}`}
++      position={[0, clipPose ? controls["body.offsetY"] ?? 0 : 0, 0]}
++      rotation={bodyRotation}
++      scale={preset.defaultScale}
++    >
+       <mesh name="humanoid-pelvis" position={[0, p.hipY, 0]} scale={p.pelvisScale}>
+         <sphereGeometry args={[p.pelvisRadius, 24, 20]} />
+         <HumanoidMaterial color={color} />
+@@ -159,7 +166,9 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+               radius={p.forearmRadius}
+             />
+             <Joint color={color} name="humanoid-left-wrist-joint" position={[0, wristY, 0]} radius={p.wristRadius} scale={jointScale} />
+-            <Hand color={color} position={[0, handY, 0.02]} radius={p.handRadius} scale={p.handScale} side="left" />
++            <group name="humanoid-left-wrist-pivot" position={[0, wristY, 0]} rotation={getRotationFromControls(controls, "leftHand", preset.bodyType)}>
++              <Hand color={color} position={[0, handY - wristY, 0.02]} radius={p.handRadius} scale={p.handScale} side="left" />
++            </group>
+           </group>
+         </group>
+ 
+@@ -181,7 +190,9 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+               radius={p.forearmRadius}
+             />
+             <Joint color={color} name="humanoid-right-wrist-joint" position={[0, wristY, 0]} radius={p.wristRadius} scale={jointScale} />
+-            <Hand color={color} position={[0, handY, 0.02]} radius={p.handRadius} scale={p.handScale} side="right" />
++            <group name="humanoid-right-wrist-pivot" position={[0, wristY, 0]} rotation={getRotationFromControls(controls, "rightHand", preset.bodyType)}>
++              <Hand color={color} position={[0, handY - wristY, 0.02]} radius={p.handRadius} scale={p.handScale} side="right" />
++            </group>
+           </group>
+         </group>
+       </group>
+@@ -207,7 +218,9 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+             radius={p.calfRadius}
+           />
+           <Joint color={color} name="humanoid-left-ankle-joint" position={[0, ankleY, 0]} radius={p.ankleRadius} scale={jointScale} />
+-          <Foot color={color} length={p.footLength} position={[0, footY, p.footRadius * 0.74]} radius={p.footRadius} scale={p.footScale} side="left" />
++          <group name="humanoid-left-ankle-pivot" position={[0, ankleY, 0]} rotation={getRotationFromControls(controls, "leftFoot", preset.bodyType)}>
++            <Foot color={color} length={p.footLength} position={[0, footY - ankleY, p.footRadius * 0.74]} radius={p.footRadius} scale={p.footScale} side="left" />
++          </group>
+         </group>
+       </group>
+ 
+@@ -229,7 +242,9 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+             radius={p.calfRadius}
+           />
+           <Joint color={color} name="humanoid-right-ankle-joint" position={[0, ankleY, 0]} radius={p.ankleRadius} scale={jointScale} />
+-          <Foot color={color} length={p.footLength} position={[0, footY, p.footRadius * 0.74]} radius={p.footRadius} scale={p.footScale} side="right" />
++          <group name="humanoid-right-ankle-pivot" position={[0, ankleY, 0]} rotation={getRotationFromControls(controls, "rightFoot", preset.bodyType)}>
++            <Foot color={color} length={p.footLength} position={[0, footY - ankleY, p.footRadius * 0.74]} radius={p.footRadius} scale={p.footScale} side="right" />
++          </group>
+         </group>
+       </group>
+     </group>
+diff --git a/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx b/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx
+index 6da267d..a92becc 100644
+--- a/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx
++++ b/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx
+@@ -19,10 +19,10 @@ function vector(attribute: string | null, fallback: [number, number, number]) {
+   return values ?? fallback;
+ }
+ 
+-function readMeshes(body: CharacterBodyType, controls: Record<string, number>) {
++function readMeshes(body: CharacterBodyType, controls: Record<string, number>, clipPose = false) {
+   const scene = document.createElement("div");
+   scene.innerHTML = renderToStaticMarkup(
+-    <ProceduralMannequin bodyType={body} rigState={{ rigType: "mannequin", posePresetId: "stand", controls }} />
++    <ProceduralMannequin bodyType={body} rigState={{ rigType: "mannequin", posePresetId: "stand", controls }} clipPose={clipPose} />
+   );
+   const meshes = new Map<string, Mesh>();
+ 
+@@ -119,6 +119,24 @@ it("keeps the pelvis in the same body frame when the torso bends and turns", ()
+     .toBeGreaterThan(0.1);
+ });
+ 
++it("applies a clip's body offset and wrist and ankle controls around their joint centers", () => {
++  const rest = readMeshes("mannequin", {});
++  const pose = readMeshes("mannequin", {
++    "body.offsetY": 0.35,
++    "rightHand.pitch": 45,
++    "leftFoot.yaw": 40,
++  }, true);
++  for (const joint of ["pelvis", "right-wrist-joint", "left-ankle-joint"]) {
++    const name = `humanoid-${joint}`;
++    const offset = pose.get(name)!.center.clone().sub(rest.get(name)!.center);
++    expect(offset.distanceTo(new Vector3(0, 0.35, 0))).toBeLessThan(1e-6);
++  }
++  for (const name of ["humanoid-right-hand", "humanoid-left-foot"]) {
++    const position = pose.get(name)!.center.clone().sub(new Vector3(0, 0.35, 0));
++    expect(position.distanceTo(rest.get(name)!.center)).toBeGreaterThan(0.04);
++  }
++});
++
+ it.each(BODY_TYPE_OPTIONS.map(({ bodyType }) => bodyType))(
+   "keeps every %s joint connected in stored poses and sampled motion",
+   (body) => {
+diff --git a/src/editor/runtime/motionClipSession.ts b/src/editor/runtime/motionClipSession.ts
+new file mode 100644
+index 0000000..dbd0f1a
+--- /dev/null
++++ b/src/editor/runtime/motionClipSession.ts
+@@ -0,0 +1,51 @@
++import { create } from "zustand";
++import type { DirectorTransform } from "../schema/directorProject";
++
++export interface MotionClipActorDraft {
++  actorId: string;
++  transform: DirectorTransform;
++  controls: Record<string, number>;
++}
++
++interface MotionClipSession {
++  active: boolean;
++  time: number;
++  playing: boolean;
++  loop: boolean;
++  selectedActorId: string | null;
++  draftActor: MotionClipActorDraft | null;
++  open: (actorId: string | null) => void;
++  close: () => void;
++  seek: (time: number) => void;
++  selectActor: (actorId: string | null) => void;
++  setDraftActor: (draft: MotionClipActorDraft | null) => void;
++  togglePlayback: (duration: number) => void;
++  setLoop: (loop: boolean) => void;
++  advance: (seconds: number, duration: number) => void;
++}
++
++export const useMotionClipSession = create<MotionClipSession>((set, get) => ({
++  active: false,
++  time: 0,
++  playing: false,
++  loop: true,
++  selectedActorId: null,
++  draftActor: null,
++  open: (selectedActorId) => set({ active: true, time: 0, playing: false, selectedActorId, draftActor: null }),
++  close: () => set({ active: false, time: 0, playing: false, selectedActorId: null, draftActor: null }),
++  seek: (time) => set({ time, playing: false, draftActor: null }),
++  selectActor: (selectedActorId) => set({ selectedActorId, playing: false, draftActor: null }),
++  setDraftActor: (draftActor) => set({ draftActor, playing: false }),
++  togglePlayback: (duration) => {
++    const { playing, time } = get();
++    set(playing ? { playing: false } : { time: time >= duration ? 0 : time, playing: true, draftActor: null });
++  },
++  setLoop: (loop) => set({ loop }),
++  advance: (seconds, duration) => {
++    const { playing, time, loop } = get();
++    if (!playing) return;
++    const nextTime = time + seconds;
++    set(nextTime < duration ? { time: nextTime }
++      : loop ? { time: nextTime % duration } : { time: duration, playing: false });
++  },
++}));
+diff --git a/src/editor/schema/__tests__/motionClip.test.ts b/src/editor/schema/__tests__/motionClip.test.ts
+new file mode 100644
+index 0000000..80c5ba3
+--- /dev/null
++++ b/src/editor/schema/__tests__/motionClip.test.ts
+@@ -0,0 +1,168 @@
++import { Euler, Quaternion, Vector3 } from "three";
++import { afterEach, it, expect, vi } from "vitest";
++import { parseProject } from "../../io/importProjectJson";
++import { serializeProject } from "../../io/exportProjectJson";
++import { createDefaultDirectorProject, useDirectorStore } from "../../store/directorStore";
++import type { DirectorObject, DirectorTransform } from "../directorProject";
++import {
++  createMotionClip,
++  normalizeMotionClip,
++  normalizeMotionClipTime,
++  removeMotionActorFrame,
++  removeMotionPropFrame,
++  resizeMotionClip,
++  sampleMotionActor,
++  sampleMotionProp,
++  upsertMotionActorFrame,
++  upsertMotionPropFrame,
++  type MotionClipActorKeyframe,
++} from "../motionClip";
++
++const radians = (degrees: number) => degrees * Math.PI / 180;
++
++function transform(x: number, yaw = 0): DirectorTransform {
++  return { position: [x, 0, 0], rotation: [0, radians(yaw), 0], scale: [1, 1, 1] };
++}
++
++function actorFrame(
++  id: string,
++  time: number,
++  x: number,
++  yaw = 0,
++  controls: Record<string, number> = {},
++  interpolation: MotionClipActorKeyframe["interpolation"] = "linear"
++): MotionClipActorKeyframe {
++  return { id, time, transform: transform(x, yaw), controls, interpolation };
++}
++
++function scene() {
++  const project = createDefaultDirectorProject();
++  const first = project.objects.find((item) => item.kind === "character")!;
++  const second: DirectorObject = { ...first, id: "receiver", name: "Receiver", transform: transform(2, 180) };
++  const envelope: DirectorObject = {
++    id: "envelope", name: "Envelope", kind: "prop", visible: true, locked: false,
++    transform: transform(0), geometryType: "box",
++  };
++  project.objects.push(second, envelope);
++  return { project, first, second, envelope };
++}
++
++afterEach(() => vi.unstubAllGlobals());
++
++it("holds and blends a single actor's full pose and rotates along the short arc", () => {
++  let clip = createMotionClip();
++  clip = upsertMotionActorFrame(clip, "actor", actorFrame("start", 0, 0, 170, { "head.yaw": 12 }));
++  clip = upsertMotionActorFrame(clip, "actor", actorFrame("raised", 2, 2, -170, {
++    "leftShoulder.pitch": -80, "body.offsetY": -.4,
++  }, "hold"));
++  clip = upsertMotionActorFrame(clip, "actor", actorFrame("finish", 5, 3, -170, { "head.yaw": 24 }));
++  const middle = sampleMotionActor(clip, "actor", 1)!;
++  expect(middle.transform.position).toEqual([1, 0, 0]);
++  expect(middle.controls).toEqual({ "head.yaw": 6, "leftShoulder.pitch": -40, "body.offsetY": -.2 });
++  const facing = new Vector3(0, 0, 1).applyQuaternion(new Quaternion().setFromEuler(new Euler(...middle.transform.rotation)));
++  expect(facing.z).toBeCloseTo(-1);
++  expect(sampleMotionActor(clip, "actor", 4.999)).toEqual(sampleMotionActor(clip, "actor", 2));
++  expect(sampleMotionActor(clip, "actor", 5)?.controls).toEqual({ "head.yaw": 24 });
++  expect(sampleMotionActor(clip, "another", 3)).toBeUndefined();
++});
++
++it("changes an envelope's holder once while two independent actor tracks keep evaluating", () => {
++  const { first, second, envelope } = scene();
++  let clip = createMotionClip();
++  clip = upsertMotionActorFrame(clip, first.id, actorFrame("giver-start", 0, -1, 80));
++  clip = upsertMotionActorFrame(clip, first.id, actorFrame("giver-reach", 1.5, -.5, 80, { "rightElbow.bend": 55 }));
++  clip = upsertMotionActorFrame(clip, first.id, actorFrame("giver-out", 5, -1, 80));
++  clip = upsertMotionActorFrame(clip, second.id, actorFrame("receiver-seated", 0, 1, -80, { "leftHip.pitch": 80 }));
++  clip = upsertMotionActorFrame(clip, second.id, actorFrame("receiver-arrival", 3, 1, -80, { "leftElbow.bend": 68 }));
++  const giving = { actorId: first.id, hand: "right" as const };
++  const receiving = { actorId: second.id, hand: "left" as const };
++  clip = upsertMotionPropFrame(clip, envelope.id, { id: "initial", time: 0, holder: giving });
++  clip = upsertMotionPropFrame(clip, envelope.id, { id: "handoff", time: 3, holder: receiving });
++  expect([0, 1.5, 2.999, 3, 5].map((time) => sampleMotionProp(clip, envelope.id, time))).toEqual([
++    giving, giving, giving, receiving, receiving,
++  ]);
++  expect(sampleMotionActor(clip, first.id, 3)?.transform.position[0]).toBeCloseTo(-.7142857);
++  expect(sampleMotionActor(clip, second.id, 3)?.controls).toEqual({ "leftElbow.bend": 68 });
++  const afterUnbind = upsertMotionPropFrame(clip, envelope.id, { id: "put-down", time: 4, holder: null });
++  expect(sampleMotionProp(afterUnbind, envelope.id, 3.999)).toEqual(receiving);
++  expect(sampleMotionProp(afterUnbind, envelope.id, 4)).toBeNull();
++  expect(sampleMotionProp(afterUnbind, "no-track", 4)).toBeUndefined();
++});
++
++it("keeps stable key IDs through move, copy, replace, remove, and duration edits", () => {
++  let clip = createMotionClip(20);
++  expect(clip.duration).toBe(5);
++  expect(normalizeMotionClipTime(1.23472, 5)).toBe(1.235);
++  const first = actorFrame("original", 0, 0);
++  clip = upsertMotionActorFrame(clip, "actor", first);
++  clip = upsertMotionActorFrame(clip, "actor", { ...first, id: "copy", time: 3 });
++  clip = upsertMotionActorFrame(clip, "actor", actorFrame("copy", 2, 2));
++  expect(clip.actorTracks[0].keyframes.map(({ id, time }) => [id, time])).toEqual([["original", 0], ["copy", 2]]);
++  clip = upsertMotionActorFrame(clip, "actor", actorFrame("replacement", 2, 5));
++  expect(clip.actorTracks[0].keyframes.map(({ id }) => id)).toEqual(["original", "replacement"]);
++  clip = upsertMotionPropFrame(clip, "prop", { id: "held", time: 2, holder: { actorId: "actor", hand: "left" } });
++  expect(resizeMotionClip(clip, 1)).toEqual({
++    duration: 1, actorTracks: [{ actorId: "actor", keyframes: [first] }], propTracks: [],
++  });
++  expect(removeMotionPropFrame(clip, "prop", "held").propTracks).toEqual([]);
++  clip = removeMotionActorFrame(removeMotionActorFrame(clip, "actor", "original"), "actor", "replacement");
++  expect(clip.actorTracks).toEqual([]);
++});
++
++it("normalizes imported tracks without breaking legacy projects, rejects invalid keys and clears stale owners", () => {
++  const { project, first, second, envelope } = scene();
++  expect(normalizeMotionClip(undefined, project.objects)).toBeUndefined();
++  const original = actorFrame("valid", 1, 0, 0, { "rightHand.pitch": 25, "rightFoot.yaw": 12, "body.offsetY": -.4 });
++  const clip = normalizeMotionClip({ duration: 5, actorTracks: [
++    { actorId: first.id, keyframes: [original, actorFrame("future", 6, 0), actorFrame("nan", 1, NaN)] },
++    { actorId: envelope.id, keyframes: [actorFrame("wrong-type", 0, 0)] },
++    { actorId: "missing", keyframes: [actorFrame("orphan", 0, 0)] },
++  ], propTracks: [
++    { propId: envelope.id, keyframes: [
++      { id: "first", time: 0, holder: { actorId: first.id, hand: "right", offset: transform(.05) } },
++      { id: "gone", time: 3, holder: { actorId: "deleted", hand: "left" } },
++      { id: "new", time: 4, holder: { actorId: second.id, hand: "left" } },
++    ] },
++  ] }, project.objects)!;
++  expect(clip.actorTracks).toEqual([{ actorId: first.id, keyframes: [original] }]);
++  expect(sampleMotionProp(clip, envelope.id, 2)?.offset?.position).toEqual([.05, 0, 0]);
++  expect(sampleMotionProp(clip, envelope.id, 3)).toBeNull();
++  expect(sampleMotionProp(clip, envelope.id, 4)).toEqual({ actorId: second.id, hand: "left" });
++});
++
++it("persists keyframes through save, reopen and undo without changing the ordinary camera or rest pose", () => {
++  const storage = new Map<string, string>();
++  vi.stubGlobal("localStorage", {
++    getItem: (key: string) => storage.get(key) ?? null,
++    setItem: (key: string, value: string) => storage.set(key, value),
++  });
++  const store = useDirectorStore.getState;
++  store().openScopedScene("motion-clip-roundtrip");
++  const { project, first, second, envelope } = scene();
++  const legacy = parseProject(JSON.stringify(project));
++  store().replaceProject(legacy);
++  expect("motionClip" in store().project).toBe(false);
++  let clip = upsertMotionActorFrame(createMotionClip(), first.id, actorFrame("start", 0, 2, 90));
++  clip = upsertMotionPropFrame(clip, envelope.id, { id: "handoff", time: 3, holder: { actorId: second.id, hand: "left" } });
++  const cameras = JSON.stringify(store().project.cameras);
++  const objects = JSON.stringify(store().project.objects);
++  store().setMotionClip(clip);
++  const persisted = JSON.stringify(store().project.motionClip);
++  store().setMotionClip(resizeMotionClip(clip, 2));
++  store().undo();
++  expect(JSON.stringify(store().project.motionClip)).toBe(persisted);
++  const file = serializeProject(store().project);
++  store().openScopedScene("motion-clip-roundtrip");
++  expect(JSON.stringify(store().project.motionClip)).toBe(persisted);
++  store().replaceProject(parseProject(file));
++  expect(JSON.stringify(store().project.motionClip)).toBe(persisted);
++  expect(JSON.stringify(store().project.cameras)).toBe(cameras);
++  expect(JSON.stringify(store().project.objects)).toBe(objects);
++  store().selectObject(second.id);
++  store().deleteSelectedObject();
++  expect(sampleMotionProp(store().project.motionClip, envelope.id, 4)).toBeNull();
++  store().undo();
++  expect(sampleMotionProp(store().project.motionClip, envelope.id, 4)).toEqual({ actorId: second.id, hand: "left" });
++  store().setMotionClip(undefined);
++  expect("motionClip" in store().project).toBe(false);
++});
+diff --git a/src/editor/schema/directorProject.ts b/src/editor/schema/directorProject.ts
+index fe7ad1b..c57756c 100644
+--- a/src/editor/schema/directorProject.ts
++++ b/src/editor/schema/directorProject.ts
+@@ -3,6 +3,7 @@ import type {
+   DirectorCameraTargetBodyPart,
+   DirectorCameraTargetFollowMode,
+ } from "./semanticBody";
++import type { MotionClip } from "./motionClip";
+ 
+ export type ViewMode = "director" | "camera";
+ export type RightPanelKind = "scene" | "character" | "prop" | "camera";
+@@ -216,4 +217,5 @@ export interface DirectorProject {
+   cameras: DirectorCameraShot[];
+   activeCameraId: string | null;
+   panoramaAssetId: string | null;
++  motionClip?: MotionClip;
+ }
+diff --git a/src/editor/schema/motionClip.ts b/src/editor/schema/motionClip.ts
+new file mode 100644
+index 0000000..594fec5
+--- /dev/null
++++ b/src/editor/schema/motionClip.ts
+@@ -0,0 +1,277 @@
++import { Euler, Quaternion } from "three";
++import type { DirectorObject, DirectorTransform } from "./directorProject";
++
++export const MIN_MOTION_CLIP_SECONDS = 0.1;
++export const MAX_MOTION_CLIP_SECONDS = 5;
++
++export interface MotionClipActorPose {
++  transform: DirectorTransform;
++  controls: Record<string, number>;
++}
++
++export interface MotionClipActorKeyframe extends MotionClipActorPose {
++  id: string;
++  time: number;
++  /** How this frame changes into the next one on the same actor's track. */
++  interpolation: "linear" | "hold";
++}
++
++export interface MotionClipHolder {
++  actorId: string;
++  hand: "left" | "right";
++  /** Optional placement in the holder's hand coordinates. */
++  offset?: DirectorTransform;
++}
++
++export interface MotionClipPropKeyframe {
++  id: string;
++  time: number;
++  holder: MotionClipHolder | null;
++}
++
++export interface MotionClipActorTrack {
++  actorId: string;
++  keyframes: MotionClipActorKeyframe[];
++}
++
++export interface MotionClipPropTrack {
++  propId: string;
++  keyframes: MotionClipPropKeyframe[];
++}
++
++export interface MotionClip {
++  duration: number;
++  actorTracks: MotionClipActorTrack[];
++  propTracks: MotionClipPropTrack[];
++}
++
++type Frame = { id: string; time: number };
++type Vector = DirectorTransform["position"];
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return value !== null && typeof value === "object" && !Array.isArray(value);
++}
++
++function isNumber(value: unknown): value is number {
++  return typeof value === "number" && Number.isFinite(value);
++}
++
++function isId(value: unknown): value is string {
++  return typeof value === "string" && value.trim().length > 0;
++}
++
++function normalizeDuration(value: unknown) {
++  const duration = isNumber(value) ? value : MAX_MOTION_CLIP_SECONDS;
++  return Math.round(Math.max(MIN_MOTION_CLIP_SECONDS, Math.min(duration, MAX_MOTION_CLIP_SECONDS)) * 1000) / 1000;
++}
++
++export function normalizeMotionClipTime(time: number, duration = MAX_MOTION_CLIP_SECONDS) {
++  const value = isNumber(time) ? time : 0;
++  return Math.round(Math.max(0, Math.min(value, normalizeDuration(duration))) * 1000) / 1000;
++}
++
++export function createMotionClip(duration = MAX_MOTION_CLIP_SECONDS): MotionClip {
++  return { duration: normalizeDuration(duration), actorTracks: [], propTracks: [] };
++}
++
++function vector(value: unknown): Vector | undefined {
++  if (!Array.isArray(value) || value.length !== 3) return undefined;
++  const [x, y, z] = value;
++  return isNumber(x) && isNumber(y) && isNumber(z) ? [x, y, z] : undefined;
++}
++
++function transform(value: unknown): DirectorTransform | undefined {
++  if (!isRecord(value)) return undefined;
++  const position = vector(value.position);
++  const rotation = vector(value.rotation);
++  const scale = vector(value.scale);
++  return position && rotation && scale ? { position, rotation, scale } : undefined;
++}
++
++function frameHeader(value: Record<string, unknown>, duration: number): Frame | undefined {
++  if (!isId(value.id) || !isNumber(value.time) || value.time < 0 || value.time > duration) return undefined;
++  return { id: value.id, time: normalizeMotionClipTime(value.time, duration) };
++}
++
++function uniqueFrames<T extends Frame>(frames: T[]): T[] {
++  const byId = new Map<string, T>();
++  const byTime = new Map<number, T>();
++  for (const frame of frames) {
++    const sameId = byId.get(frame.id);
++    const sameTime = byTime.get(frame.time);
++    if (sameId) byTime.delete(sameId.time);
++    if (sameTime) byId.delete(sameTime.id);
++    byId.set(frame.id, frame);
++    byTime.set(frame.time, frame);
++  }
++  return [...byTime.values()].sort((a, b) => a.time - b.time);
++}
++
++function parseTracks<T extends Frame>(
++  value: unknown,
++  trackId: "actorId" | "propId",
++  allowed: Set<string>,
++  parse: (frame: Record<string, unknown>) => T | undefined
++): Map<string, T[]> {
++  const tracks = new Map<string, T[]>();
++  if (!Array.isArray(value)) return tracks;
++  for (const track of value) {
++    if (!isRecord(track) || !Array.isArray(track.keyframes)) continue;
++    const id = track[trackId];
++    if (!isId(id) || !allowed.has(id)) continue;
++    const frames = tracks.get(id) ?? [];
++    for (const raw of track.keyframes) {
++      const frame = isRecord(raw) ? parse(raw) : undefined;
++      if (frame) frames.push(frame);
++    }
++    if (frames.length) tracks.set(id, frames);
++  }
++  return tracks;
++}
++
++export function normalizeMotionClip(value: unknown, objects: readonly DirectorObject[]): MotionClip | undefined {
++  if (!isRecord(value)) return undefined;
++  const duration = normalizeDuration(value.duration);
++  const actors = new Set(objects.filter((item) => item.kind === "character").map((item) => item.id));
++  const props = new Set(objects.filter((item) => item.kind === "prop").map((item) => item.id));
++  const actorTracks = parseTracks<MotionClipActorKeyframe>(value.actorTracks, "actorId", actors, (raw) => {
++    const frame = frameHeader(raw, duration);
++    const baseTransform = transform(raw.transform);
++    if (!frame || !baseTransform) return undefined;
++    const controls = isRecord(raw.controls)
++      ? Object.fromEntries(Object.entries(raw.controls).filter(
++          (entry): entry is [string, number] => /^[a-z]+\.[a-z]+$/i.test(entry[0]) && isNumber(entry[1])))
++      : {};
++    return {
++      ...frame,
++      transform: baseTransform,
++      controls,
++      interpolation: raw.interpolation === "hold" ? "hold" : "linear",
++    };
++  });
++  const propTracks = parseTracks<MotionClipPropKeyframe>(value.propTracks, "propId", props, (raw) => {
++    const frame = frameHeader(raw, duration);
++    if (!frame) return undefined;
++    if (raw.holder === null) return { ...frame, holder: null };
++    if (!isRecord(raw.holder)) return undefined;
++    const { actorId, hand } = raw.holder;
++    if (!isId(actorId) || (hand !== "left" && hand !== "right")) return undefined;
++    if (!actors.has(actorId)) return { ...frame, holder: null };
++    const offset = transform(raw.holder.offset);
++    return { ...frame, holder: { actorId, hand, ...(offset && { offset }) } };
++  });
++  return {
++    duration,
++    actorTracks: [...actorTracks].map(([actorId, frames]) => ({ actorId, keyframes: uniqueFrames(frames) })),
++    propTracks: [...propTracks].map(([propId, frames]) => ({ propId, keyframes: uniqueFrames(frames) })),
++  };
++}
++
++function insertFrame<T extends Frame>(keyframes: T[], frame: T, duration: number) {
++  const time = normalizeMotionClipTime(frame.time, duration);
++  return [...keyframes.filter((key) => key.id !== frame.id && key.time !== time), { ...frame, time }]
++    .sort((a, b) => a.time - b.time);
++}
++
++export function upsertMotionActorFrame(clip: MotionClip, actorId: string, frame: MotionClipActorKeyframe): MotionClip {
++  const current = clip.actorTracks.find((track) => track.actorId === actorId);
++  const updated = { actorId, keyframes: insertFrame(current?.keyframes ?? [], frame, clip.duration) };
++  const actorTracks = current
++    ? clip.actorTracks.map((track) => track === current ? updated : track)
++    : [...clip.actorTracks, updated];
++  return { ...clip, actorTracks };
++}
++
++export function upsertMotionPropFrame(clip: MotionClip, propId: string, frame: MotionClipPropKeyframe): MotionClip {
++  const current = clip.propTracks.find((track) => track.propId === propId);
++  const updated = { propId, keyframes: insertFrame(current?.keyframes ?? [], frame, clip.duration) };
++  const propTracks = current
++    ? clip.propTracks.map((track) => track === current ? updated : track)
++    : [...clip.propTracks, updated];
++  return { ...clip, propTracks };
++}
++
++export function removeMotionActorFrame(clip: MotionClip, actorId: string, id: string): MotionClip {
++  const actorTracks = clip.actorTracks.map((track) => track.actorId === actorId
++    ? { ...track, keyframes: track.keyframes.filter((frame) => frame.id !== id) }
++    : track).filter((track) => track.keyframes.length > 0);
++  return { ...clip, actorTracks };
++}
++
++export function removeMotionPropFrame(clip: MotionClip, propId: string, id: string): MotionClip {
++  const propTracks = clip.propTracks.map((track) => track.propId === propId
++    ? { ...track, keyframes: track.keyframes.filter((frame) => frame.id !== id) }
++    : track).filter((track) => track.keyframes.length > 0);
++  return { ...clip, propTracks };
++}
++
++export function resizeMotionClip(clip: MotionClip, duration: number): MotionClip {
++  const nextDuration = normalizeDuration(duration);
++  const actorTracks = clip.actorTracks.map((track) => ({
++    ...track, keyframes: track.keyframes.filter((frame) => frame.time <= nextDuration),
++  })).filter((track) => track.keyframes.length > 0);
++  const propTracks = clip.propTracks.map((track) => ({
++    ...track, keyframes: track.keyframes.filter((frame) => frame.time <= nextDuration),
++  })).filter((track) => track.keyframes.length > 0);
++  return { duration: nextDuration, actorTracks, propTracks };
++}
++
++function nextFrameIndex(frames: Frame[], time: number) {
++  let lower = 0;
++  let upper = frames.length;
++  while (lower < upper) {
++    const middle = Math.floor((lower + upper) / 2);
++    if (frames[middle].time <= time) lower = middle + 1;
++    else upper = middle;
++  }
++  return lower;
++}
++
++function interpolate(from: number, to: number, progress: number) {
++  return from * (1 - progress) + to * progress;
++}
++
++function interpolateVector(from: Vector, to: Vector, progress: number): Vector {
++  return [interpolate(from[0], to[0], progress), interpolate(from[1], to[1], progress),
++    interpolate(from[2], to[2], progress)];
++}
++
++function interpolateRotation(from: Vector, to: Vector, progress: number): Vector {
++  if (from.every((angle, axis) => angle === to[axis])) return from;
++  const start = new Quaternion().setFromEuler(new Euler(...from));
++  const end = new Quaternion().setFromEuler(new Euler(...to));
++  const result = new Euler().setFromQuaternion(start.slerp(end, progress));
++  return [result.x, result.y, result.z];
++}
++
++export function sampleMotionActor(clip: MotionClip | undefined, actorId: string, time: number): MotionClipActorPose | undefined {
++  const frames = clip?.actorTracks.find((track) => track.actorId === actorId)?.keyframes;
++  if (!frames?.length) return undefined;
++  const current = isNumber(time) ? time : 0;
++  const nextIndex = nextFrameIndex(frames, current);
++  const previous = frames[Math.max(0, nextIndex - 1)];
++  const next = frames[nextIndex];
++  if (nextIndex === 0 || !next || previous.interpolation === "hold" || current === previous.time) {
++    return { transform: previous.transform, controls: previous.controls };
++  }
++  const progress = (current - previous.time) / (next.time - previous.time);
++  const { transform: from, controls: startPose } = previous;
++  const { transform: to, controls: endPose } = next;
++  const jointKeys = new Set([...Object.keys(startPose), ...Object.keys(endPose)]);
++  return {
++    transform: {
++      position: interpolateVector(from.position, to.position, progress),
++      rotation: interpolateRotation(from.rotation, to.rotation, progress),
++      scale: interpolateVector(from.scale, to.scale, progress),
++    },
++    controls: Object.fromEntries([...jointKeys].map((key) => [
++      key, interpolate(startPose[key] ?? 0, endPose[key] ?? 0, progress),
++    ])),
++  };
++}
++
++export function sampleMotionProp(clip: MotionClip | undefined, propId: string, time: number): MotionClipHolder | null | undefined {
++  const frames = clip?.propTracks.find((track) => track.propId === propId)?.keyframes;
++  if (!frames?.length) return undefined;
++  return frames[nextFrameIndex(frames, isNumber(time) ? time : 0) - 1]?.holder;
++}
+diff --git a/src/editor/store/directorStore.ts b/src/editor/store/directorStore.ts
+index efc2e89..8dabd4a 100644
+--- a/src/editor/store/directorStore.ts
++++ b/src/editor/store/directorStore.ts
+@@ -42,6 +42,7 @@ import {
+ } from "../schema/cameraGeometry";
+ import type { ViewportAspectRatio } from "../schema/viewportAspectRatio";
+ import { getObjectMotionSnapshot, normalizeObjectMotionPath } from "../schema/objectMotion";
++import { normalizeMotionClip } from "../schema/motionClip";
+ import {
+   DEFAULT_VIEWPORT_ROTATE_SENSITIVITY,
+   DEFAULT_VIEWPORT_ZOOM_SENSITIVITY,
+@@ -312,9 +313,17 @@ function normalizeSceneSettings(scene: SceneSettings): SceneSettings {
+   };
+ }
+ 
++function withNormalizedMotionClip(project: DirectorProject, value: unknown): DirectorProject {
++  const motionClip = normalizeMotionClip(value, project.objects);
++  if (motionClip) return { ...project, motionClip };
++  if (!("motionClip" in project)) return project;
++  const { motionClip: _removed, ...withoutClip } = project;
++  return withoutClip;
++}
++
+ function migrateDirectorProject(project: DirectorProject): DirectorProject {
+   return {
+-    ...project,
++    ...withNormalizedMotionClip(project, project.motionClip),
+     scene: normalizeSceneSettings(project.scene),
+     animationAssets: Array.isArray(project.animationAssets)
+       ? project.animationAssets
+@@ -1089,7 +1098,10 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
+     set((state) => {
+       const currentState = state as DirectorRuntimeState;
+       const previousSnapshot = createUndoStackEntry(currentState);
+-      const nextState = updater(currentState);
++      const updated = updater(currentState);
++      const nextState = updated.project.motionClip && updated.project.objects.length < currentState.project.objects.length
++        ? { ...updated, project: withNormalizedMotionClip(updated.project, updated.project.motionClip) }
++        : updated;
+       const nextSnapshot = extractPersistedDirectorState(nextState);
+       const didChange = !isSameDirectorState(previousSnapshot, nextSnapshot);
+ 
+@@ -1131,6 +1143,10 @@ export const useDirectorStore = create<DirectorStore>((set, get) => {
+ 
+   return {
+     ...initialRuntimeState,
++    setMotionClip: (clip) => commitMutation((state) => ({
++      ...state,
++      project: withNormalizedMotionClip(state.project, clip),
++    })),
+     beginUndoBatch: () => {
+       set((state) => {
+         const currentState = state as DirectorRuntimeState;
+diff --git a/src/editor/store/directorStore.types.ts b/src/editor/store/directorStore.types.ts
+index 4c802e3..c974024 100644
+--- a/src/editor/store/directorStore.types.ts
++++ b/src/editor/store/directorStore.types.ts
+@@ -23,6 +23,7 @@ import type {
+   ViewMode,
+ } from "../schema/directorProject";
+ import type { PosePresetId } from "../schema/poseSchema";
++import type { MotionClip } from "../schema/motionClip";
+ import type { ViewportAspectRatio } from "../schema/viewportAspectRatio";
+ import type { PerformanceProfileId } from "../performance/performanceProfiles";
+ 
+@@ -137,6 +138,7 @@ export interface DirectorInternalState {
+ }
+ 
+ export interface DirectorActions {
++  setMotionClip: (clip: MotionClip | undefined) => void;
+   setViewMode: (mode: ViewMode) => void;
+   setTransformMode: (mode: TransformMode) => void;
+   setViewportAspectRatio: (ratio: ViewportAspectRatio) => void;
+diff --git a/src/styles/index.css b/src/styles/index.css
+index dee1a13..0b15271 100644
+--- a/src/styles/index.css
++++ b/src/styles/index.css
+@@ -9,3 +9,4 @@
+ @import "./camera-motion.css";
+ @import "./pilot-hud.css";
+ @import "./motion-workspace.css";
++@import "./motion-clip.css";
+diff --git a/src/styles/motion-clip.css b/src/styles/motion-clip.css
+new file mode 100644
+index 0000000..791b687
+--- /dev/null
++++ b/src/styles/motion-clip.css
+@@ -0,0 +1,399 @@
++.app-shell .top-bar-action-clip {
++  white-space: nowrap;
++}
++
++.app-shell .top-bar-action-clip.is-active {
++  color: white;
++  background: rgb(var(--accent-rgb));
++}
++
++.director-shell.is-action-clip {
++  --action-clip-inset: clamp(152px, 27dvh, 222px);
++}
++
++.director-shell.is-action-clip > .viewport-column {
++  margin-block-end: var(--action-clip-inset);
++}
++
++.director-shell.is-action-clip > .motion-clip-inspector {
++  display: flex;
++  padding: 14px 12px;
++  gap: 12px;
++  overflow: hidden;
++}
++
++.director-shell.is-action-clip .object-motion-transport {
++  display: none;
++}
++
++.motion-clip-inspector-scroll {
++  display: grid;
++  align-content: start;
++  flex: 1 1 auto;
++  gap: 12px;
++  min-block-size: 0;
++  overflow-y: auto;
++  scrollbar-gutter: stable;
++  padding-inline-end: 4px;
++  padding-block-end: 4px;
++}
++
++.motion-clip-inspector,
++.motion-clip-timeline {
++  color: rgb(var(--text-rgb));
++  font-size: 12px;
++}
++
++.motion-clip-inspector-header,
++.motion-clip-tabs,
++.motion-clip-actions,
++.motion-clip-timeline-header,
++.motion-clip-playback,
++.motion-clip-time-fields,
++.motion-clip-files {
++  display: flex;
++  align-items: center;
++  flex-wrap: wrap;
++  gap: 6px;
++  min-inline-size: 0;
++}
++
++.motion-clip-inspector-header,
++.motion-clip-timeline-header {
++  justify-content: space-between;
++}
++
++.motion-clip-inspector-header h2 {
++  margin: 0;
++  font-size: 15px;
++  overflow-wrap: anywhere;
++}
++
++.motion-clip-inspector button,
++.motion-clip-timeline button,
++.motion-clip-inspector select,
++.motion-clip-inspector input[type="number"],
++.motion-clip-timeline input[type="number"] {
++  inline-size: auto;
++  max-inline-size: 100%;
++  min-inline-size: 0;
++  min-block-size: 29px;
++  padding: 4px 7px;
++  border: 1px solid rgb(var(--border-rgb));
++  border-radius: 7px;
++  background: rgb(var(--field-rgb));
++  color: rgb(var(--text-rgb));
++}
++
++.motion-clip-inspector button:hover:not(:disabled),
++.motion-clip-timeline button:hover:not(:disabled) {
++  background: rgb(var(--surface-hover-rgb));
++}
++
++.motion-clip-inspector button:disabled {
++  opacity: .5;
++  cursor: default;
++}
++
++.motion-clip-inspector .motion-clip-primary,
++.motion-clip-inspector .motion-clip-primary:hover,
++.motion-clip-tabs button[aria-pressed="true"] {
++  border-color: rgb(var(--accent-rgb) / .7);
++  background: rgb(var(--accent-rgb) / .18);
++}
++
++.motion-clip-inspector .motion-clip-primary {
++  flex: none;
++  font-weight: 650;
++}
++
++.motion-clip-tabs button {
++  flex: 1 1 4.25rem;
++}
++
++.motion-clip-editor,
++.motion-clip-editor label,
++.motion-clip-disclosure[open],
++.motion-clip-key-edit {
++  display: grid;
++  gap: 6px;
++  min-inline-size: 0;
++}
++
++.motion-clip-editor,
++.motion-clip-key-edit {
++  gap: 12px;
++}
++
++.motion-clip-editor select,
++.motion-clip-editor > button {
++  inline-size: 100%;
++}
++
++.motion-clip-editor label,
++.motion-clip-coordinate legend,
++.motion-clip-time-fields label {
++  color: rgb(var(--text-muted-rgb));
++  overflow-wrap: anywhere;
++}
++
++.motion-clip-coordinate {
++  min-inline-size: 0;
++  margin: 0;
++  padding: 0;
++  border: 0;
++}
++
++.motion-clip-coordinate legend {
++  margin-block-end: 5px;
++}
++
++.motion-clip-coordinate > div {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 4px;
++}
++
++.motion-clip-coordinate label {
++  gap: 3px;
++}
++
++.motion-clip-coordinate input {
++  inline-size: 100% !important;
++  padding-inline: 4px !important;
++}
++
++.motion-clip-disclosure summary {
++  display: flex;
++  align-items: center;
++  gap: 4px;
++  padding-block: 3px;
++  cursor: pointer;
++}
++
++.motion-clip-disclosure[open] summary svg {
++  rotate: 90deg;
++}
++
++.motion-clip-joint-value {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) 3.75rem;
++  gap: 6px;
++  align-items: center;
++}
++
++.motion-clip-joint-value input[type="range"],
++.motion-clip-ruler input {
++  inline-size: 100%;
++  margin-inline: 0;
++  accent-color: rgb(var(--accent-rgb));
++}
++
++.motion-clip-hint,
++.motion-clip-notice {
++  margin: 0;
++  color: rgb(var(--text-muted-rgb));
++  line-height: 1.45;
++}
++
++.motion-clip-notice {
++  color: rgb(var(--accent-hover-rgb));
++}
++
++.motion-clip-timeline {
++  position: absolute;
++  z-index: 35;
++  inset-inline-start: calc(var(--left-sidebar-width) + 28px);
++  inset-inline-end: calc(var(--right-sidebar-width) + 28px);
++  inset-block-end: 16px;
++  display: flex;
++  flex-direction: column;
++  gap: 5px;
++  max-block-size: calc(var(--action-clip-inset) - 12px);
++  min-inline-size: 0;
++  padding: 8px 12px;
++  border-radius: 12px;
++  background: rgb(var(--panel-rgb));
++  box-shadow: var(--ui-shadow-panel);
++  overflow: auto;
++}
++
++.motion-clip-playback button {
++  display: grid;
++  place-items: center;
++}
++
++.motion-clip-loop,
++.motion-clip-time-fields label {
++  display: flex;
++  align-items: center;
++  flex-wrap: wrap;
++  gap: 3px;
++}
++
++.motion-clip-time-fields input[type="number"] {
++  inline-size: 3.8rem;
++  font-variant-numeric: tabular-nums;
++}
++
++.motion-clip-ruler {
++  margin-inline-start: min(28%, 6.25rem);
++}
++
++.motion-clip-scale {
++  display: flex;
++  justify-content: space-between;
++  gap: 3px;
++  color: rgb(var(--text-muted-rgb));
++  font-size: 10px;
++  font-variant-numeric: tabular-nums;
++}
++
++.motion-clip-lanes {
++  display: grid;
++  gap: 3px;
++  min-block-size: 1.72rem;
++  overflow: auto;
++}
++
++.motion-clip-track {
++  display: grid;
++  grid-template-columns: minmax(0, min(28%, 6.25rem)) minmax(0, 1fr);
++  gap: 7px;
++  align-items: center;
++}
++
++.motion-clip-timeline .motion-clip-track-label {
++  inline-size: 100%;
++  min-block-size: 25px;
++  padding: 2px 4px;
++  text-align: start;
++  overflow: hidden;
++  white-space: nowrap;
++  text-overflow: ellipsis;
++}
++
++.motion-clip-timeline .motion-clip-track-label[aria-pressed="true"] {
++  color: rgb(var(--accent-hover-rgb));
++  border-color: rgb(var(--accent-rgb) / .66);
++}
++
++.motion-clip-lane {
++  position: relative;
++  min-block-size: 14px;
++  margin-inline: 7px;
++}
++
++.motion-clip-lane::before {
++  position: absolute;
++  inset: 7px -4px auto;
++  border-block-start: 1px solid rgb(var(--border-rgb));
++  content: "";
++}
++
++.motion-clip-lane button {
++  position: absolute;
++  z-index: 2;
++  inset-block-start: 1px;
++  inline-size: 14px;
++  min-block-size: 14px;
++  padding: 0;
++  border: 2px solid rgb(var(--panel-rgb));
++  border-radius: 4px;
++  background: rgb(var(--accent-rgb));
++  translate: -50%;
++}
++
++[dir="rtl"] .motion-clip-lane button {
++  translate: 50%;
++}
++
++.motion-clip-lane[data-kind="prop"] button {
++  background: #d9a558;
++}
++
++.motion-clip-lane button.is-held {
++  background: #9b87ee;
++}
++
++.motion-clip-lane button[aria-pressed="true"],
++.motion-clip-lane button:hover {
++  border-color: rgb(var(--text-rgb));
++}
++
++.motion-clip-time-marker {
++  pointer-events: none;
++  position: absolute;
++  z-index: 1;
++  inset-block: -2px;
++  inline-size: 1px;
++  background: rgb(var(--text-muted-rgb));
++}
++
++.director-shell.is-action-clip.is-sidebars-collapsed .motion-clip-timeline {
++  inset-inline-start: 16px;
++}
++
++@media (max-width: 900px) {
++  .director-shell.is-action-clip > .left-sidebar {
++    inset-block-end: var(--action-clip-inset);
++  }
++
++  .director-shell .motion-clip-timeline {
++    inset-inline-start: 16px;
++  }
++}
++
++@media (max-width: 600px) {
++  .director-shell.is-action-clip {
++    --action-clip-inset: clamp(156px, 36dvh, 228px);
++  }
++
++  .director-shell.is-action-clip > .left-sidebar {
++    display: none;
++  }
++
++  .director-shell .motion-clip-inspector {
++    inset-block-end: var(--action-clip-inset);
++    inline-size: min(230px, 60%);
++  }
++
++  .director-shell .motion-clip-timeline {
++    inset-inline: 8px;
++    inset-block-end: 8px;
++  }
++}
++
++@media (max-width: 420px) {
++  .app-shell .top-bar {
++    grid-template-columns: auto minmax(0, 1fr);
++  }
++
++  .app-shell .top-bar-left {
++    max-inline-size: 100%;
++  }
++
++  .app-shell .top-bar-left .director-desk-switcher {
++    display: none;
++  }
++
++  .app-shell .top-bar-center .mode-toggle-button {
++    min-inline-size: 45px;
++  }
++}
++
++@media (max-height: 465px) {
++  .director-shell.is-action-clip {
++    --action-clip-inset: min(44dvh, 140px);
++  }
++
++  .director-shell.is-action-clip > .motion-clip-inspector {
++    inset-block-start: 56px;
++    padding: 6px 8px;
++    gap: 4px;
++  }
++
++  .motion-clip-inspector-header h2 {
++    font-size: 12px;
++  }
++}

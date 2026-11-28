@@ -85,7 +85,7 @@ def verify(archive_path, validator=None, install=False, chinese_validator=None):
             assert result.returncode == 0 and "COMIC_SEQUENCE_STUDIO_SETUP_OK" in result.stdout, result.stderr
             python = str(folder / ".venv" / "Scripts" / "python.exe")
             smoke = Path(__file__).resolve().parents[1] / "tests" / "windows_smoke.py"
-            subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=230)
+            subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=330)
             for name in ("media_gallery_smoke.py", "action_previews_smoke.py"):
                 subprocess.run([python, "-c", "import runpy, sys; runpy.run_path(sys.argv[1], run_name='__main__')",
                                 str(smoke.with_name(name))], cwd=folder, check=True, timeout=65)

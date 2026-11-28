@@ -82,8 +82,8 @@ async function connect() {
     ready = true;
     send.disabled = false;
     status.textContent = pose
-      ? title("摆好人物和机位后，可把当前画面带入参考图预览。", "Set the pose and camera, then use the current frame in the reference preview.")
-      : title("为人物或道具设置轨迹后，可带入当前项目。", "Create a character or prop route, then send it to the current project.");
+      ? title("选「动作片段」可编排人物关键帧。取当前画面可返回参考图预览。", "Choose Action clip to animate character keyframes. Use the current frame to return to the reference preview.")
+      : title("选「动作片段」可编排人物关键帧。已有路线可带入当前项目。", "Choose Action clip to animate character keyframes. Send existing routes to the current project.");
   } catch (error) {
     status.textContent = error.message;
   }
@@ -126,7 +126,7 @@ if (instanceId && token && ["pose", "action"].includes(mode)) {
     });
   });
   const url = new URL("../director_desk/", location.href);
-  url.search = new URLSearchParams({ instanceId, hostOrigin: origin, theme: "dark" });
+  url.search = new URLSearchParams({ instanceId, hostOrigin: origin, theme: "dark", language });
   frame.src = url.href;
   setTimeout(() => {
     if (loading) status.textContent = title("3D 导演台尚未就绪，请关闭窗口后重试。", "The 3D Director Desk is still starting. Close the window and try again.");

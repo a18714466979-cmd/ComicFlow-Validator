@@ -47,6 +47,8 @@ Open **Batch production center** from **Storyboard production** to plan one epis
 
 Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Use **Browse action cards** to see all 53 illustrated built-in cards. Open a cover to see the start, key change and end before adding it. Enter your own movements or import Director Desk motion-demo/keyframe JSON. Attach local reference images, reorder the cards and use a 12- or 15-cell grid to compare adjacent movements. Project reference images take precedence over the built-in illustrations. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
 
+In the built-in **3D Director Desk**, choose **Action clip** to set up to five seconds of performance. Each character has its own keyframes for position, facing and joints. Scrub or loop the clip, choose whether to interpolate or hold between frames, and key which character and hand holds a prop. Save the editable clip with the Director Desk project JSON. Camera controls remain available for framing the preview. The clip workflow runs locally.
+
 In **Action reference library**, pick a starter link or paste a YouTube, Youku or Tencent Video playback link from the rights holder. Open it in your browser, mark the start and end of a passage, and write what you want to try in your own scene. For example, a wide shot might establish both characters before a close-up reveals one character’s reaction. Save the reference with the project. Choose **Create card from notes** to start a sequence, or append your note to a selected card. Playback stays on the platform, and the delivery ZIP leaves out the reference library.
 
 ### E-commerce video recreation
@@ -187,6 +189,8 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 「角色服装设计」内置 23 套 CC0 服装原图，可离线按分类、名称或编号筛选，也可导入有权使用的本地图。选好后可直接把参考图带入生图预览。[Shisei 素材来源](https://github.com/wquguru/shisei)
 
 「角色动作设计」内置离线 3D 导演台。摆好人物和机位后，点「取当前画面作为参考」把 PNG 送回生图预览。在「人物动作编排」打开同一组的导演台，可把角色和道具路线带入动作卡。3D 编辑器复用 MIT 授权的上游实现，并随 Windows 试用包附上代码来源和许可。[上游 3D 导演台](https://github.com/xiaozangao/3d-director-desk)
+
+进入导演台的「动作片段」，可给每个角色分别记录位置、朝向和关节姿势，编排最长 5 秒的表演。拖动时间轴或循环回看，按关键帧选择过渡或停顿，也可以在确定时间把道具从一个角色的手切给另一个角色。片段随导演台工程 JSON 保存，可重新打开继续编辑。机位仍通过导演台原有的相机控件设置。
 
 「人物动作编排」可从新建或已有项目开始。内置 53 张中英双语动作卡，覆盖日常表演、双人互动、救援、走位和刀、长枪、剑、戟等影视道具。可自建卡片、添加本地姿势参考图，或从 3D 导演台工程 JSON 导入人物和道具轨迹作为预演参考。调整顺序后，用 12 格或 15 格视图对照前后动作、持物手和道具交接。动作卡可另存为本地 JSON。确认成片动作后，选择要接入的正式分镜，或按批准剧本与实际源段位置新建分镜。
 

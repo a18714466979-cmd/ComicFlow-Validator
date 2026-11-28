@@ -3,6 +3,7 @@
 import faulthandler
 import json
 import os
+from runpy import run_path
 import subprocess
 import sys
 import time
@@ -2024,7 +2025,7 @@ def drive_native_director(output, language, mode):
         window = webview.windows[0]
 
         def drive():
-            deadline = time.monotonic() + (42 if mode == "pose" else 26)
+            deadline = time.monotonic() + {"pose": 42, "action": 26, "motion": 85}[mode]
 
             def until(script, message):
                 while time.monotonic() < deadline:
@@ -2054,6 +2055,9 @@ def drive_native_director(output, language, mode):
                     click('[aria-label="选择画幅比例"]')
                     click('.viewport-aspect-option:has(.viewport-aspect-option-frame-16-9)')
                     exercise_director_pose_regression(window.run_js, until, desk, click, Path(output))
+                elif mode == "motion":
+                    motion_smoke = run_path(str(Path(__file__).with_name("director_motion_clip_smoke.py")))
+                    motion_smoke["exercise_director_motion_clip"](window.run_js, until, desk, click, Path(output), language)
                 else:
                     click('[role="treeitem"][aria-label="角色01"] .object-select-button')
                     click('[aria-label="角色面板标签"] button:last-child')
@@ -2080,7 +2084,7 @@ def drive_native_director(output, language, mode):
         return real_start(on_start, **options)
 
     with patch.object(webview, "start", side_effect=start_with_driver):
-        run_window(Path(output), "windows-smoke", language, mode)
+        run_window(Path(output), "windows-smoke", language, "pose" if mode == "motion" else mode)
     if errors:
         raise RuntimeError(errors[0])
 
@@ -2215,13 +2219,13 @@ def exercise_director_pose_regression(run_js, until, desk, click, output):
 
 
 def verify_embedded_director(root, folder, env):
-    """Exercise the real installed WebView, its renderer, and both file handoffs."""
+    """Exercise the installed WebView, motion clip editor, and both file handoffs."""
     sys.path.insert(0, str(root))
     from src.director_action_import import import_director_cards
 
     driver = ("import runpy, sys; "
               "runpy.run_path(sys.argv[1])['drive_native_director'](*sys.argv[2:])")
-    for mode, language in (("pose", "zh"), ("action", "en")):
+    for mode, language in (("pose", "zh"), ("action", "en"), ("motion", "en")):
         output = folder / f"director-{mode}"
         output.mkdir()
         browser_args = "--use-angle=swiftshader --enable-unsafe-swiftshader --disable-background-networking"
@@ -2229,12 +2233,13 @@ def verify_embedded_director(root, folder, env):
                        "LOCALAPPDATA": str(folder / f"WebView-{mode}")}
         result = subprocess.run(
             [sys.executable, "-c", driver, str(Path(__file__).resolve()), str(output), language, mode],
-            cwd=root, env=webview_env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=65,
+            cwd=root, env=webview_env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=110 if mode == "motion" else 65,
         )
         assert result.returncode == 0, result.stderr
         print(result.stdout, end="")
         assert (output / "ready").is_file(), "No real protocol initialization was received"
-        if mode == "pose":
+        if mode in {"pose", "motion"}:
             with Image.open(output / "frame.png") as frame:
                 frame.load()
                 assert frame.format == "PNG" and frame.size == (1280, 720)

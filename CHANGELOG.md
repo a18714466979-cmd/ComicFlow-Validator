@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.3.0 · 2026-11-28
+
+### 简体中文
+
+- 内置 3D 导演台新增「动作片段」，可编排最长 5 秒的表演。角色分别记录位置、朝向和关节姿势，支持关键帧编辑、撤销、过渡、停顿、拖动和循环预览。
+- 道具轨在指定时刻切换持有者和手，可用来预演两人递物。相机独立设置，片段随导演台工程 JSON 保存，可重新打开编辑。
+- 当前批次提供本地编辑和预演。参考视频的保存与项目接入安排在下一批。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
+### English
+
+- The built-in 3D Director Desk adds Action clip for performances up to five seconds. Separate character tracks key position, facing and joints, with editable timing, undo, interpolation, holds, scrubbing and looping.
+- Prop tracks switch the holder and hand at keyed times. Camera controls remain independent. Clips save with the editable Director Desk project JSON.
+- This version provides local animation editing and preview. Reference video and project handoff are scheduled for the next phase. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
 ## 2.2.0 · 2026-11-28
 
 ### 简体中文
