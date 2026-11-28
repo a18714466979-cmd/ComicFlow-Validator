@@ -37,6 +37,7 @@ def translate(widget, text):
 
 
 ENGLISH = {
+    "电商信息流视频复刻": "E-commerce video recreation",
     # Home and package review
     "ComicFlow 漫剧制片工作台": "ComicFlow Storyboard Workbench",
     "制作规则专为字节跳动 Seedance 2.0 成片交付适配":

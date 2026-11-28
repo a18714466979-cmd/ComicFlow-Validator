@@ -15,7 +15,7 @@
 
 ### Overview
 
-ComicFlow helps AI comic creators prepare and review a complete delivery for ByteDance Seedance 2.0. The workbench has tabs for storyboard production, inspection and validation, API connections, and a bilingual illustrated tutorial. Work through script, shots and assets in one project, or start a stage with a local file.
+ComicFlow helps AI comic creators prepare and review a complete delivery for ByteDance Seedance 2.0. The workbench has tabs for storyboard production, inspection and validation, API connections, a bilingual illustrated tutorial, and e-commerce video recreation. Work through script, shots and assets in one project, or start a stage with a local file.
 
 Approved sources, dialogue spans, shot order, camera references and the nine-image budget can be checked before submission. Reviewing adjacent panels and repairing the affected region helps avoid repeated generations and full-group rework caused by preventable input problems.
 
@@ -39,6 +39,14 @@ English Film Production and Chinese Film Production are designed for delivery to
 ### Action sequencing
 
 Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. ComicFlow action-card JSON can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
+
+### E-commerce video recreation
+
+Import a local reference video and enter your product name. Add your product photos and check that they show every side and state needed in the shots, such as packaging or the product held in a hand. ComicFlow uses the supplied images to assemble one separate 16:9 product sheet.
+
+Review the suggested cut points and, optionally, use the configured vision model to help describe selected frames. Confirm each shot's timing, scene, action and performance. Check dialogue against the source audio and retain its original wording and language. Mark any words you cannot make out. Once the shots are approved, import usable assets or use a configured image model to create missing character, scene, prop and storyboard assets. Design new faces for any performers shown in the reference.
+
+Each group covers one scene and at most 15 seconds. It contains one full-color 9:16 storyboard at 1080 × 1920 or above, independent reference images, Chinese shot notes with the original-language dialogue, and a Seedance 2.0 prompt. Review the actual images before exporting the validated ZIP for use in your video generation service. See the [Windows walkthrough](WINDOWS-TRYOUT.md#电商信息流视频复刻).
 
 ### Run from Source
 
@@ -155,12 +163,21 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 | 检查验收 | 图片像素、比例和文件大小、ZIP 完整性与规则验收、逐格核图、跨页和跨组镜头对照、资产返修。 |
 | API 接入 | 分用途配置文本、审图和生图。 |
 | 使用教程 | 用界面截图和步骤介绍快速开始、剧本到交付、检查交付 ZIP 和配置 API，支持直接打开示例或对应工具。 |
+| 电商信息流视频复刻 | 导入参考视频和自有产品图，拆分镜、重做资产和竖屏彩色故事板，预览提示词并验收导出。 |
 
 同一项目可接续「剧本创作 → 分镜拆分 → 资产分析」。剧本编辑器可把选定的原稿写入新项目或作为已有项目中的剧本版本。镜头清单与已采纳的 AI 分镜都可进入下一步，资产分析带入该版本的原文与已保存镜头。从各页入口仍可打开已有项目或从本地导入稿件。
 
 服装设计内置 23 套 CC0 服装参考，可按现代日常、通勤与职业、婚礼与宴会、古装与民国、动作与幻想筛选，也可导入有权使用的图。「角色动作设计」提供 3D 姿势参考入口，可用在线导演台摆姿势和机位。服装图与姿势取景图都可导入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
 
 「人物动作编排」可从新建或已有项目开始。内置 53 张中英双语动作卡，覆盖日常表演、双人互动、救援、走位和刀、长枪、剑、戟等影视道具。可自建卡片、添加本地姿势参考图，或从 3D 导演台工程 JSON 导入人物和道具轨迹作为预演参考。调整顺序后，用 12 格或 15 格视图对照前后动作、持物手和道具交接。动作卡可另存为本地 JSON。确认成片动作后，选择要接入的正式分镜，或按批准剧本与实际源段位置新建分镜。
+
+### 电商信息流视频复刻
+
+导入本地参考视频，填写自己的产品名称并添加产品图。确认照片覆盖镜头中需要出现的角度、包装和使用状态后再拆分镜。软件用你提供的产品原图拼成一张独立的 16:9 产品资产图。
+
+本地切镜可以给出候选时间点，也可选用「AI 审图」配置辅助看图。复核场景切换、景别、机位、表演、动作衔接和原声对白，确认镜头清单后再重做资产。可导入已有图片，或用已配置的生图模型补齐角色、场景、道具和故事板。人物资产逐人制作，重新设计参考片演员的面貌。
+
+每组在场景切换时分开，最长 15 秒。交付包含一张竖屏 9:16 高清彩色故事板、该组独立可用的资产图、中文分镜说明和 Seedance 2.0 提示词。对白保留原声语言。逐格确认画面后验收并打包，再把素材与提示词提交到成片生成服务。[Windows 操作步骤](WINDOWS-TRYOUT.md#电商信息流视频复刻)
 
 ### Seedance 2.0 单组制片
 

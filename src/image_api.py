@@ -156,8 +156,15 @@ def multipart_request(url, headers, body, references, mask):
 
 def build_image_request(settings: ImageSettings, mode: str, prompt: str, references: tuple[bytes, ...] = (),
                         *, edit_box: tuple[int, int, int, int] | None = None, mask: bytes = b"",
-                        preview: bool = False) -> Request:
+                        preview: bool = False, aspect_ratio: str = "16:9") -> Request:
     """Build the provider payload, leaving an offline preview unsigned."""
+    if aspect_ratio not in {"16:9", "9:16"}:
+        raise ValueError("图像请求仅支持 16:9 或 9:16。")
+
+    def dimensions(width, height, separator="x"):
+        first, second = (height, width) if aspect_ratio == "9:16" else (width, height)
+        return f"{first}{separator}{second}"
+
     provider = IMAGE_PROVIDERS[settings.provider]
     adapter = provider.adapter
     base = checked_url(settings.base.rstrip("/"))
@@ -179,12 +186,12 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
     body = {"model": settings.model, "prompt": prompt}
     path = "/images/generations"
     if adapter == "openai":
-        width = "2048x1152" if settings.model.startswith("gpt-image-2") else "auto"
+        width = dimensions(2048, 1152) if settings.model.startswith("gpt-image-2") else "auto"
         body.update(size=width, n=1, output_format="png")
         if references:
             return multipart_request(base + "/images/edits", headers, body, references, mask if mode == EDIT else b"")
     elif adapter == "ark":
-        body.update(response_format="b64_json", size="2560x1440")
+        body.update(response_format="b64_json", size=dimensions(2560, 1440))
         if references:
             urls = [data_url(item) for item in references]
             body["image"] = urls[0] if len(urls) == 1 else urls
@@ -193,14 +200,14 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
         parts.extend({"type": "image", "mime_type": "image/png", "data": base64.b64encode(item).decode("ascii")}
                      for item in references)
         body = {"model": settings.model, "input": parts, "store": False,
-                "response_format": {"type": "image", "mime_type": "image/png", "aspect_ratio": "16:9", "image_size": "2K"}}
+                "response_format": {"type": "image", "mime_type": "image/png", "aspect_ratio": aspect_ratio, "image_size": "2K"}}
         headers = {"Api-Revision": "2026-05-20"}
         if not preview:
             headers["x-goog-api-key"] = settings.key
         path = "/interactions"
     elif adapter == "dashscope":
         content = [{"image": data_url(item)} for item in references] + [{"text": prompt}]
-        parameters = {"size": "2048*1152", "n": 1}
+        parameters = {"size": dimensions(2048, 1152, "*"), "n": 1}
         if settings.model.startswith("wan2.7-image"):
             if edit_box:
                 parameters["bbox_list"] = [[list(edit_box)], *([] for _ in references[1:])]
@@ -212,14 +219,14 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
                 "parameters": parameters}
         path = "/services/aigc/multimodal-generation/generation"
     elif adapter == "xai":
-        body.update(response_format="b64_json", aspect_ratio="16:9")
+        body.update(response_format="b64_json", aspect_ratio=aspect_ratio)
         if references:
             body["image"] = {"url": data_url(references[0]), "type": "image_url"}
             path = "/images/edits"
     elif adapter == "tencent":
         if base != provider.base:
             raise ValueError("请使用腾讯云混元官方基础地址。")
-        payload = {"Prompt": prompt, "Resolution": "1280:720", "Revise": 0}
+        payload = {"Prompt": prompt, "Resolution": dimensions(1280, 720, ":"), "Revise": 0}
         if references:
             encoded = base64.b64encode(references[0]).decode("ascii")
             if len(encoded) >= 8_000_000:
@@ -229,14 +236,14 @@ def build_image_request(settings: ImageSettings, mode: str, prompt: str, referen
             return json_request(base + "/", payload, {"X-TC-Action": "SubmitHunyuanImageJob"})
         return tencent_request(settings, "SubmitHunyuanImageJob", payload)
     elif adapter == "openrouter":
-        body.update(aspect_ratio="16:9", resolution="2K", response_format="b64_json")
+        body.update(aspect_ratio=aspect_ratio, resolution="2K", response_format="b64_json")
         if references:
             body["input_references"] = [{"type": "image_url", "image_url": {"url": data_url(item)}} for item in references]
         path = "/images"
     elif adapter == "silicon":
-        body["image_size"] = "1024x576"
+        body["image_size"] = dimensions(1024, 576)
     else:
-        body["size"] = "1344x756" if adapter == "glm" else "2048x1152"
+        body["size"] = dimensions(1344, 756) if adapter == "glm" else dimensions(2048, 1152)
     return json_request(base + path, body, headers)
 
 

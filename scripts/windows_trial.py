@@ -23,6 +23,7 @@ from src.workbench_tutorial import SECTIONS, TUTORIAL_IMAGES, TUTORIAL_LOCALES
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_FILES = ("ComicFlow-Setup.bat", "ComicFlow-Windows.bat", "requirements-runtime.txt", "WINDOWS-TRYOUT.md", "LICENSE")
 COSTUME_REFERENCES = Path("assets/costume_references")
+ECOMMERCE_VALIDATOR_DIRECTORY = Path("assets/workflow_validators/ecommerce")
 CONTINUITY = "门保持关闭，右侧绿灯稳定，左侧柜体仍在原位"
 ENGLISH_EXAMPLE_FRAMING = ("全景", "中景", "近景", "特写", "全景", "中景", "近景", "特写", "全景")
 
@@ -172,6 +173,7 @@ def build(output, revision):
             copy2(path, folder / "src" / path.name)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
         copytree(ROOT / TUTORIAL_IMAGES, folder / TUTORIAL_IMAGES)
+        copytree(ROOT / ECOMMERCE_VALIDATOR_DIRECTORY, folder / ECOMMERCE_VALIDATOR_DIRECTORY)
         (folder / ENGLISH_VALIDATOR_DIRECTORY).mkdir(parents=True)
         for filename in ENGLISH_VALIDATOR_FILES:
             relative = ENGLISH_VALIDATOR_DIRECTORY / filename
@@ -187,9 +189,10 @@ def build(output, revision):
                    "Examples/中文制作/SB01.cfproject", "Examples/中文制作/SB02.cfproject", "Examples/中文制作/预览_相邻两组.zip")
         references = tuple(path.relative_to(ROOT).as_posix() for path in (ROOT / COSTUME_REFERENCES).iterdir())
         validators = tuple((ENGLISH_VALIDATOR_DIRECTORY / name).as_posix() for name in ENGLISH_VALIDATOR_FILES)
+        ecommerce_validator = (ECOMMERCE_VALIDATOR_DIRECTORY / "validate_storyboard_package.py").as_posix()
         tutorial = tuple((TUTORIAL_IMAGES / f"{section[0]}_{language}.png").as_posix()
                          for section in SECTIONS for language in TUTORIAL_LOCALES)
-        for name in (*INSTALL_FILES, *samples, *references, *validators, *tutorial):
+        for name in (*INSTALL_FILES, *samples, *references, *validators, ecommerce_validator, *tutorial):
             archive.getinfo(f"ComicFlow-Windows/{name}")
         if any(".sqlite3" in name for name in archive.namelist()):
             raise ValueError("The portable archive must rebuild machine-local asset paths.")

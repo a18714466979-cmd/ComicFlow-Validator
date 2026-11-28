@@ -1,0 +1,7 @@
+validate_storyboard_package.py is the local ecommerce reference-video workflow
+validator distributed with ComicFlow to validate complete delivery folders and ZIPs.
+Source: Copy Ecommerce Reference Videos, scripts/validate_storyboard_package.py.
+ComicFlow recognizes translated-dialogue headings only at the start of a
+field so that source dialogue quoting those words stays valid.
+The grayscale check uses pixel-level channel differences so that balanced
+colors do not cancel one another when averaged.

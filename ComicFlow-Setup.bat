@@ -42,7 +42,7 @@ if errorlevel 1 (
   echo Dependency installation failed. Check the pip output and the network, then run setup again.
   goto finish
 )
-".venv\Scripts\python.exe" -c "import tkinter, PIL, numpy"
+".venv\Scripts\python.exe" -c "import tkinter, PIL, numpy, imageio_ffmpeg"
 if errorlevel 1 goto invalid_environment
 echo COMICFLOW_SETUP_OK
 echo Start ComicFlow-Windows.bat. You can drop a ZIP or a .cfproject onto it.

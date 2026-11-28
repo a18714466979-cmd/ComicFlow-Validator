@@ -18,6 +18,22 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def make_ecommerce_video(folder):
+    """Make a local vertical reference with hard cuts at 1 and 2 seconds."""
+    from src.ecommerce_video import resolve_ffmpeg
+
+    target = folder / "竖屏广告参考.mp4"
+    colors = ("black", "white", "black")
+    inputs = [value for color in colors for value in ("-f", "lavfi", "-i", f"color=c={color}:s=144x256:r=24:d=1")]
+    subprocess.run(
+        [resolve_ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin", *inputs,
+         "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[out]", "-map", "[out]",
+         "-c:v", "mpeg4", "-threads", "2", "-pix_fmt", "yuv420p", "-y", str(target)],
+        check=True, timeout=15, capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return target
+
+
 def attach_chinese_layout(project, path, folder, *, distinct=1, local=3, extras=0):
     """Register simple synthetic walls and fixed equipment without calling an image model."""
     from src.production_layout import bind_window
@@ -138,6 +154,9 @@ def run_inside_launcher():
             if mode == "action-sequence":
                 self.inspect_action_sequence()
                 return
+            if mode == "ecommerce":
+                self.inspect_ecommerce()
+                return
             if mode == "production-handoff":
                 self.inspect_production_handoff()
                 return
@@ -192,7 +211,7 @@ def run_inside_launcher():
             assert any("Seedance 2.0" in widget.cget("text") for widget in walk(self, tk.Label))
             navigation = next(walk(self, ttk.Notebook))
             assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
-                "故事板制作", "检查验收", "API 接入", "使用教程",
+                "故事板制作", "检查验收", "API 接入", "使用教程", "电商信息流视频复刻",
             ]
             tabs = next(walk(show_page(self, 2), ttk.Notebook))
             assert [tabs.tab(i, "text") for i in range(3)] == ["文本创作", "AI 审图", "图像生成"]
@@ -234,6 +253,7 @@ def run_inside_launcher():
             click(self, "中文 / English")
             assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
                 "Storyboard production", "Inspection & validation", "API connections", "Tutorial",
+                "E-commerce video recreation",
             ]
             assert [tabs.tab(i, "text") for i in range(3)] == ["Text drafting", "AI image review", "Image generation"]
             assert input_field(image, "Model ID").get() == "image-generation-test"
@@ -538,6 +558,189 @@ def run_inside_launcher():
                 self.after_idle(self.destroy)
 
             self.after(60, inspect_sequence)
+
+        def inspect_ecommerce(self):
+            from src.ecommerce_delivery import PRODUCT_FILE, label_board_sheet
+            from src.ecommerce_project import EcommerceProject, EcommerceShot, render_shots
+
+            page = show_page(self, 4)
+            navigation = next(walk(self, ttk.Notebook))
+            assert navigation.tab(navigation.select(), "text") == "电商信息流视频复刻"
+            video = make_ecommerce_video(project_path.parent)
+            product = project_path.with_name("产品照片 正面.png")
+            photo = Image.new("RGB", (256, 256), "#f1ded2")
+            paint = ImageDraw.Draw(photo)
+            paint.rounded_rectangle((75, 48, 180, 215), radius=16, fill="#804086")
+            paint.text((100, 111), "CF", fill="white")
+            photo.save(product)
+            ecommerce_path = project_path.with_suffix(".cfecom")
+            delivery_path = ecommerce_path.with_suffix(".zip")
+
+            def visible(kind, caption):
+                matches = [widget for widget in walk(page, kind) if widget.cget("text") == caption]
+                return next((widget for widget in matches if widget.winfo_ismapped()), matches[0])
+
+            def status_text():
+                return "\n".join(str(self.getvar(var)) if (var := label.cget("textvariable")) else label.cget("text")
+                                 for label in walk(page, ttk.Label))
+
+            def after_ready(ready, run):
+                if ready():
+                    run()
+                else:
+                    self.after(50, lambda: after_ready(ready, run))
+
+            with patch.object(filedialog, "askopenfilename", return_value=str(video)):
+                click(page, "导入参考视频")
+
+            def assert_product_gate(expected_error):
+                stages = next(walk(page, ttk.Notebook))
+                with patch.object(messagebox, "showerror") as missing:
+                    click(page, "下一步：分镜分析")
+                assert missing.call_count == 1 and expected_error in str(missing.call_args), missing.call_args
+                assert stages.index(stages.select()) == 0
+
+            def confirm_references():
+                assert_product_gate("产品名称")
+                name_label = visible(ttk.Label, "自有产品名")
+                row = int(name_label.grid_info()["row"])
+                entry = next(widget for widget in name_label.master.grid_slaves(row=row)
+                             if isinstance(widget, ttk.Entry))
+                entry.delete(0, "end")
+                entry.insert(0, "试用瓶")
+                assert_product_gate("清晰照片")
+                with patch.object(filedialog, "askopenfilenames", return_value=(str(product),)):
+                    click(page, "导入产品照片")
+                after_ready(lambda: next(walk(page, tk.Listbox)).size() == 1, detect)
+
+            def detect():
+                assert_product_gate("角度和状态")
+                visible(ttk.Checkbutton, "确认产品照片覆盖所需角度").invoke()
+                click(page, "下一步：分镜分析")
+                click(page, "检测镜头切点")
+                shots = next(walk(page, ttk.Treeview))
+                after_ready(lambda: len(shots.get_children()) == 3, lambda: verify_cuts(shots))
+
+            def verify_cuts(table):
+                ranges = tuple(table.set(item, "time") for item in table.get_children())
+                assert ranges == ("00:00.000-00:01.000", "00:01.000-00:02.000", "00:02.000-00:03.000"), ranges
+                shot_file = project_path.with_suffix(".json")
+                shot_file.write_text(render_shots([
+                    EcommerceShot(
+                        id=identity, start_ms=index * 1000, end_ms=(index + 1) * 1000,
+                        scene="厨房" if index < 2 else "客厅", size="特写", angle="平视", camera="固定",
+                        action="演员把产品放在桌上", positions="桌前，产品始终在画面中间",
+                        performance="轻轻扬眉，认真地强调产品名", dialogue="“See this bottle?”" if index == 0 else "无",
+                        sound="原声对白" if index == 0 else "安静", continuity="品牌朝向保持一致",
+                        constraints="固定产品外观", characters=("主持人",), props=("展示底座",) if index == 0 else (),
+                        contains_product=True, axis="从桌左侧拍摄",
+                    ) for index, identity in enumerate(table.get_children())
+                ]), encoding="utf-8")
+                with (patch.object(filedialog, "askopenfilename", return_value=str(shot_file)),
+                      patch.object(messagebox, "askyesno", return_value=True)):
+                    click(page, "导入分镜 JSON")
+                with patch.object(messagebox, "askyesno", return_value=True):
+                    click(page, "确认分镜并分析资产")
+                after_ready(lambda: next(walk(page, ttk.Notebook)).index("current") == 2, verify_asset_plan)
+
+            def verify_asset_plan():
+                with patch.object(filedialog, "asksaveasfilename", return_value=str(ecommerce_path)):
+                    click(page, "保存电商项目")
+                project = EcommerceProject.open(ecommerce_path)
+                assert project.product_name == "试用瓶" and project.product_reviewed
+                assert project.shot_approval == project.shot_key()
+                assert project.shots[0].dialogue == "“See this bottle?”"
+                assert [group.scene for group in project.groups()] == ["厨房", "客厅"]
+                with patch.object(filedialog, "askopenfilename", return_value=str(ecommerce_path)):
+                    click(page, "打开电商项目")
+                assert "已打开电商项目" in status_text()
+
+                stages = next(walk(page, ttk.Notebook))
+                stages.select(2)
+                click(page, "刷新资产清单")
+                assets = next(walk(stages.nametowidget(stages.select()), ttk.Treeview))
+                fixtures = {
+                    "character:主持人": ("character", "#456272", (640, 360)),
+                    "scene:厨房": ("kitchen", "#253e4b", (640, 360)),
+                    "scene:客厅": ("hall", "#457632", (640, 360)),
+                    "props:SB01": ("stand", "#7b4025", (640, 360)),
+                    "board:SB01": ("board-01", "#33368e", (1080, 1920)),
+                    "board:SB02": ("board-02", "#2b4865", (1080, 1920)),
+                }
+                assert set(assets.get_children()) == {"product", *fixtures}
+                images = {}
+                for key, (name, color, size) in fixtures.items():
+                    path = ecommerce_path.with_name(f"{name}.png")
+                    image = Image.new("RGB", size, color)
+                    ImageDraw.Draw(image).ellipse((40, 50, 240, 250), "#ddcc92")
+                    image.save(path)
+                    if key.startswith("board:"):
+                        group = next(group for group in project.groups() if group.id == key.removeprefix("board:"))
+                        labeled = path.with_stem(f"{name}-labeled")
+                        label_board_sheet(path, labeled, [shot.id for shot in group.shots])
+                        path = labeled
+                    images[key] = path
+
+                def confirm_image(title, done):
+                    panel = next((window for window in walk(self, tk.Toplevel) if window.title() == title), None)
+                    canvas = next(walk(panel, tk.Canvas), None) if panel else None
+                    if canvas is None or not canvas.winfo_viewable() or not canvas.find_all():
+                        self.after(50, lambda: confirm_image(title, done))
+                        return
+                    click(panel, "确认使用这张图")
+                    done()
+
+                def bind_images(iterator):
+                    selected = next(iterator, None)
+                    if selected is None:
+                        click(page, "下一步：提示词与交付")
+                        click(page, "生成交付预览")
+                        after_ready(lambda: "交付预览已准备" in status_text(), export_zip)
+                        return
+                    key, path = selected
+                    assets.selection_set(key)
+                    with patch.object(filedialog, "askopenfilename", return_value=str(path)):
+                        click(page, "导入批准图像")
+                    confirm_image("核对导入资产", lambda: bind_images(iterator))
+
+                assets.selection_set("product")
+                click(page, "合成自有产品总图")
+                confirm_image("自有产品总图", lambda: bind_images(iter(images.items())))
+
+            def export_zip():
+                with patch.object(messagebox, "showerror") as missing_review:
+                    click(page, "验收并导出 ZIP")
+                assert missing_review.call_count == 1 and "逐项复核" in str(missing_review.call_args)
+                visible(ttk.Checkbutton, "已逐格核对画面、原语言对白、产品细节及独立人物资产").invoke()
+                with patch.object(filedialog, "asksaveasfilename", return_value=str(delivery_path)):
+                    click(page, "验收并导出 ZIP")
+                after_ready(lambda: "已通过验收并导出" in status_text(), verify_zip)
+
+            def verify_zip():
+                with ZipFile(delivery_path) as package:
+                    assert package.testzip() is None
+                    storyboard_names = [name for name in package.namelist() if "storyboard_sheet_" in name]
+                    product_names = [name for name in package.namelist() if name.endswith("/" + PRODUCT_FILE)]
+                    assert len(storyboard_names) == len(product_names) == 2
+                    assert package.read(product_names[0]) == package.read(product_names[1])
+                    with Image.open(BytesIO(package.read(product_names[0]))) as sheet:
+                        assert sheet.size == (1920, 1080)
+                        assert sheet.crop((832, 412, 1088, 668)).tobytes() == photo.tobytes()
+                    for name in storyboard_names:
+                        with Image.open(BytesIO(package.read(name))) as board:
+                            assert board.size == (1080, 1920)
+                    first_group = storyboard_names[0].split("/", 1)[0]
+                    detail = package.read(f"{first_group}/SB01_shot_details.txt").decode("utf-8-sig")
+                    prompt = package.read(f"{first_group}/prompts/SD2_prompt.txt").decode("utf-8-sig")
+                    assert "“See this bottle?”" in detail and "“See this bottle?”" in prompt
+                dialog = next(window for window in walk(self, tk.Toplevel) if window.title() == "交付完成")
+                click(dialog, "关闭")
+                click(page, "保存电商项目")
+                print("Verified ecommerce reference import, product gate, local cuts, asset binding and validated ZIP", flush=True)
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.tk.eval(self.protocol("WM_DELETE_WINDOW"))
+
+            after_ready(lambda: "144" in status_text() and "256" in status_text(), confirm_references)
 
         def inspect_new_tools(self):
             from src.production_project import ProductionProject
@@ -1320,7 +1523,7 @@ def verify_windows_launcher(root=ROOT):
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("image-entry", ""),
-                               ("action-sequence", f' "{archive}"')):
+                               ("action-sequence", f' "{archive}"'), ("ecommerce", f' "{archive}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")

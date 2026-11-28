@@ -19,6 +19,7 @@ from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
 from .bundled_validators import bundled_validator
+from .ecommerce_page import EcommercePage
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
 from .image_api import ImageSettings
@@ -84,7 +85,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
         switch_rules=lambda rules: switch_rules(rules),
     )
-    production_page, review_page, api_page, tutorial_page = pages
+    production_page, review_page, api_page, tutorial_page, ecommerce_page = pages
     if initial_zip and initial_project is None:
         navigation.select(review_page)
 
@@ -400,7 +401,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         if busy:
             messagebox.showinfo(tr("验收进行中"), tr("当前正在读取交付包，请等待验收完成。"), parent=window)
             return
-        window.destroy()
+        if ecommerce.allow_close():
+            window.destroy()
 
     def change_language():
         window.ui_language = "en" if window.ui_language == "zh" else "zh"
@@ -418,6 +420,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             navigation.tab(page, text=tr(caption))
         refresh_api_language()
         refresh_tutorial()
+        ecommerce.refresh_language()
         for column, caption in zip(columns, headings):
             table.heading(column, text=tr(caption))
         tabs.tab(issues_tab, text=tr("验收结果"))
@@ -489,6 +492,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
     workflow_buttons = build_production_page(production_page, label_text, callbacks)
     refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
+    ecommerce = EcommercePage(ecommerce_page, vision_session, image_session, lambda: navigation.select(api_page))
     examples = Path(__file__).resolve().parents[1] / "Examples"
     sample_available = (examples / "SB01.cfproject").is_file()
 
