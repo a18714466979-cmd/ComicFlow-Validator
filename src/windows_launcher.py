@@ -449,9 +449,14 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
 
         open_cut_review(window, result, active_rules)
 
+    def choose_delivery_zip():
+        navigation.select(review_page)
+        browse(entries[0][1], entries[0][2])
+
     callbacks = {
         "new": lambda: produce(action="new"),
         "open": lambda: produce(action="open"),
+        "review_zip": choose_delivery_zip,
         "group": produce,
         "script": lambda: plan_script("script"),
         "inventory": lambda: plan_script("assets"),

@@ -9,6 +9,7 @@ import time
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from zipfile import ZipFile
 
 from PIL import Image, ImageDraw
@@ -150,9 +151,18 @@ def run_inside_launcher():
                 self.after(100, self.inspect_file_only)
                 return
             if mode == "empty":
-                show_page(self, 1)
-                click(self, "浏览")
+                production = show_page(self, 0)
+                guidance = [label.cget("text") for label in walk(production, tk.Label)]
+                assert any("软件会创建 .cfproject" in text for text in guidance)
+                assert any("Examples/SB01.cfproject" in text for text in guidance)
+                assert any("无需解压" in text for text in guidance)
+                with patch.object(filedialog, "askopenfilename", return_value=archive) as picker:
+                    click(production, "验收已有 ZIP")
+                    assert picker.call_args.kwargs["filetypes"][0] == ("ZIP 交付包", "*.zip")
+                navigation = next(walk(self, ttk.Notebook))
+                assert navigation.index(navigation.select()) == 1
                 assert field.get() == archive
+                print("Verified beginner guidance and the direct ZIP review route", flush=True)
             click(self, "开始验收")
             self.after(100, self.inspect_result)
 
@@ -215,13 +225,22 @@ def run_inside_launcher():
             ]
             assert [tabs.tab(i, "text") for i in range(3)] == ["Text drafting", "AI image review", "Image generation"]
             assert input_field(image, "Model ID").get() == "image-generation-test"
+            production = show_page(self, 0)
+            guidance = [label.cget("text") for label in walk(production, tk.Label)]
+            assert any("try Examples/SB01.cfproject" in text for text in guidance)
+            assert any("then click Validate ZIP" in text for text in guidance)
             click(self, "中文 / English")
-            show_page(self, 0)
 
             ProductionProject("API smoke test", "EP01", "SB01").save(project_path)
             original_picker = filedialog.askopenfilename
-            filedialog.askopenfilename = lambda **_kwargs: str(project_path)
-            click(self, "打开项目")
+
+            def choose_saved_project(**options):
+                assert options["title"] == "打开已保存的 ComicFlow 项目（.cfproject）"
+                assert options["filetypes"] == (("ComicFlow 单组项目", "*.cfproject"),)
+                return str(project_path)
+
+            filedialog.askopenfilename = choose_saved_project
+            click(self, "继续已有项目")
 
             def check_panel(parent, model_caption, expected_model, expected_key):
                 dialog = next(walk(parent, tk.Toplevel))

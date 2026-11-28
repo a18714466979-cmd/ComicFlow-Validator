@@ -278,7 +278,11 @@ class ProductionDialog:
     def create(self):
         if not self.allow_leave():
             return
-        value = filedialog.asksaveasfilename(parent=self.window, filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),), defaultextension=".cfproject")
+        value = filedialog.asksaveasfilename(
+            parent=self.window, title=translate(self.window, "保存新建的单组项目"),
+            filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),),
+            defaultextension=".cfproject",
+        )
         if value:
             path = Path(value)
             if path.exists():
@@ -290,7 +294,10 @@ class ProductionDialog:
     def open(self):
         if not self.allow_leave():
             return
-        value = filedialog.askopenfilename(parent=self.window, filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),))
+        value = filedialog.askopenfilename(
+            parent=self.window, title=translate(self.window, "打开已保存的 ComicFlow 项目（.cfproject）"),
+            filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),),
+        )
         if value:
             path = Path(value)
             self.load(ProductionProject.open(path), path)

@@ -70,13 +70,24 @@ def build_production_page(page, label_text, callbacks):
     for row in (1, 2, 3):
         flow.rowconfigure(row, weight=1, uniform="stage")
     shortcuts = tk.Frame(flow, bg=BACKGROUND)
-    shortcuts.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 5))
-    new = button(shortcuts, "新建项目", "new", primary=True)
-    existing = button(shortcuts, "打开项目", "open")
-    new.pack(side="left", padx=(4, 0))
-    existing.pack(side="left", padx=6)
-    label_text(tk.Label(shortcuts, bg=BACKGROUND, fg=MUTED, anchor="w", justify="left", wraplength=490),
-               "剧本 → 分镜 → 资产可接续制作，也可以从本地文件单独开始。").pack(side="left", padx=(8, 0))
+    shortcuts.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
+    shortcuts.columnconfigure(tuple(range(3)), weight=1, uniform="shortcut")
+    routes = (
+        ("新建项目", "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。", "new"),
+        ("继续已有项目", "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。", "open"),
+        ("验收已有 ZIP", "选择已有的交付压缩包，无需解压。选完点「开始验收」。", "review_zip"),
+    )
+    controls = []
+    for column, (caption, description, action) in enumerate(routes):
+        route = tk.Frame(shortcuts, bg=BACKGROUND, padx=9, pady=4)
+        route.grid(row=0, column=column, sticky="nsew", padx=4)
+        control = button(route, caption, action, primary=action == "new")
+        control.pack(anchor="w")
+        detail = label_text(tk.Label(route, bg=BACKGROUND, fg=MUTED, anchor="w", justify="left", wraplength=220),
+                            description)
+        detail.pack(fill="x", pady=(4, 0))
+        route.bind("<Configure>", lambda event, text=detail: text.configure(wraplength=max(100, event.width - 18)))
+        controls.append(control)
 
     steps = (
         ("剧本创作", "从构思写到剧本草稿，可本地编辑或请文本模型协助。", "script"),
@@ -89,7 +100,6 @@ def build_production_page(page, label_text, callbacks):
         ("角色动作设计", "用 3D 导演台摆姿势和机位，导入取景图辅助生图。", "pose"),
         ("故事板组打包交付", "核对板格、净板和文字后，保存正式交付 ZIP。", "deliver"),
     )
-    controls = [new, existing]
     for index, (caption, description, action) in enumerate(steps):
         card = tk.Frame(flow, bg="white", highlightbackground="#cfdae3", highlightthickness=1, padx=11, pady=8)
         card.grid(row=index // 3 + 1, column=index % 3, padx=4, pady=4, sticky="nsew")

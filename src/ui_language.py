@@ -48,7 +48,15 @@ ENGLISH = {
     "英文影片制作": "English film production",
     "中文影片制作": "Chinese film production",
     "新建项目": "New project",
-    "打开项目": "Open project",
+    "继续已有项目": "Resume saved project",
+    "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。":
+        "Choose where to save your .cfproject. You can then import a TXT or Markdown script.",
+    "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。":
+        "Open a saved ComicFlow .cfproject, or try Examples/SB01.cfproject.",
+    "选择已有的交付压缩包，无需解压。选完点「开始验收」。":
+        "Choose an existing delivery ZIP as-is, then click Validate ZIP.",
+    "保存新建的单组项目": "Save new storyboard group project",
+    "打开已保存的 ComicFlow 项目（.cfproject）": "Open a saved ComicFlow project (.cfproject)",
     "剧本与分镜": "Script & shots",
     "导入批准剧本、安排镜头与对白。": "Import approved scripts and plan shots and dialogue.",
     "开始拆分镜": "Plan shots",
@@ -123,8 +131,6 @@ ENGLISH = {
     "请核对实际画面。只有规则允许且已确认的衔接才能保留。":
         "Review the actual visuals. Keep a cut only when the rules allow it and it has been approved.",
     # Stage handoff
-    "剧本 → 分镜 → 资产可接续制作，也可以从本地文件单独开始。":
-        "Continue from script to shots to assets, or start any step with a local file.",
     "将剧本带入分镜": "Bring script into shot planning",
     "选择新项目或已有项目。这份原文将作为一个剧本版本带入镜头清单。":
         "Choose a new or existing project. This manuscript becomes a source revision in its shot list.",
