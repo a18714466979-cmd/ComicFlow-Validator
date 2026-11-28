@@ -4,7 +4,7 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46096962840/artifacts/15244015917) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46097994728/artifacts/15244301002) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
 
 ## 工作台有什么
 
@@ -17,6 +17,8 @@
 | **使用教程** | 中英文实机截图和简短步骤，覆盖快速开始、剧本到交付、ZIP 验收和 API 设置。可以直接打开内置示例或对应入口。 |
 
 「人物动作编排」内置 53 张中英双语卡片。可从表演、走位、救援或刀、长枪、剑、戟等影视道具卡起步，添加姿势参考图，在 12 格或 15 格预演中对照前后动作、持物手与道具，再选择要带入正式分镜的卡片。支持读取 [3D 导演台](https://github.com/xiaozangao/3d-director-desk) 工程中的人物和道具轨迹。
+
+在「动作参考库」选择官方片段示例，或粘贴 YouTube、优酷、腾讯视频的播放页。记下起止时间和自己的镜头笔记，可直接用笔记新建动作卡，也可追加到选中的卡。视频在浏览器播放，参考条目随单组项目保存。
 
 第二个一级标签「电商信息流视频复刻」从本地参考视频开始。先确认自有产品名称和所需照片，再拆镜并核对原声、表演与场景。完成角色、场景、道具、产品总图与竖屏彩色故事板后，导出每组独立可用的中文分镜 TXT、Seedance 2.0 提示词和验收 ZIP。
 
@@ -58,10 +60,10 @@
 
 **ComicFlow is a Windows production and review workbench for ByteDance Seedance 2.0.**
 
-It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. Action sequencing includes 53 bilingual cards, 12- and 15-panel previews, local pose image references, and 3D Director Desk route import. Selected story actions can be sent to existing or source-bound new shots. The ecommerce workspace imports a local reference video and approved product photography, proposes cuts, and prepares independently usable vertical storyboard groups and delivery ZIPs. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
+It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. Action sequencing includes 53 bilingual cards, 12- and 15-panel previews, local pose image references, and 3D Director Desk route import. Selected story actions can be sent to existing or source-bound new shots. The Action reference library saves YouTube, Youku and Tencent Video playback links, time ranges and your own shot notes with each project. Open a clip in your browser, then create an action card from your notes or append them to a selected card. The ecommerce workspace imports a local reference video and approved product photography, proposes cuts, and prepares independently usable vertical storyboard groups and delivery ZIPs. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
 
 ComicFlow is designed to reduce avoidable regenerations by checking approved dialogue, shot framing and the nine-image budget before submission, and by tracing fixes to the affected images or shots. The English and Chinese workflows have separate dialogue and framing rules. Automated framing alerts use recorded shot fields. Camera geometry, composition, continuity and generated videos still need visual review.
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46096962840/artifacts/15244015917) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46097994728/artifacts/15244301002) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
