@@ -16,6 +16,7 @@ from PIL import Image, ImageTk
 
 from .api_settings_dialog import build_api_settings
 from .asset_repair_dialog import open_asset_repair
+from .brand import APP_FOLDER, app_name
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
 from .bundled_validators import bundled_validator
@@ -23,6 +24,7 @@ from .ecommerce_page import EcommercePage
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
 from .image_api import ImageSettings
+from .release_notes import open_release_notes
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
@@ -42,7 +44,7 @@ VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
 def validator_preference(rules: str = ENGLISH) -> Path | None:
     home = os.environ.get("LOCALAPPDATA")
     filename = "settings.json" if rules == ENGLISH else "settings-zh.json"
-    return Path(home) / "ComicFlow" / filename if home else None
+    return Path(home) / APP_FOLDER / filename if home else None
 
 
 def saved_validator(rules: str = ENGLISH) -> str:
@@ -83,10 +85,22 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         widget.configure(text=tr(caption))
         return widget
 
+    release_window = None
+    refresh_release = None
+
+    def show_release_notes():
+        nonlocal release_window, refresh_release
+        if release_window is None or not release_window.winfo_exists():
+            release_window, refresh_release = open_release_notes(window)
+        else:
+            release_window.deiconify()
+            release_window.lift()
+            release_window.focus_set()
+
     selected_rules = tk.StringVar(window, ENGLISH)
-    navigation, pages, rule_buttons = build_navigation(
+    navigation, pages, rule_buttons, help_menu = build_navigation(
         window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
-        switch_rules=lambda rules: switch_rules(rules),
+        switch_rules=lambda rules: switch_rules(rules), show_release_notes=show_release_notes,
     )
     production_page, ecommerce_page, review_page, api_page, tutorial_page = pages
     if initial_zip and initial_project is None:
@@ -507,9 +521,12 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             messagebox.showinfo(tr("界面语言"), tr("本次可切换界面语言。下次启动时需重新选择。"), parent=window)
 
     def refresh_language():
-        window.title(tr("ComicFlow 漫剧制片工作台"))
+        window.title(app_name(window.ui_language))
         for widget, caption in labels:
             widget.configure(text=tr(caption))
+        help_menu.entryconfigure(0, label=tr("更新日志"))
+        if release_window is not None and release_window.winfo_exists():
+            refresh_release()
         for page, caption in zip(pages, PAGE_CAPTIONS):
             navigation.tab(page, text=tr(caption))
         navigation.fit_workbench_tabs()

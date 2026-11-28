@@ -1,6 +1,7 @@
 @echo off
 setlocal DisableDelayedExpansion
 pushd "%~dp0" || exit /b 1
+title Comic Sequence Studio Setup
 set "PYTHONUTF8=1"
 set "CHECK_PY=import sys, tkinter; sys.exit(sys.version_info[:2] < (3, 11))"
 set "SETUP_RESULT=1"
@@ -44,8 +45,8 @@ if errorlevel 1 (
 )
 ".venv\Scripts\python.exe" -c "import tkinter, PIL, numpy, imageio_ffmpeg, webview"
 if errorlevel 1 goto invalid_environment
-echo COMICFLOW_SETUP_OK
-echo Start ComicFlow-Windows.bat. You can drop a ZIP or a .cfproject onto it.
+echo COMIC_SEQUENCE_STUDIO_SETUP_OK
+echo Start Comic-Sequence-Studio.bat. You can drop a ZIP or a .cfproject onto it.
 set "SETUP_RESULT=0"
 goto finish
 

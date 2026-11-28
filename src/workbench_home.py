@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import font, ttk
 
+from .brand import APP_NAME_ZH, VERSION
 from .production_rules import DELIVERY_TARGET, OTHER_VIDEO_MODELS, RULE_LABELS
 from .workbench_style import ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, SURFACE, TINT, configure_workbench
 
@@ -39,7 +40,7 @@ PRODUCTION_TOOLS = (
 )
 GUIDANCE = (
     "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。",
-    "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。",
+    "打开已保存的 .cfproject，或试用 Examples/SB01.cfproject。",
     "选择已有的交付压缩包，无需解压。选完点「开始验收」。",
 )
 _KEEP = object()
@@ -55,16 +56,27 @@ def _wrap_to_parent(parent, labels, *, inset=0, minimum=80):
     parent.bind("<Configure>", fit, add="+")
 
 
-def build_navigation(window, label_text, change_language, selected_rules, switch_rules):
+def build_navigation(window, label_text, change_language, selected_rules, switch_rules, show_release_notes):
     styles = configure_workbench(window)
     header = tk.Frame(window, bg=SURFACE, padx=22, pady=8, highlightthickness=1, highlightbackground=LINE)
     header.pack(fill="x", pady=(0, 1))
     header.columnconfigure(1, weight=1)
     tk.Frame(header, bg=ACCENT, width=6, height=22).grid(row=0, column=0, sticky="w", padx=(0, 10))
     label_text(tk.Label(header, bg=SURFACE, fg=INK, font=("TkDefaultFont", 13, "bold")),
-               "ComicFlow 漫剧制片工作台").grid(row=0, column=1, sticky="w")
+               APP_NAME_ZH).grid(row=0, column=1, sticky="w")
+    ttk.Button(header, name="release_version", text=f"v{VERSION}", command=show_release_notes,
+               style="Workbench.TButton").grid(row=0, column=2, padx=(10, 6))
+    styles.configure("Workbench.TMenubutton", padding=(9, 7), background=SURFACE, foreground=INK,
+                     bordercolor=LINE, lightcolor=SURFACE, darkcolor=SURFACE)
+    styles.map("Workbench.TMenubutton", background=[("active", TINT)], bordercolor=[("focus", ACCENT)])
+    help_button = label_text(ttk.Menubutton(header, name="workbench_help", takefocus=True,
+                                          style="Workbench.TMenubutton"), "帮助")
+    help_menu = tk.Menu(help_button, tearoff=False)
+    help_menu.add_command(command=show_release_notes)
+    help_button.configure(menu=help_menu)
+    help_button.grid(row=0, column=3, padx=(0, 6))
     ttk.Button(header, text="中文 / English", command=change_language, style="Workbench.TButton").grid(
-        row=0, column=2, sticky="e")
+        row=0, column=4, sticky="e")
 
     rule_bar = tk.Frame(window, bg=BACKGROUND, padx=22)
     rule_bar.pack(fill="x", pady=(4, 0))
@@ -120,7 +132,7 @@ def build_navigation(window, label_text, change_language, selected_rules, switch
 
     navigation.bind("<Configure>", fit_tabs, add="+")
     navigation.fit_workbench_tabs = fit_tabs
-    return navigation, pages, rules_buttons
+    return navigation, pages, rules_buttons, help_menu
 
 
 def _adaptive_grid(parent, widgets, maximum, *, spacing=7):

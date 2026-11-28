@@ -4,6 +4,7 @@ import sys
 import pytest
 
 from src import windows_launcher
+from src.brand import APP_FOLDER
 from src.production_export import build_delivery
 from src.production_handoff import adjacent
 from src.production_project import ProductionProject
@@ -28,7 +29,7 @@ def test_each_mode_keeps_its_own_validator_and_respects_legacy_preferences(tmp_p
     english, chinese, override = (tmp_path / name for name in ("英文.py", "中文.py", "override.py"))
     for script in (english, chinese, override):
         script.touch()
-    legacy = tmp_path / "ComicFlow" / "settings.json"
+    legacy = tmp_path / APP_FOLDER / "settings.json"
     legacy.parent.mkdir()
     legacy.write_text(json.dumps({"validator": str(english)}), encoding="utf-8")
 

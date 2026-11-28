@@ -8,10 +8,10 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageTk
 
-from .ui_language import translate
+from .ui_language import translate, window_title
 from .camera_preflight import camera_cuts, camera_findings_text
 from .image_production_dialog import display_picture, select_image_region
-from .production_dialog import PROJECT_FILES, fields_text, write_text
+from .production_dialog import fields_text, project_filetypes, write_text
 from .production_export import project_registry, publish_batch
 from .production_handoff import active_scope, adjacent, adopt_pending, boundary_report, confirm_boundary, defer_tail, pending_record, restore_tail
 from .production_layout import COLORS, add_mark, apply_layout, bind_window, render_layout, windows_for_shots
@@ -31,7 +31,7 @@ class LayoutDialog:
         self.next_group = self.read_next(adjacent_path) if adjacent_path is not None else None
         self.boundary_seen = None
         self.window = tk.Toplevel(production.window)
-        self.window.title(translate(self.window, "ComicFlow 排版与交接"))
+        self.window.title(window_title(self.window, "排版与交接"))
         self.window.geometry("1070x755")
         self.window.minsize(830, 650)
         self.window.transient(production.window)
@@ -294,7 +294,7 @@ class LayoutDialog:
         self.report_text("")
 
     def load_next(self):
-        filename = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
+        filename = filedialog.askopenfilename(parent=self.window, filetypes=project_filetypes(self.window))
         if filename:
             self.next_group = self.read_next(filename)
             self.boundary_seen = None
@@ -410,7 +410,7 @@ class LayoutDialog:
             self.refresh()
 
     def receive_pending(self):
-        filename = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
+        filename = filedialog.askopenfilename(parent=self.window, filetypes=project_filetypes(self.window))
         if filename:
             previous = ProductionProject.open(Path(filename))
             adopt_pending(previous, self.project)

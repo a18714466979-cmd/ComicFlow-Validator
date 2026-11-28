@@ -189,7 +189,7 @@ def print_report(
     failed = len(results) - passed
 
     print("\n" + "=" * 60)
-    print("ComicFlow Validator - 图片验收报告")
+    print("漫剧镜序制片台 · 图片验收报告")
     print("=" * 60)
 
     for result in results:
@@ -217,7 +217,7 @@ def print_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="ComicFlow 批量图片验收工具"
+        description="漫剧镜序制片台 · 批量图片验收工具"
     )
 
     parser.add_argument(

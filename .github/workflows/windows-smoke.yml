@@ -48,13 +48,13 @@ jobs:
       - name: Run automated tests
         run: python -m pytest -q
       - name: Build Windows trial archive
-        run: python -m scripts.windows_trial dist/ComicFlow-Windows-Trial.zip --revision ${{ github.sha }}
+        run: python -m scripts.windows_trial dist/Comic-Sequence-Studio-Windows.zip --revision ${{ github.sha }}
       - name: Install the unpacked trial and test the desktop and delivery paths
-        run: python -m scripts.verify_windows_trial dist/ComicFlow-Windows-Trial.zip --install
+        run: python -m scripts.verify_windows_trial dist/Comic-Sequence-Studio-Windows.zip --install
       - name: Upload Windows trial archive
         uses: actions/upload-artifact@v7
         with:
-          path: dist/ComicFlow-Windows-Trial.zip
+          path: dist/Comic-Sequence-Studio-Windows.zip
           archive: false
           if-no-files-found: error
           retention-days: 30

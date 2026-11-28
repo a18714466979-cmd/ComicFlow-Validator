@@ -6,7 +6,7 @@ from queue import Empty, Queue
 from threading import Thread
 from tkinter import filedialog, scrolledtext, ttk
 
-from .ui_language import translate
+from .ui_language import translate, window_title
 from .production_rules import CHINESE, ENGLISH
 from .storyboard_preflight import IMAGE_LIMIT, group_capacity, image_budget, plan_dialogue
 
@@ -46,7 +46,7 @@ def add_image_budget(window, chinese):
 def open_preflight_dialog(parent: tk.Tk, validator: str, rules: str = ENGLISH) -> None:
     chinese = rules == CHINESE
     window = tk.Toplevel(parent)
-    window.title(translate(window, "ComicFlow 中文对白预检" if chinese else "ComicFlow 生图前预检"))
+    window.title(window_title(window, "中文对白预检" if chinese else "生图前预检"))
     window.geometry("840x720")
     window.minsize(660, 540)
     add_image_budget(window, chinese)

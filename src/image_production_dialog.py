@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from PIL import Image, ImageOps, ImageTk
 
-from .ui_language import translate
+from .ui_language import translate, window_title
 from .image_api import EDIT, IMAGE_PROVIDERS, REFERENCE, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
 from .production_dialog import field, write_text
 from .production_export import check_english_board_input
@@ -29,7 +29,7 @@ class ImageProductionDialog:
         self.reference_id = reference_id
         self.reference_kind = reference_kind
         self.window = tk.Toplevel(production.window)
-        self.window.title(translate(self.window, "ComicFlow 图像制片"))
+        self.window.title(window_title(self.window, "图像制片"))
         self.window.geometry("1060x790")
         self.window.minsize(830, 635)
         self.window.transient(production.window)

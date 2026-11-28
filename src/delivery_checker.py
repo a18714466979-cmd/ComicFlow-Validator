@@ -18,7 +18,7 @@ from tempfile import TemporaryDirectory
 
 
 # ============================================================
-# ComicFlow Validator - 交付包验收模块
+# 漫剧镜序制片台 · 交付包验收模块
 # ============================================================
 
 DEFAULT_FORBIDDEN_NAMES = (
@@ -519,7 +519,7 @@ def validate_delivery(
 def print_report(report: DeliveryReport) -> None:
     print()
     print("=" * 65)
-    print("ComicFlow Validator - 交付包验收报告")
+    print("漫剧镜序制片台 · 交付包验收报告")
     print("=" * 65)
     print(f"目标: {report.source}")
     print(f"文件总数: {report.file_count}")
@@ -747,7 +747,7 @@ def validate_storyboard_zip(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="ComicFlow Validator - 交付包验收工具"
+        description="漫剧镜序制片台 · 交付包验收工具"
     )
     parser.add_argument(
         "source",

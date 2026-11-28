@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageDraw
 
+from src.brand import APP_FOLDER, VERSION
 from src.bundled_validators import ENGLISH_VALIDATOR_DIRECTORY, ENGLISH_VALIDATOR_FILES
 from src.director_desk import DIRECTOR_BUNDLE, DIRECTOR_HOST
 from src.image_api import EDIT, IMAGE_PROVIDERS, ImageReply, ImageSettings
@@ -22,7 +23,9 @@ from src.workbench_tutorial import SECTIONS, TUTORIAL_IMAGES, TUTORIAL_LOCALES
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALL_FILES = ("ComicFlow-Setup.bat", "ComicFlow-Windows.bat", "requirements-runtime.txt", "WINDOWS-TRYOUT.md", "LICENSE")
+SETUP_SCRIPT = f"{APP_FOLDER}-Setup.bat"
+LAUNCH_SCRIPT = f"{APP_FOLDER}.bat"
+INSTALL_FILES = (SETUP_SCRIPT, LAUNCH_SCRIPT, "requirements-runtime.txt", "WINDOWS-TRYOUT.md", "CHANGELOG.md", "LICENSE")
 COSTUME_REFERENCES = Path("assets/costume_references")
 ECOMMERCE_VALIDATOR_DIRECTORY = Path("assets/workflow_validators/ecommerce")
 CONTINUITY = "门保持关闭，右侧绿灯稳定，左侧柜体仍在原位"
@@ -58,7 +61,7 @@ def make_group(dest, scratch, number, rules):
     path = dest / f"{name}.cfproject"
     chinese = rules == CHINESE
     scenes = ("值守室", "东走廊") if chinese and number == 2 else ("值守室",) if chinese else ("信号站",)
-    project = ProductionProject("ComicFlow 合成试用·值守站" if chinese else "ComicFlow 合成试用·信号站",
+    project = ProductionProject("合成试用·值守站" if chinese else "Synthetic Example · Signal Station",
                                 "EP01", name, rules=rules)
     script = ("值守室只有设备和建筑。门保持关闭，绿灯稳定。第二组在室内承接后切到东走廊。"
               if chinese else "信号站只有设备和建筑。门关闭，信号灯从琥珀色转换到绿灯。")
@@ -86,7 +89,7 @@ def make_group(dest, scratch, number, rules):
         draw_frame(original, beat, board=board, reverse=reverse, east=east, steady=chinese)
         return project.import_image(path, original, filename, action="直接复用", reference_only=not formal,
                                     reason="本地生成的试用素材", inspection="供试用版逐格核图",
-                                    origin_label=f"ComicFlow 合成样例 {name}/{filename}")
+                                    origin_label=f"合成样例 {name}/{filename}")
 
     if chinese and len(scenes) == 1:
         for angle in ("main", "reverse"):
@@ -162,10 +165,11 @@ def make_examples(dest, scratch, rules, preview_name):
 
 def build(output, revision):
     output.parent.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(prefix="comicflow-trial-") as temp:
+    metadata = {"VERSION.txt": VERSION + "\n", "REVISION.txt": revision + "\n"}
+    with TemporaryDirectory(prefix="comic-sequence-studio-trial-") as temp:
         scratch = Path(temp)
         staging = scratch / "kit"
-        folder = staging / "ComicFlow-Windows"
+        folder = staging / APP_FOLDER
         folder.mkdir(parents=True)
         for filename in INSTALL_FILES:
             copy2(ROOT / filename, folder / filename)
@@ -183,7 +187,8 @@ def build(output, revision):
         for filename in ENGLISH_VALIDATOR_FILES:
             relative = ENGLISH_VALIDATOR_DIRECTORY / filename
             copy2(ROOT / relative, folder / relative)
-        (folder / "REVISION.txt").write_text(revision + "\n", encoding="utf-8")
+        for name, content in metadata.items():
+            (folder / name).write_bytes(content.encode("utf-8"))
         make_examples(folder / "Examples", scratch / "en", ENGLISH, "预览_信号站_相邻两组.zip")
         make_examples(folder / "Examples" / "中文制作", scratch / "zh", CHINESE, "预览_相邻两组.zip")
         write_delivery_zip(staging, output)
@@ -200,7 +205,12 @@ def build(output, revision):
         director = tuple(path.relative_to(ROOT).as_posix() for directory in (DIRECTOR_BUNDLE, DIRECTOR_HOST)
                          for path in (ROOT / directory).rglob("*") if path.is_file())
         for name in (*INSTALL_FILES, *samples, *references, *validators, ecommerce_validator, *tutorial, *director):
-            archive.getinfo(f"ComicFlow-Windows/{name}")
+            archive.getinfo(f"{APP_FOLDER}/{name}")
+        for name, content in metadata.items():
+            if archive.read(f"{APP_FOLDER}/{name}") != content.encode("utf-8"):
+                raise ValueError(f"The trial archive has mismatched metadata in {name}.")
+        if archive.read(f"{APP_FOLDER}/CHANGELOG.md") != (ROOT / "CHANGELOG.md").read_bytes():
+            raise ValueError("The trial archive does not match the repository changelog.")
         if any(".sqlite3" in name for name in archive.namelist()):
             raise ValueError("The portable archive must rebuild machine-local asset paths.")
 

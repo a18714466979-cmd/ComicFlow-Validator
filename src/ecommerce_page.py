@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from PIL import Image, ImageTk
 
+from .brand import APP_FOLDER
 from .ecommerce_ai import (
     draft_ecommerce_shots, preview_ecommerce_analysis, preview_ecommerce_image, submit_ecommerce_image,
 )
@@ -357,8 +358,11 @@ class EcommercePage:
         self.steps.select(0)
         self.status.set(self.t("请导入参考视频。", "Import a reference video to start."))
 
+    def project_filetypes(self):
+        return ((self.t("电商视频项目", "E-commerce video project"), "*.cfecom"),)
+
     def open(self):
-        source = filedialog.askopenfilename(parent=self.window, filetypes=(("ComicFlow Ecommerce", "*.cfecom"),))
+        source = filedialog.askopenfilename(parent=self.window, filetypes=self.project_filetypes())
         if not source or not self.allow_close():
             return
         path = Path(source)
@@ -379,7 +383,7 @@ class EcommercePage:
         destination = self.path
         if not destination:
             filename = filedialog.asksaveasfilename(parent=self.window, defaultextension=".cfecom",
-                                                    filetypes=(("ComicFlow Ecommerce", "*.cfecom"),))
+                                                    filetypes=self.project_filetypes())
             if not filename:
                 return
             destination = Path(filename)
@@ -1040,8 +1044,10 @@ class EcommercePage:
         self.require_approved()
         if not self.staged or not self.final_review.get():
             raise ValueError(self.t("请先生成交付预览并逐项复核。", "Prepare and review the delivery preview first."))
-        selection = filedialog.asksaveasfilename(parent=self.window, defaultextension=".zip",
-                                                 initialfile="ComicFlow-Ecommerce.zip", filetypes=(("ZIP", "*.zip"),))
+        selection = filedialog.asksaveasfilename(
+            parent=self.window, defaultextension=".zip", initialfile=f"{APP_FOLDER}-Ecommerce.zip",
+            filetypes=(("ZIP", "*.zip"),),
+        )
         if not selection:
             return
         destination = Path(selection)

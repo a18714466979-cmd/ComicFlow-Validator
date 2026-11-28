@@ -69,7 +69,7 @@ def resolve_ffmpeg(explicit=None) -> str:
 
         return imageio_ffmpeg.get_ffmpeg_exe()
     except (ImportError, OSError, RuntimeError) as exc:
-        raise VideoError("找不到 FFmpeg。请完成 ComicFlow 安装，或选择电脑中的 ffmpeg.exe。") from exc
+        raise VideoError("找不到 FFmpeg。请完成软件安装，或选择电脑中的 ffmpeg.exe。") from exc
 
 
 def _seconds(ms):

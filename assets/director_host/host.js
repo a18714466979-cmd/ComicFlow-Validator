@@ -17,7 +17,8 @@ let sending = false;
 
 document.documentElement.lang = language;
 frame.title = title("3D 导演台", "3D Director Desk");
-document.title = `ComicFlow · ${frame.title}`;
+const appName = title("漫剧镜序制片台", "Comic Sequence Studio");
+document.title = `${appName} · ${frame.title}`;
 document.querySelector("#name").textContent = document.title;
 send.textContent = pose ? title("取当前画面作为参考", "Use current frame as reference")
   : title("把轨迹带入动作编排", "Send tracks to action sequence");
@@ -50,7 +51,7 @@ async function submit(result) {
   });
   const reply = await response.json();
   if (!response.ok || !reply.ok) {
-    throw new Error(reply.error || title("ComicFlow 未能接收结果。", "ComicFlow could not receive the result."));
+    throw new Error(reply.error || title("工作台未能接收结果。", "The workspace could not receive the result."));
   }
 }
 
@@ -58,10 +59,10 @@ async function sendResult(makeResult) {
   if (sending) return;
   sending = true;
   send.disabled = true;
-  status.textContent = title("正在发送到 ComicFlow…", "Sending to ComicFlow…");
+  status.textContent = title("正在发送到制片台…", "Sending to the workspace…");
   try {
     await submit(await makeResult());
-    status.textContent = title("已发送，正在返回 ComicFlow。", "Sent. Returning to ComicFlow.");
+    status.textContent = title("已发送，正在返回制片台。", "Sent. Returning to the workspace.");
   } catch (error) {
     status.textContent = error.message;
     sending = false;
@@ -131,5 +132,5 @@ if (instanceId && token && ["pose", "action"].includes(mode)) {
     if (loading) status.textContent = title("3D 导演台尚未就绪，请关闭窗口后重试。", "The 3D Director Desk is still starting. Close the window and try again.");
   }, 30_000);
 } else {
-  status.textContent = title("请从 ComicFlow 的角色动作设计或人物动作编排打开。", "Open from Character pose design or Action sequence in ComicFlow.");
+  status.textContent = title("请在制片台的角色动作设计或人物动作编排中打开。", "Open from Character pose design or Action sequence in the workspace.");
 }

@@ -3,12 +3,13 @@
 import os
 from pathlib import Path
 
+from .brand import APP_FOLDER, APP_NAME_EN, APP_NAME_ZH, app_name
 from .production_project import atomic_text
 
 
 def preference_path():
     app_data = os.environ.get("LOCALAPPDATA")
-    return Path(app_data) / "ComicFlow" / "ui-language.txt" if app_data else None
+    return Path(app_data) / APP_FOLDER / "ui-language.txt" if app_data else None
 
 
 def load_language():
@@ -36,10 +37,20 @@ def translate(widget, text):
     return text
 
 
+def window_title(widget, tool):
+    language = getattr(widget._root(), "ui_language", "zh")
+    return f"{app_name(language)} · {translate(widget, tool)}"
+
+
 ENGLISH = {
     "电商信息流视频复刻": "E-commerce video recreation",
     # Home and package review
-    "ComicFlow 漫剧制片工作台": "ComicFlow Storyboard Workbench",
+    APP_NAME_ZH: APP_NAME_EN,
+    "帮助": "Help",
+    "更新日志": "Changelog",
+    "构建版本": "Build revision",
+    "GitHub 构建记录": "GitHub build history",
+    "无法读取更新日志。": "Could not read the changelog.",
     "制作规则专为字节跳动 Seedance 2.0 成片交付适配":
         "Production rules tailored to ByteDance Seedance 2.0 delivery",
     "换用其他视频模型时，素材和提示词匹配度可能较低，需要按目标模型调整。":
@@ -53,7 +64,7 @@ ENGLISH = {
     "本次补充需求": "Additional request",
     "查看已锁定规则": "View locked rules",
     "生成规则由软件锁定。此处可补充场景、造型或修改细节。":
-        "ComicFlow locks the generation rules. Add scene, styling or edit details here.",
+        "This workspace locks the generation rules. Add scene, styling or edit details here.",
     "审图重点（可选）": "Review focus (optional)",
     "查看固定审图规则": "View fixed review instructions",
     "补充审图重点会随图片发送。": "Your review focus is sent with the image.",
@@ -78,12 +89,12 @@ ENGLISH = {
     "继续已有项目": "Resume saved project",
     "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。":
         "Choose where to save your .cfproject. You can then import a TXT or Markdown script.",
-    "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。":
-        "Open a saved ComicFlow .cfproject, or try Examples/SB01.cfproject.",
+    "打开已保存的 .cfproject，或试用 Examples/SB01.cfproject。":
+        "Open a saved .cfproject, or try Examples/SB01.cfproject.",
     "选择已有的交付压缩包，无需解压。选完点「开始验收」。":
         "Choose an existing delivery ZIP as-is, then click Validate ZIP.",
     "保存新建的单组项目": "Save new storyboard group project",
-    "打开已保存的 ComicFlow 项目（.cfproject）": "Open a saved ComicFlow project (.cfproject)",
+    "打开已保存的项目（.cfproject）": "Open a saved project (.cfproject)",
     "正在打开项目…": "Opening project…",
     "项目打开失败。": "Could not open the project.",
     "剧本与分镜": "Script & shots",
@@ -208,7 +219,6 @@ ENGLISH = {
         "Design reference loaded. Check the reference and prompt in the request preview.",
     # API settings
     "API 设置": "API settings",
-    "ComicFlow API 设置": "ComicFlow API Settings",
     "文本创作": "Text drafting",
     "AI 审图": "AI image review",
     "图像生成": "Image generation",
@@ -243,8 +253,7 @@ ENGLISH = {
         "Saved for this session. The provider determines account and model access when you submit a request.",
     "已保存接口和模型。提交任务前请填写密钥。": "Endpoint and model saved. Enter a key before submitting a job.",
     # Project navigation, editing and delivery
-    "ComicFlow 单组制片": "ComicFlow Group Production",
-    "ComicFlow 单组项目": "ComicFlow group project",
+    "单组制作项目": "Storyboard group project",
     "单组制片": "Group production",
     "新建单组项目": "Create group project",
     "打开单组项目": "Open group project",
@@ -339,7 +348,6 @@ ENGLISH = {
     "请先新建或打开项目。": "Create or open a project first.",
     "这个项目文件已存在，请选择新文件名。": "This project already exists. Choose a new filename.",
     # Dialogue, drafting and image jobs
-    "ComicFlow 文本制片": "ComicFlow Text Production",
     "中文对白预排": "Plan Chinese dialogue",
     "对白与九图预排": "Dialogue & image budget",
     "文本模型与历史": "Text model & history",
@@ -375,7 +383,6 @@ ENGLISH = {
     "本次发送内容": "Request preview",
     "查看发送内容后调用。API Key 只在本次软件运行期间保留。":
         "Preview before sending. The API key is kept only for this session.",
-    "ComicFlow 图像制片": "ComicFlow Image Production",
     "新建生图任务": "New image job",
     "候选与任务": "Candidates & jobs",
     "图像服务商": "Image provider",
@@ -433,7 +440,6 @@ ENGLISH = {
     "替换同名正式图，保留批准原图及来源链":
         "Replace the delivery image and retain the approved original and provenance.",
     # Layout, review, repair and standalone checks
-    "ComicFlow 排版与交接": "ComicFlow Layout & Handoff",
     "16:9 排版": "16:9 layout",
     "相邻组交接": "Adjacent group handoff",
     "镜头": "Shot",
@@ -462,7 +468,6 @@ ENGLISH = {
     "导出待制作 TXT": "Export deferred shots TXT",
     "排版预览": "Layout preview",
     "对照前组末镜与后组首镜": "Compare last and first shots",
-    "ComicFlow 逐格复核": "ComicFlow Panel Review",
     "生产记录 · 本镜": "Production notes · This shot",
     "SD2 提示词 · 本镜": "SD2 prompt · This shot",
     "手动框选 · 局部预览": "Manual selection · Crop preview",
@@ -483,7 +488,6 @@ ENGLISH = {
     "按包内镜号和局部对应表显示，画面内容由人工核对。":
         "Panels follow the archive’s shot IDs and crop mapping. Review the visuals manually.",
     "该镜暂无唯一净板对应。": "This shot has no unique clean-plate mapping.",
-    "ComicFlow 资产与返修": "ComicFlow Assets & Repairs",
     "资产与返修": "Assets & repairs",
     "资产登记": "Asset registry",
     "返修打包": "Repair packaging",
@@ -504,8 +508,6 @@ ENGLISH = {
     "保存报告": "Save report",
     "生图前预检": "Dialogue & image checks",
     "中文对白预检": "Chinese dialogue checks",
-    "ComicFlow 生图前预检": "ComicFlow Dialogue & Image Checks",
-    "ComicFlow 中文对白预检": "ComicFlow Chinese Dialogue Checks",
     "单组九图预算": "Nine-image budget per group",
     "10 格，故事板 2 张": "10 panels, 2 storyboard images",
     "故事板固定 1 张": "1 storyboard image",

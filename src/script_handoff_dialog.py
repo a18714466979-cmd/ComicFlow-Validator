@@ -4,7 +4,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .production_dialog import PROJECT_FILES
+from .production_dialog import project_filetypes
 from .production_flow import attach_script
 from .ui_language import translate
 
@@ -18,7 +18,7 @@ def choose_project_for_script(parent, title, text, rules):
     ttk.Label(body, text=title, wraplength=480).pack(anchor="w")
     ttk.Label(body, text=translate(panel, "选择新项目或已有项目。这份原文将作为一个剧本版本带入镜头清单。"),
               wraplength=480).pack(anchor="w", pady=(4, 10))
-    labels = ((translate(panel, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),)
+    labels = project_filetypes(panel)
     result = []
 
     def select(existing):

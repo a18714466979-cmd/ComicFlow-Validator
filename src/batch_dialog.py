@@ -17,7 +17,6 @@ from .production_rules import CHINESE, rule_revision
 from .workbench_style import AMBER, GREEN, INK, LINE, SURFACE, configure_workbench
 
 
-BATCH_FILES = (("ComicFlow batch", "*.cfbatch"),)
 SCRIPT_FILES = (("UTF-8 text / Markdown", "*.txt *.md"),)
 TASK_KINDS = {"shot": ("分镜", "Shot"), "prompt": ("提示词", "Prompt"),
               "board": ("故事板", "Board"), "plate": ("净板", "Clean plate")}
@@ -723,16 +722,21 @@ class BatchDialog:
     def reload(self):
         self.update()
 
+    def batch_filetypes(self):
+        return ((self.t("批量制作项目", "Batch production project"), "*.cfbatch"),)
+
     def create(self):
-        path = filedialog.asksaveasfilename(parent=self.window, title=self.t("保存新批次", "Save new batch"),
-                                            filetypes=BATCH_FILES, defaultextension=".cfbatch")
+        path = filedialog.asksaveasfilename(
+            parent=self.window, title=self.t("保存新批次", "Save new batch"),
+            filetypes=self.batch_filetypes(), defaultextension=".cfbatch",
+        )
         if path:
             path = Path(path)
             self.task(lambda: self.snapshot(BatchWorkspace.create(path, path.stem, self.rules), ""), self.render,
                       self.t("正在新建批次…", "Creating batch…"))
 
     def choose_open(self):
-        path = filedialog.askopenfilename(parent=self.window, filetypes=BATCH_FILES)
+        path = filedialog.askopenfilename(parent=self.window, filetypes=self.batch_filetypes())
         if path:
             self.open_path(path)
 

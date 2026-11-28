@@ -9,8 +9,8 @@ from threading import Thread
 from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlsplit
 
-from .ui_language import translate
-from .production_dialog import PROJECT_FILES, field, fields_text, read_fields, write_text
+from .ui_language import translate, window_title
+from .production_dialog import field, fields_text, project_filetypes, read_fields, write_text
 from .production_dialogue import group_scope, plan_project_dialogue, save_scope, scope_from_shots, select_scope
 from .production_drafting import (
     DRAFT_SHOT_FIELDS, HANDOFF_FIELDS, HANDOFF_TASK, SD2_FIELDS, SD2_TASK, SHOT_TASK, TASKS,
@@ -34,7 +34,7 @@ class DraftingDialog:
         self.candidate = None
         self.busy = False
         self.window = tk.Toplevel(production.window)
-        self.window.title(translate(self.window, "ComicFlow 文本制片"))
+        self.window.title(window_title(self.window, "文本制片"))
         self.window.geometry("1040x774")
         self.window.minsize(820, 665)
         self.window.transient(production.window)
@@ -169,7 +169,7 @@ class DraftingDialog:
         self.set_report(self.plan_report, f"已保存 {self.project.group} 的实际对白范围。")
 
     def load_previous(self):
-        value = filedialog.askopenfilename(parent=self.window, filetypes=PROJECT_FILES)
+        value = filedialog.askopenfilename(parent=self.window, filetypes=project_filetypes(self.window))
         if not value:
             return
         previous = ProductionProject.open(Path(value))

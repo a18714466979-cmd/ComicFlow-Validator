@@ -1,16 +1,13 @@
+"""Print the installed application's name and version."""
 
-APP_NAME = "ComicFlow Validator"
-VERSION = "0.1.0"
+if __package__:
+    from .brand import APP_NAME_EN, APP_NAME_ZH, VERSION
+else:
+    from brand import APP_NAME_EN, APP_NAME_ZH, VERSION
 
 
 def main():
-    print("=" * 45)
-    print(f"{APP_NAME} v{VERSION}")
-    print("=" * 45)
-
-    print("AI 漫剧素材验收工具")
-    print("开发环境已经准备就绪。")
-    print("欢迎使用 ComicFlow Validator！")
+    print(f"{APP_NAME_ZH} · {APP_NAME_EN} v{VERSION}")
 
 
 if __name__ == "__main__":

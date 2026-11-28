@@ -1,4 +1,4 @@
-"""Rule versions saved by ComicFlow projects."""
+"""Rule versions saved by storyboard projects."""
 
 ENGLISH = "14.10.3"
 CHINESE = "14.8.8"

@@ -94,7 +94,7 @@ def load_action_cards(path: Path) -> list[ActionCard]:
     try:
         payload = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeError, ValueError, RecursionError) as error:
-        raise ValueError("请选择 UTF-8 编码的 ComicFlow 动作卡 JSON。") from error
+        raise ValueError("请选择 UTF-8 编码的 动作卡 JSON。") from error
     if (not isinstance(payload, dict) or payload.keys() != {"format", "version", "cards"}
             or payload["format"] != SEQUENCE_FORMAT
             or type(payload["version"]) is not int or payload["version"] != SEQUENCE_VERSION):

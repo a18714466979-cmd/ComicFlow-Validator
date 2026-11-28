@@ -11,6 +11,7 @@ from zipfile import ZipFile
 from PIL import Image, ImageChops
 
 from src.asset_registry import sha256_file
+from src.brand import APP_FOLDER, VERSION
 from src.production_export import publish_batch, publish_project
 from src.production_handoff import confirm_boundary
 from src.production_images import approve_candidate
@@ -64,19 +65,24 @@ def fixture_validator(folder):
 
 
 def verify(archive_path, validator=None, install=False, chinese_validator=None):
-    with TemporaryDirectory(prefix="ComicFlow 试用 ") as directory:
+    from scripts.windows_trial import SETUP_SCRIPT
+
+    with TemporaryDirectory(prefix="Comic Sequence Studio 试用 ") as directory:
         base = Path(directory)
         with ZipFile(archive_path) as archive:
             assert archive.testzip() is None
             archive.extractall(base)
-        folder = base / "ComicFlow-Windows"
+        folder = base / APP_FOLDER
+        assert (folder / "VERSION.txt").read_text(encoding="utf-8").strip() == VERSION
+        assert (folder / "REVISION.txt").read_text(encoding="utf-8").strip()
+        assert (folder / "CHANGELOG.md").read_text(encoding="utf-8").strip()
         python = sys.executable
         if install:
-            result = subprocess.run(["cmd.exe", "/d", "/c", "ComicFlow-Setup.bat", "--no-pause"], cwd=folder,
+            result = subprocess.run(["cmd.exe", "/d", "/c", SETUP_SCRIPT, "--no-pause"], cwd=folder,
                                     capture_output=True, text=True, encoding="utf-8", errors="replace",
                                     check=False, timeout=150)
             print(result.stdout, end="")
-            assert result.returncode == 0 and "COMICFLOW_SETUP_OK" in result.stdout, result.stderr
+            assert result.returncode == 0 and "COMIC_SEQUENCE_STUDIO_SETUP_OK" in result.stdout, result.stderr
             python = str(folder / ".venv" / "Scripts" / "python.exe")
             smoke = Path(__file__).resolve().parents[1] / "tests" / "windows_smoke.py"
             subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=230)

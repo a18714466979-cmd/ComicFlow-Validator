@@ -112,7 +112,7 @@ class EcommerceProject:
         try:
             payload = json.loads(raw.decode("utf-8-sig"))
         except (ValueError, RecursionError) as error:
-            raise ValueError("请选择 UTF-8 编码的 ComicFlow 电商项目。") from error
+            raise ValueError("请选择 UTF-8 编码的 电商项目。") from error
         if (not isinstance(payload, dict) or payload.get("format") != PROJECT_FORMAT
                 or type(payload.get("version")) is not int or payload["version"] != PROJECT_VERSION):
             raise ValueError("电商项目格式或版本不兼容。")

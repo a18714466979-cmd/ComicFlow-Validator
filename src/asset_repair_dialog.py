@@ -6,7 +6,7 @@ from queue import Empty, Queue
 from threading import Thread
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from .ui_language import translate
+from .ui_language import translate, window_title
 from .asset_registry import AssetRegistry
 from .repair_package import affected_files, pack_repair
 from .storyboard_review import ReviewResult
@@ -16,7 +16,7 @@ def open_asset_repair(
     parent: tk.Tk, registry_path: tk.StringVar, validator: str, baseline: ReviewResult | None,
 ) -> None:
     window = tk.Toplevel(parent)
-    window.title(translate(window, "ComicFlow 资产与返修"))
+    window.title(window_title(window, "资产与返修"))
     window.geometry("940x720")
     window.minsize(650, 550)
     window.transient(parent)

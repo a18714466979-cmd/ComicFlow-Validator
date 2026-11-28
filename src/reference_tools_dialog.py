@@ -193,7 +193,7 @@ def open_reference_tools(parent, project, path, kind, on_confirm):
         target = Path(capture_folder.name) / "director-frame.png"
         target.write_bytes(source.read_bytes())
         show(target, tr("3D 导演台取景", "3D Director Desk still"),
-             tr("ComicFlow 内置 3D 导演台取景", "ComicFlow built-in 3D Director Desk still"))
+             tr("内置 3D 导演台取景", "Built-in 3D Director Desk still"))
 
     def launch_director():
         try:

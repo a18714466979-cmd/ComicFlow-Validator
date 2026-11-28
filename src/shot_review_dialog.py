@@ -8,7 +8,7 @@ from zipfile import BadZipFile
 
 from PIL import Image, ImageTk
 
-from .ui_language import translate
+from .ui_language import translate, window_title
 from .production_layout import valid_box
 from .shot_review import load_shots, pixel_selection, shot_id, shot_summary
 from .storyboard_review import ReviewResult, read_preview
@@ -128,7 +128,7 @@ def open_shot_review(parent: tk.Tk, result: ReviewResult, group: str = "", shot:
         return
 
     window = tk.Toplevel(parent)
-    window.title(translate(window, "ComicFlow 逐格复核"))
+    window.title(window_title(window, "逐格复核"))
     window.geometry("1250x850")
     window.minsize(850, 650)
     window.transient(parent)

@@ -1,11 +1,10 @@
-
-# ComicFlow Validator
+# 漫剧镜序制片台 · Comic Sequence Studio
 
 **A production and review workbench for AI comics using Seedance 2.0**
 
 面向字节跳动 Seedance 2.0 的漫剧制片工作台，贯通剧本、分镜、资产、故事板、提示词和 ZIP 交付。
 
-[Windows 试用版构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [安装和试用说明](WINDOWS-TRYOUT.md)
+[Windows 安装包和测试记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [安装和试用说明](WINDOWS-TRYOUT.md) · [更新日志 / Changelog](CHANGELOG.md)
 
 [English](#english) | [简体中文](#简体中文)
 
@@ -15,7 +14,9 @@
 
 ### Overview
 
-ComicFlow helps AI comic creators prepare and review a complete delivery for ByteDance Seedance 2.0. The workbench has tabs for storyboard production, inspection and validation, API connections, a bilingual illustrated tutorial, and e-commerce video recreation. Work through script, shots and assets in one project, or start a stage with a local file.
+Comic Sequence Studio helps AI comic creators prepare and review a complete delivery for ByteDance Seedance 2.0. The workbench has tabs for storyboard production, inspection and validation, API connections, a bilingual illustrated tutorial, and e-commerce video recreation. Work through script, shots and assets in one project, or start a stage with a local file.
+
+Select **Changelog** under **Help** or click the version on the home page to read the release history. The Windows package includes the same [changelog](CHANGELOG.md) for offline use.
 
 Approved sources, dialogue spans, shot order, camera references and the nine-image budget can be checked before submission. Reviewing adjacent panels and repairing the affected region helps avoid repeated generations and full-group rework caused by preventable input problems.
 
@@ -44,13 +45,13 @@ Open **Batch production center** from **Storyboard production** to plan one epis
 
 **Character costume design** includes 23 CC0 outfit reference images from [Shisei](https://github.com/wquguru/shisei). Browse or search the local collection by category, outfit name or ID. Choose a reference or import your own, then pass it to the image generation preview.
 
-Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. ComicFlow action-card JSON can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
+Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. Action-card JSON files can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
 
 In **Action reference library**, pick a starter link or paste a YouTube, Youku or Tencent Video playback link from the rights holder. Open it in your browser, mark the start and end of a passage, and write what you want to try in your own scene. For example, a wide shot might establish both characters before a close-up reveals one character’s reaction. Save the reference with the project. Choose **Create card from notes** to start a sequence, or append your note to a selected card. Playback stays on the platform, and the delivery ZIP leaves out the reference library.
 
 ### E-commerce video recreation
 
-Open the second top-level tab, **E-commerce video recreation**. Import a local reference video and enter your product name. Add your product photos and check that they show every side and state needed in the shots, such as packaging or the product held in a hand. ComicFlow uses the supplied images to assemble one separate 16:9 product sheet.
+Open the second top-level tab, **E-commerce video recreation**. Import a local reference video and enter your product name. Add your product photos and check that they show every side and state needed in the shots, such as packaging or the product held in a hand. The workbench uses the supplied images to assemble one separate 16:9 product sheet.
 
 Review the suggested cut points and, optionally, use the configured vision model to help describe selected frames. Confirm each shot's timing, scene, action and performance. Check dialogue against the source audio and retain its original wording and language. Mark any words you cannot make out. Once the shots are approved, import usable assets or use a configured image model to create missing character, scene, prop and storyboard assets. Design new faces for any performers shown in the reference.
 
@@ -67,7 +68,7 @@ python -m src.delivery_checker "path/to/delivery.zip"
 python -m pytest -q
 ```
 
-For a complete storyboard package, provide the final ZIP and the trusted `scripts/validate_storyboard_package.py` from your installed storyboard workflow. ComicFlow checks the ZIP and unpacks it temporarily for storyboard validation.
+For a complete storyboard package, provide the final ZIP and the trusted `scripts/validate_storyboard_package.py` from your installed storyboard workflow. The workbench checks the ZIP and unpacks it temporarily for storyboard validation.
 
 ```bash
 python -m src.delivery_checker "path/to/delivery.zip" --storyboard-validator "path/to/workflow/scripts/validate_storyboard_package.py"
@@ -83,11 +84,11 @@ Strict mode is the default. Use `--allow-legacy` for historical packages. `--rul
 
 When reviewing a package from another workspace, add `--review-missing-sources` to report inaccessible local reuse sources as unverified. Exit code `3` means that source availability was the only outstanding check. Exit code `1` still indicates errors such as missing deliverables, mismatched file bytes, or invalid panel counts. Code `0` indicates that the automated checks ran without errors.
 
-On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher prefers the project's `.venv`, then tries `python` and `py -3` for an interpreter with its desktop dependencies. Double-click `ComicFlow-Windows.bat`. Choose **New project** to create a `.cfproject`, **Resume saved project** to open one (try `Examples/SB01.cfproject`), or **Validate an existing ZIP** to check a delivery archive. You can also drop a ZIP on the `.bat` file in Explorer. English mode defaults to its bundled validator. Select a trusted workflow validator for Chinese mode or to override the English default. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill the English override. The result table shows groups, shot IDs and filenames when the validator identifies them. Select a row to preview its text or image in the window, or switch to the full report tab.
+On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher prefers the project's `.venv`, then tries `python` and `py -3` for an interpreter with its desktop dependencies. Double-click `Comic-Sequence-Studio.bat`. Choose **New project** to create a `.cfproject`, **Resume saved project** to open one (try `Examples/SB01.cfproject`), or **Validate an existing ZIP** to check a delivery archive. You can also drop a ZIP on the `.bat` file in Explorer. English mode defaults to its bundled validator. Select a trusted workflow validator for Chinese mode or to override the English default. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill the English override. The result table shows groups, shot IDs and filenames when the validator identifies them. Select a row to preview its text or image in the window, or switch to the full report tab.
 
 For an approved extra-panel exception to the six-panel dialogue rule, pass `--panel-exception file.json` when validating a ZIP directly, or select the JSON in the launcher. The entry is tied to one ZIP SHA-256, one group such as `SB05`, its approved `panels` count (7–12), and a one-line `reason`. Only the matching six-panel-rule diagnostic is treated as an approved exception.
 
-Open the 「API 接入」 page in the workbench. Configure a provider, HTTPS base URL, model ID and credentials for each task. Settings apply to the current session. A provider key may cover more than one model if your account grants those permissions. ComicFlow can copy a key between text and vision when the provider and base URL match. Keep the model ID for each use case. A text model can also handle image review only if it accepts image inputs. Image generation requires an image-output model and its supported API. [OpenAI images and vision guide](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat) · [Ark API key permissions](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys)
+Open the 「API 接入」 page in the workbench. Configure a provider, HTTPS base URL, model ID and credentials for each task. Settings apply to the current session. A provider key may cover more than one model if your account grants those permissions. The workbench can copy a key between text and vision when the provider and base URL match. Keep the model ID for each use case. A text model can also handle image review only if it accepts image inputs. Image generation requires an image-output model and its supported API. [OpenAI images and vision guide](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat) · [Ark API key permissions](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys)
 
 For optional AI review, preview a PNG, JPEG or WebP and click 「AI 辅助看图」. The selected image and a review prompt are sent after confirmation. Images over 6 MiB are prepared as a compressed local copy before sending. AI suggestions stay separate from the local validation result.
 
@@ -105,7 +106,9 @@ In 「返修打包」, enter a shot ID to see related files in the most recently
 
 ### 项目介绍
 
-ComicFlow Validator 是面向 Seedance 2.0 的 Windows 漫剧制片工作台。新建项目可接着做剧本、拆分镜、分析资产、做故事板和提示词，再逐格复核并导出交付 ZIP。已经有原稿、项目或素材时，也能从对应工序开始。
+漫剧镜序制片台是面向 Seedance 2.0 的 Windows 漫剧制片工作台。新建项目可接着做剧本、拆分镜、分析资产、做故事板和提示词，再逐格复核并导出交付 ZIP。已经有原稿、项目或素材时，也能从对应工序开始。
+
+点首页版本号，或打开「帮助 → 更新日志」，即可在软件内查看版本记录。Windows 安装包附带同一份[更新日志](CHANGELOG.md)，可离线打开。
 
 ### 怎么减少 Seedance 2.0 抽卡
 
@@ -137,7 +140,7 @@ python -m src.delivery_checker "交付包.zip"
 python -m pytest -q
 ```
 
-验收完整故事板组时，可直接指定最终 ZIP，以及当前已安装工作流中可信的 `scripts/validate_storyboard_package.py`。ComicFlow 会先检查 ZIP，再临时解包执行故事板验收。
+验收完整故事板组时，可直接指定最终 ZIP，以及当前已安装工作流中可信的 `scripts/validate_storyboard_package.py`。制片台会先检查 ZIP，再临时解包执行故事板验收。
 
 ```bash
 python -m src.delivery_checker "交付包.zip" --storyboard-validator "工作流路径/scripts/validate_storyboard_package.py"
@@ -155,13 +158,13 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 ### Windows 双击或拖拽验收
 
-1. 安装带 Tcl/Tk 的 Python 3.13，再双击 `ComicFlow-Setup.bat` 安装依赖。试用包下载位置、内置样例和操作说明见 [Windows 试用指南](WINDOWS-TRYOUT.md)。
-2. 双击 `ComicFlow-Windows.bat`。点「新建项目」会创建 `.cfproject`，点「继续已有项目」可打开已保存的项目或示例 `Examples/SB01.cfproject`。拿到已交付的压缩包，点「验收已有 ZIP」，也可以把 ZIP 拖到启动器上。
+1. 安装带 Tcl/Tk 的 Python 3.13，再双击 `Comic-Sequence-Studio-Setup.bat` 安装依赖。试用包下载位置、内置样例和操作说明见 [Windows 试用指南](WINDOWS-TRYOUT.md)。
+2. 双击 `Comic-Sequence-Studio.bat`。点「新建项目」会创建 `.cfproject`，点「继续已有项目」可打开已保存的项目或示例 `Examples/SB01.cfproject`。拿到已交付的压缩包，点「验收已有 ZIP」，也可以把 ZIP 拖到启动器上。
 3. 点击「开始验收」可检查交付包。英文模式默认用内置脚本严格验收。中文严格验收或英文自定义验收可选择对应工作流的可信脚本。主窗口会记住该路径，也可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填英文自定义路径。
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 5. 点「逐格复核」，按镜号查看故事板整图、对应的彩色净板和局部号，以及同镜的生产记录与 SD2 提示词。下方显示前后镜的缩略图和动作摘要，可点「上一镜／下一镜」跨组切换。拖动框选图片中的格子可放大对照。前后镜有框选时显示所选格，否则标为整板。框选范围按镜号保留到本次复核窗口关闭。复核不会改写交付包。
 
-开发验收可在 Windows 安装依赖后运行 `python tests/windows_smoke.py`。它用合成包测试双击启动、传入 ZIP 和通过 Windows Shell 打开 `.cfproject`，并实际操作 Tk 窗口。验证资源管理器的鼠标拖放时，可将一个 ZIP 拖到 `ComicFlow-Windows.bat` 上并检查窗口里的路径。
+开发验收可在 Windows 安装依赖后运行 `python tests/windows_smoke.py`。它用合成包测试双击启动、传入 ZIP 和通过 Windows Shell 打开 `.cfproject`，并实际操作 Tk 窗口。验证资源管理器的鼠标拖放时，可将一个 ZIP 拖到 `Comic-Sequence-Studio.bat` 上并检查窗口里的路径。
 
 ### 漫剧制片工作台
 
@@ -275,6 +278,4 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 ---
 
-**Project:** ComicFlow Validator  
-**Development:** Open Source  
-**Platform:** Windows (initial target)
+Comic Sequence Studio is open-source software for Windows.

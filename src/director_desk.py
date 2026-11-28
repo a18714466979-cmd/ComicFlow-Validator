@@ -1,4 +1,4 @@
-"""Run the bundled upstream 3D Director Desk in a ComicFlow-owned WebView."""
+"""Run the bundled upstream 3D Director Desk in a local WebView."""
 
 from base64 import b64decode
 from binascii import Error as Base64Error
@@ -19,6 +19,7 @@ from urllib.parse import urlencode, urlsplit, unquote
 
 from PIL import Image
 
+from .brand import APP_FOLDER, app_name
 from .director_action_import import MAX_PROJECT_BYTES, import_director_cards
 from .image_api import MAX_IMAGE_BYTES
 
@@ -168,11 +169,11 @@ def run_window(output, instance, language, mode):
     try:
         import webview
     except ImportError as error:
-        raise RuntimeError("Run ComicFlow-Setup.bat to install the desktop WebView."
-                           if english else "请运行 ComicFlow-Setup.bat 补装桌面 WebView。") from error
+        raise RuntimeError(f"Run {APP_FOLDER}-Setup.bat to install the desktop WebView."
+                           if english else f"请运行 {APP_FOLDER}-Setup.bat 补装桌面 WebView。") from error
 
     appdata = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share")
-    profile = appdata / "ComicFlow" / "director-webview"
+    profile = appdata / APP_FOLDER / "director-webview"
     profile.mkdir(parents=True, exist_ok=True)
     port_file = profile / "port.txt"
     port = int(port_file.read_text("ascii")) if port_file.is_file() else 0
@@ -183,7 +184,7 @@ def run_window(output, instance, language, mode):
             webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False
             webview.settings["ALLOW_DOWNLOADS"] = True
             window = webview.create_window(
-                "ComicFlow · " + ("3D Director Desk" if english else "3D 导演台"),
+                f"{app_name(language)} · " + ("3D Director Desk" if english else "3D 导演台"),
                 session_url(origin, token, instance, language, mode), width=1280, height=830, min_size=(940, 610),
             )
 

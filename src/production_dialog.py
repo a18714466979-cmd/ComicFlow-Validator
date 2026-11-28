@@ -12,7 +12,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageTk
 
-from .ui_language import translate
+from .ui_language import translate, window_title
 from .asset_registry import AssetRegistry, sha256_file
 from .bundled_validators import bundled_validator
 from .camera_preflight import camera_findings_text, project_camera_cuts
@@ -29,13 +29,14 @@ from .storyboard_review import ReviewResult, index_members
 from .storyboard_preflight import IMAGE_LIMIT
 
 
-PROJECT_FILES = (("ComicFlow 单组项目", "*.cfproject"),)
+def project_filetypes(widget):
+    return ((translate(widget, "单组制作项目"), "*.cfproject"),)
 
 
 def choose_project_file(parent):
     return filedialog.askopenfilename(
-        parent=parent, title=translate(parent, "打开已保存的 ComicFlow 项目（.cfproject）"),
-        filetypes=((translate(parent, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),),
+        parent=parent, title=translate(parent, "打开已保存的项目（.cfproject）"),
+        filetypes=project_filetypes(parent),
     )
 
 
@@ -88,7 +89,7 @@ class ProductionDialog:
         self.path = None
         self.previewed = None
         self.window = tk.Toplevel(parent)
-        self.window.title(translate(self.window, "ComicFlow 单组制片"))
+        self.window.title(window_title(self.window, "单组制片"))
         self.window.geometry("1050x745")
         self.window.minsize(820, 610)
         self.window.transient(parent)
@@ -292,7 +293,7 @@ class ProductionDialog:
             return
         value = filedialog.asksaveasfilename(
             parent=self.window, title=translate(self.window, "保存新建的单组项目"),
-            filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),),
+            filetypes=project_filetypes(self.window),
             defaultextension=".cfproject",
         )
         if value:

@@ -14,7 +14,6 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageDraw
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_TAB, ECOMMERCE_TAB, REVIEW_TAB, API_TAB, TUTORIAL_TAB = range(5)
 
@@ -80,6 +79,8 @@ def attach_chinese_layout(project, path, folder, *, distinct=1, local=3, extras=
 def run_inside_launcher():
     import tkinter as tk
     from tkinter import filedialog, messagebox, simpledialog, ttk
+
+    from src.brand import APP_FOLDER, APP_NAME_EN, APP_NAME_ZH, VERSION
 
     archive = os.environ["COMICFLOW_SMOKE_ZIP"]
     mode = os.environ["COMICFLOW_SMOKE_MODE"]
@@ -170,6 +171,7 @@ def run_inside_launcher():
             field, validator, *_ = walk(page_at(self, REVIEW_TAB), ttk.Entry)
             assert field.get() == ("" if initial_page == PRODUCTION_TAB else archive), field.get()
             if mode.startswith("a-layout-"):
+                self.inspect_release_notes()
                 self.inspect_a_workbench()
                 return
             if mode == "api-settings":
@@ -194,9 +196,9 @@ def run_inside_launcher():
                 self.inspect_mode_switch(validator)
                 return
             if mode == "ui-language-restore":
-                assert self.title() == "ComicFlow Storyboard Workbench"
+                assert self.title() == APP_NAME_EN
                 click(self, "中文 / English")
-                assert self.title() == "ComicFlow 漫剧制片工作台"
+                assert self.title() == APP_NAME_ZH
                 print("COMICFLOW_GUI_OK", flush=True)
                 self.destroy()
                 return
@@ -301,8 +303,8 @@ def run_inside_launcher():
             original_picker = filedialog.askopenfilename
 
             def choose_saved_project(**options):
-                assert options["title"] == "打开已保存的 ComicFlow 项目（.cfproject）"
-                assert options["filetypes"] == (("ComicFlow 单组项目", "*.cfproject"),)
+                assert options["title"] == "打开已保存的项目（.cfproject）"
+                assert options["filetypes"] == (("单组制作项目", "*.cfproject"),)
                 return str(project_path)
 
             filedialog.askopenfilename = choose_saved_project
@@ -347,7 +349,7 @@ def run_inside_launcher():
                 click(self, "AI 辅助看图")
                 saved = project_path.read_text(encoding="utf-8")
                 assert key not in saved and "synthetic-image-key" not in saved
-                appdata = Path(os.environ["LOCALAPPDATA"]) / "ComicFlow"
+                appdata = Path(os.environ["LOCALAPPDATA"]) / APP_FOLDER
                 assert all(key not in path.read_text(encoding="utf-8")
                            and "synthetic-image-key" not in path.read_text(encoding="utf-8")
                            for path in appdata.iterdir() if path.is_file())
@@ -680,6 +682,42 @@ def run_inside_launcher():
 
             self.after(60, inspect_sequence)
 
+        def inspect_release_notes(self):
+            from tkinter.scrolledtext import ScrolledText
+
+            version = next(w for w in walk(self, ttk.Button) if w.winfo_name() == "release_version")
+            help_control = next(w for w in walk(self, ttk.Menubutton) if w.winfo_name() == "workbench_help")
+            menu = self.nametowidget(help_control.cget("menu"))
+            self.geometry("900x700")
+            self.update_idletasks()
+            for control in (version, help_control):
+                assert control.winfo_ismapped()
+                assert self.winfo_rootx() <= control.winfo_rootx()
+                assert control.winfo_rootx() + control.winfo_width() <= self.winfo_rootx() + self.winfo_width()
+            assert self.title() == APP_NAME_ZH and menu.entrycget(0, "label") == "更新日志"
+            assert version.cget("text") == f"v{VERSION}"
+            version.invoke()
+            dialog = self.nametowidget("release_notes")
+            notes = next(walk(dialog, ScrolledText))
+            assert dialog.title() == "更新日志" and str(notes.cget("state")) == "disabled"
+            content = notes.get("1.0", "end")
+            assert f"{VERSION} · " in content and "漫剧镜序制片台" in content
+            assert "The new name appears" not in content
+
+            click(self, "中文 / English")
+            assert self.title() == APP_NAME_EN and help_control.cget("text") == "Help"
+            assert menu.entrycget(0, "label") == "Changelog" and dialog.title() == "Changelog"
+            content = notes.get("1.0", "end")
+            assert "The new name appears" in content and "软件定名为" not in content
+            click(dialog, "Close")
+            assert not dialog.winfo_exists()
+            menu.invoke(0)
+            latest = self.nametowidget("release_notes")
+            assert latest.title() == "Changelog"
+            click(latest, "Close")
+            click(self, "中文 / English")
+            print(f"Verified branded header and offline bilingual changelog at {mode}", flush=True)
+
         def inspect_a_workbench(self):
             from tkinter.scrolledtext import ScrolledText
 
@@ -838,7 +876,7 @@ def run_inside_launcher():
                 caption = "Open group for review" if english else "打开本组复核"
 
                 def editor_for_selected_group():
-                    title = "ComicFlow Group Production" if english else "ComicFlow 单组制片"
+                    title = f"{APP_NAME_EN} · Group production" if english else f"{APP_NAME_ZH} · 单组制片"
                     for editor in walk(panel, tk.Toplevel):
                         if editor.title() == title:
                             values = {field.get() for field in walk(editor, ttk.Entry)}
@@ -975,7 +1013,7 @@ def run_inside_launcher():
                     trace.selection_set(iid)
                     trace.event_generate("<<TreeviewSelect>>")
                     self.update_idletasks()
-                    wait_for(lambda: titled("ComicFlow 单组制片"), finish, "could not open group from batch")
+                    wait_for(lambda: titled(f"{APP_NAME_ZH} · 单组制片"), finish, "could not open group from batch")
                     click(panel, "打开单组制片")
 
                 wait_for(locate_line, inspect_group, "could not trace episode 3 dialogue to its group")
@@ -1297,7 +1335,7 @@ def run_inside_launcher():
 
             def check_image_job(project, costume):
                 image_job = next(walk(project, tk.Toplevel))
-                assert image_job.title() == "ComicFlow 图像制片"
+                assert image_job.title() == f"{APP_NAME_ZH} · 图像制片"
                 assert any(widget.get() == "参考图生图" for widget in walk(image_job, ttk.Combobox))
                 refs = next(walk(image_job, tk.Listbox))
                 assert len(refs.curselection()) == 1
@@ -1395,7 +1433,7 @@ def run_inside_launcher():
             from src.production_rules import CHINESE
 
             click(self, "中文 / English")
-            assert self.title() == "ComicFlow Storyboard Workbench"
+            assert self.title() == APP_NAME_EN
             assert chinese.instate(["selected"]) and chinese.cget("text") == "Chinese film production"
             assert Path(validator.get()).resolve() == script.resolve()
             assert next(walk(page_at(self, REVIEW_TAB), ttk.Entry)).get() == archive
@@ -1413,10 +1451,10 @@ def run_inside_launcher():
             routes = iter((
                 ("Shot planning", "Shot list", "", ""),
                 ("Approved images", "Approved images", "", ""),
-                ("Layout & handoff", "Approved images", "ComicFlow Layout & Handoff", "16:9 layout"),
-                ("Prompt drafting", "Shot list", "ComicFlow Text Production", "Text model & history"),
-                ("Asset image generation", "Approved images", "ComicFlow Image Production", "New image job"),
-                ("Storyboard generation", "Approved images", "ComicFlow Image Production", "New image job"),
+                ("Layout & handoff", "Approved images", f"{APP_NAME_EN} · Layout & handoff", "16:9 layout"),
+                ("Prompt drafting", "Shot list", f"{APP_NAME_EN} · Text production", "Text model & history"),
+                ("Asset image generation", "Approved images", f"{APP_NAME_EN} · Image production", "New image job"),
+                ("Storyboard generation", "Approved images", f"{APP_NAME_EN} · Image production", "New image job"),
                 ("Package storyboard group", "Text, layout & delivery", "", ""),
             ))
 
@@ -1455,7 +1493,7 @@ def run_inside_launcher():
 
             def verify_repair():
                 panel = next(walk(self, tk.Toplevel))
-                assert panel.title() == "ComicFlow Assets & Repairs"
+                assert panel.title() == f"{APP_NAME_EN} · Assets & repairs"
                 panel.destroy()
 
             def finish():
@@ -1926,7 +1964,7 @@ def run_inside_launcher():
                 if panel is None or not panel.winfo_viewable() or self.grab_current() is not panel:
                     self.after(25, inspect_loaded)
                     return
-                assert panel.title() == "ComicFlow 图像制片"
+                assert panel.title() == f"{APP_NAME_ZH} · 图像制片"
                 assert project_path.read_bytes() == original_bytes and not write.called
                 tabs = next(walk(panel, ttk.Notebook))
                 tabs.select(1)
@@ -2102,9 +2140,10 @@ def verify_windows_launcher(root=ROOT):
             'print("RESULT: 0 error(s), 1 warning(s)")\n', encoding="utf-8",
         )
         (folder / "sitecustomize.py").write_text(
-            "import sys\n"
+            "import os, sys\n"
             "if '-m' in getattr(sys, 'orig_argv', []) and 'src.windows_launcher' in sys.orig_argv:\n"
-            "    import runpy, os\n"
+            "    import runpy\n"
+            "    sys.path.insert(0, os.getcwd())\n"
             "    runpy.run_path(os.environ['COMICFLOW_SMOKE_HELPER'])['run_inside_launcher']()\n",
             encoding="utf-8",
         )
@@ -2129,7 +2168,7 @@ def verify_windows_launcher(root=ROOT):
             if mode.startswith("a-layout-"):
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(
-                f'cmd.exe /d /c .\\ComicFlow-Windows.bat{argument}', cwd=root, env=launch_env,
+                f'cmd.exe /d /c .\\Comic-Sequence-Studio.bat{argument}', cwd=root, env=launch_env,
                 stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", timeout=35,
             )
             print(completed.stdout, end="")
@@ -2144,7 +2183,7 @@ def verify_windows_launcher(root=ROOT):
             os.environ.update(env)
             os.environ.pop("COMICFLOW_STORYBOARD_VALIDATOR", None)
             os.environ.pop("COMICFLOW_CHINESE_STORYBOARD_VALIDATOR", None)
-            os.startfile(str(root / "ComicFlow-Windows.bat"), "open", subprocess.list2cmdline([str(project)]), str(root))
+            os.startfile(str(root / "Comic-Sequence-Studio.bat"), "open", subprocess.list2cmdline([str(project)]), str(root))
             deadline = time.monotonic() + 30
             marker = project.with_suffix(".status")
             while time.monotonic() < deadline:

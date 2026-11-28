@@ -1,4 +1,4 @@
-"""Warm, shared desktop styling for the ComicFlow workbench."""
+"""Warm, shared desktop styling for the production workbench."""
 
 from tkinter import font, ttk
 
