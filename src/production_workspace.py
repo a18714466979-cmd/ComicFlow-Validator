@@ -266,7 +266,8 @@ class StageEditor:
         check = getattr(self.controller, "allow_close", None)
         if check:
             return check()
-        return not getattr(self.controller, "busy", False)
+        # Tk widgets also expose a busy() command on some Python versions.
+        return getattr(self.controller, "busy", False) is not True
 
 
 class TaskProject:
@@ -393,7 +394,7 @@ class ProductionStageTask:
         refresh_models = getattr(controller, "refresh_models", None)
         if refresh_models:
             refresh_models()
-        if (not self.path or getattr(controller, "busy", False)
+        if (not self.path or getattr(controller, "busy", False) is True
                 or (self.editor.dirty() and not isinstance(self.owner, TaskProject))):
             return
         sync = getattr(controller, "sync_project", None)

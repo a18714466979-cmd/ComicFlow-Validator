@@ -10,6 +10,7 @@ from src.image_production_dialog import finish_registered_image
 from src.production_images import candidate_path
 from src.production_project import ProductionProject
 from src.production_rules import CHINESE, ENGLISH
+from src.production_workspace import StageEditor
 from src.vision_dialog import vision_job_key
 from src.workbench_jobs import JobOutcome, WorkbenchJobs, canonical_location
 
@@ -28,6 +29,18 @@ class CallQueue:
                 self.callbacks.pop(0)()
             time.sleep(.003)
         assert predicate()
+
+
+def test_plain_tk_busy_command_does_not_block_task_close():
+    class PlainWidget:
+        def busy(self):
+            raise AssertionError("The Tk busy command should never be called by the task editor.")
+
+    editor = StageEditor(None)
+    editor.controller = PlainWidget()
+    assert editor.allow_close()
+    editor.controller.busy = True
+    assert not editor.allow_close()
 
 
 def test_pending_job_has_one_request_and_reopens_its_exact_origin(tmp_path):
