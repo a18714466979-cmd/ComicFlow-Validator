@@ -21,6 +21,7 @@ from .dialogue_blocking import (
     dialogue_variant, dialogue_view,
 )
 from .director_desk import director_uses, open_director
+from .guide_links import guide_button
 from .production_project import ProductionProject
 from .production_rules import ENGLISH
 from .reference_tools_dialog import import_reference, read_reference
@@ -81,6 +82,9 @@ class ActionSequenceDialog:
         resources = ttk.Frame(self.content, padding=(12, 0, 12, 6))
         resources.pack(fill="x")
         self.button(resources, "动作参考库", "Action reference library", self.open_reference_library).pack(side="right")
+        director_help = guide_button(resources, "director", name="director_help")
+        if director_help is not None:
+            director_help.pack(side="right", padx=(0, 6))
         self.caption(ttk.Label(resources, wraplength=565, justify="left"),
             "选卡或新建 → 核对格间动作 → 带入分镜。",
             "Add cards → review adjacent beats → send to shots.",

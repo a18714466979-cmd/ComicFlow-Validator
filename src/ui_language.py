@@ -59,6 +59,8 @@ ENGLISH = {
     "制作规则": "Production rules",
     "英文影片制作": "English film production",
     "使用教程": "Tutorial",
+    "本页帮助": "Help for this page",
+    "导演台使用教程": "3D Director Desk guide",
     "已打开任务（{count}）": "Open tasks ({count})",
     "关闭当前任务": "Close current task",
     "为人物动作编排选择单组项目": "Choose a storyboard group for action sequencing",

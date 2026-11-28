@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .action_sequence import cards_from_records
 from .action_sequence_dialog import ActionSequenceDialog
+from .guide_links import guide_button
 from .production_dialog import choose_project_file, project_filetypes
 from .production_project import ProductionProject
 from .ui_language import translate
@@ -142,8 +143,13 @@ class ActionWorkspaceTask:
         self._changed = changed
         self._on_project = on_project
         self.confirmation = None
-        self.breadcrumb = ttk.Label(page, style="A.Muted.TLabel", padding=(12, 5))
-        self.breadcrumb.pack(fill="x")
+        header = ttk.Frame(page, padding=(0, 0, 9, 0))
+        header.pack(fill="x")
+        self.breadcrumb = ttk.Label(header, style="A.Muted.TLabel", padding=(12, 5))
+        self.breadcrumb.pack(side="left", fill="x", expand=True)
+        help_button = guide_button(header, "action_sequence")
+        if help_button is not None:
+            help_button.pack(side="right")
         self.breadcrumb.bind("<Configure>", lambda e: self.breadcrumb.configure(wraplength=max(120, e.width - 24)))
         self.editor = ActionSequenceDialog(self, parent=page)
         self.refresh_breadcrumb()

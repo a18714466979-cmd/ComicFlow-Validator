@@ -21,8 +21,8 @@ SECTIONS = (
          "To start from a script, use Import approved script in the project and select TXT or Markdown. You can also open a sample."),
     ), ("新建项目", "New project")),
     ("production", ("从剧本到交付", "Script to delivery"), (
-        ("在「剧本创作」写或导入稿件，点「用左侧稿件拆分镜」。核对镜头后，点「下一步：分析资产」。",
-         "Write or import a script, then choose Plan shots with left draft. Review the shots and choose Next: Analyze assets."),
+        ("在「剧本创作」写或导入稿件，点「用左侧稿件拆分镜」。核对镜头后，点「下一步 · 资产分析」。",
+         "Write or import a script, then choose Plan shots with left draft. Review the shots and choose Next · Asset analysis."),
         ("在「人物动作编排 → 动作参考库」记下片段时间和镜头笔记，用笔记新建动作卡或追加到选中的卡。预演后可生成资产图和故事板图，也可导入批准图。",
          "Log clip times and notes in Action sequencing → Action reference library. Create a card from your notes or add them to a selected card. After previewing, generate asset and storyboard images or import approved ones."),
         ("在英文项目的「复核与交付」或中文项目的「文本与排版」逐格核对，确认当前版后导出 ZIP。",
@@ -47,7 +47,7 @@ SECTIONS = (
 )
 
 
-def build_tutorial(page, actions, sample_action=None):
+def build_tutorial(page, actions, sample_action=None, open_storyboard_guide=None):
     def language():
         return getattr(page._root(), "ui_language", "zh")
 
@@ -66,6 +66,10 @@ def build_tutorial(page, actions, sample_action=None):
         button = ttk.Button(topics, width=21, command=lambda index=index: show(index), style="Workbench.TButton")
         button.pack(fill="x", pady=(0, 6))
         topic_buttons.append(button)
+    if open_storyboard_guide is not None:
+        detailed = ttk.Button(topics, name="storyboard_guide_open", style="Primary.Workbench.TButton",
+                              command=open_storyboard_guide)
+        detailed.pack(fill="x", pady=(5, 0))
 
     article = tk.Frame(content, bg=SURFACE, padx=17, pady=13, highlightbackground=LINE, highlightthickness=1)
     article.grid(row=0, column=1, sticky="nsew")
@@ -130,6 +134,8 @@ def build_tutorial(page, actions, sample_action=None):
     def show(index):
         nonlocal selected
         selected = index
+        if open_storyboard_guide is not None:
+            detailed.configure(text=local(("故事板制作教程", "Storyboard production guide")))
         for n, (button, (_, name, _, _)) in enumerate(zip(topic_buttons, SECTIONS)):
             button.configure(text=local(name),
                              style="Primary.Workbench.TButton" if n == selected else "Workbench.TButton")

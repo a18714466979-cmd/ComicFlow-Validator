@@ -237,6 +237,10 @@ def run_inside_launcher():
             if mode == "production-workspace":
                 self.inspect_production_workspace()
                 return
+            if mode == "storyboard-guide":
+                with patch.object(messagebox, "showerror", side_effect=self.fail_storyboard_guide):
+                    self.inspect_storyboard_guide()
+                return
             if mode == "workbench-bridges":
                 self.inspect_workbench_bridges()
                 return
@@ -445,6 +449,188 @@ def run_inside_launcher():
                 assert project_tabs.tab(project_tabs.select(), "text") == "镜头清单"
                 dialog.destroy()
             print("Verified all four illustrated tutorial topics, language switch and linked actions", flush=True)
+
+        @staticmethod
+        def fail_storyboard_guide(title, detail, **_):
+            raise AssertionError(f"{title}: {detail}")
+
+        def inspect_storyboard_guide(self):
+            from src.production_project import ProductionProject
+            from src.storyboard_guide_topics import STORYBOARD_TOPICS
+            from src.workbench_tutorial import __file__ as tutorial_file
+
+            root = Path(tutorial_file).resolve().parents[1]
+            actual_topics = {
+                "home", "project", "script", "shots", "drafts", "inventory", "generate_assets",
+                "generate_board", "prompts", "assets", "media", "media_preview", "costume",
+                "action_sequence", "action_gallery", "action_preview", "dialogue", "pose",
+                "director", "layout", "deliver",
+            }
+            assert actual_topics <= set(STORYBOARD_TOPICS)
+            for topic in actual_topics:
+                for language in ("zh", "en"):
+                    screenshot = root / "assets" / "storyboard_guide" / f"{topic}_{language}.webp"
+                    with Image.open(screenshot) as image:
+                        image.load()
+                        assert image.format == "WEBP" and min(image.size) >= 160, screenshot
+
+            self.geometry("900x700")
+            navigation = next(walk(self, ttk.Notebook))
+            tutorial = show_page(self, TUTORIAL_TAB)
+            named(tutorial, ttk.Button, "storyboard_guide_open", mapped=True).invoke()
+            guide = visible_frame(self, "storyboard_guide")
+            topics = named(guide, ttk.Treeview, "guide_topic_list", mapped=True)
+            title = named(guide, (tk.Label, ttk.Label), "guide_title")
+            illustration = named(guide, (tk.Label, ttk.Label), "guide_screenshot")
+
+            def show_topic(topic):
+                assert topics.exists(topic), topic
+                topics.selection_set(topic)
+                topics.see(topic)
+                topics.event_generate("<<TreeviewSelect>>")
+                self.update()
+
+            def read_topic(topic, locale):
+                assert topics.selection() == (topic,), (topic, topics.selection())
+                assert title.cget("text") == STORYBOARD_TOPICS[topic].title[locale], title.cget("text")
+                assert illustration.cget("image") and illustration.winfo_ismapped()
+                assert not any(dialog.winfo_viewable() for dialog in walk(self, tk.Toplevel))
+
+            show_topic("shots")
+            read_topic("shots", 0)
+            zoom = named(guide, ttk.Button, "guide_image_zoom", mapped=True)
+            reader = named(guide, tk.Canvas, "guide_reader", mapped=True)
+            zoom.invoke()
+            self.update()
+            assert reader.xview()[1] < 1 and not list(walk(self, tk.Toplevel))
+            zoom.invoke()
+            self.update()
+            assert reader.xview() == (0.0, 1.0)
+            before = str(illustration.cget("image"))
+            click(self, "中文 / English")
+            self.update()
+            assert self.title() == APP_NAME_EN
+            read_topic("shots", 1)
+            assert str(illustration.cget("image")) != before
+            click(self, "中文 / English")
+            self.update()
+            assert self.title() == APP_NAME_ZH
+
+            guide_folder = project_path.with_name("教程练习独立目录")
+            guide_folder.mkdir()
+            bundled_example = root / "Examples" / "SB01.cfproject"
+            bundled_data = bundled_example.read_bytes()
+            show_topic("home")
+            with patch.object(filedialog, "askdirectory", return_value=str(guide_folder)):
+                named(guide, ttk.Button, "practice_script", mapped=True).invoke()
+            writer = visible_frame(self, "planning_editor")
+            editor = named(writer, tk.Text, "planning_source")
+            (source_file,) = tuple(guide_folder.rglob("Approved-Script.txt"))
+            assert editor.get("1.0", "end-1c").strip() == source_file.read_text(encoding="utf-8-sig").strip()
+            editor.insert("end-1c", "\n\n本地分镜教程练习。")
+            editor.mark_set("insert", "2.0")
+            draft = editor.get("1.0", "end-1c")
+            source_tab = navigation.select()
+            source_before = source_file.read_bytes()
+            named(navigation.nametowidget(source_tab), ttk.Button, "page_help", mapped=True).invoke()
+            visible_frame(self, "storyboard_guide")
+            read_topic("script", 0)
+            named(guide, ttk.Button, "guide_return", mapped=True).invoke()
+            self.update()
+            assert navigation.select() == source_tab and visible_frame(self, "planning_editor") is writer
+            assert editor.get("1.0", "end-1c") == draft and editor.index("insert") == "2.0"
+            assert source_file.read_bytes() == source_before
+
+            named(writer, ttk.Button, "use_left_script", mapped=True).invoke()
+            target = visible_frame(self, "script_target_picker")
+            planned = guide_folder / "练习新分镜.cfproject"
+            with (patch.object(messagebox, "askyesno", return_value=True),
+                  patch.object(filedialog, "asksaveasfilename", return_value=str(planned))):
+                named(target, ttk.Button, "new_script_project", mapped=True).invoke()
+            visible_frame(self, "production_panel")
+            assert ProductionProject.open(planned).sources[0].text.strip() == draft.strip()
+            named(navigation.nametowidget(navigation.select()), ttk.Button, "page_help", mapped=True).invoke()
+            visible_frame(self, "storyboard_guide")
+            read_topic("shots", 0)
+            self.geometry("1280x880")
+            self.update()
+
+            show_topic("home")
+            with patch.object(filedialog, "askdirectory", return_value=str(guide_folder)):
+                named(guide, ttk.Button, "practice_existing", mapped=True).invoke()
+            assets = visible_frame(self, "production_panel")
+            (copied,) = tuple(guide_folder.rglob("SB01.cfproject"))
+            assert not copied.samefile(bundled_example)
+            assert bundled_example.read_bytes() == bundled_data
+            copied_project = ProductionProject.open(copied)
+            assert copied_project.images and copied_project.shots
+            assert all(copied_project.checked_image(copied, image).is_file() for image in copied_project.images)
+            assert next(w for w in walk(assets, ttk.Treeview) if w.winfo_ismapped()).get_children()
+            asset_tab = navigation.select()
+            named(navigation.nametowidget(asset_tab), ttk.Button, "page_help", mapped=True).invoke()
+            visible_frame(self, "storyboard_guide")
+            read_topic("assets", 0)
+            named(guide, ttk.Button, "guide_return", mapped=True).invoke()
+            self.update()
+            assert navigation.select() == asset_tab and visible_frame(self, "production_panel") is assets
+
+            click(assets, "打开素材库")
+            library = visible_frame(self, "media_gallery")
+            cards = named(library, tk.Canvas, "media_cards")
+            wait_for(self, cards.find_all, "The practice project images are missing from the gallery")
+            cards.event_generate("<Button-1>", x=45, y=40)
+            named(library, ttk.Button, "media_preview", mapped=True).invoke()
+            detail = visible_frame(self, "media_detail")
+            named(detail, ttk.Button, "page_help", mapped=True).invoke()
+            visible_frame(self, "storyboard_guide")
+            read_topic("media_preview", 0)
+            named(guide, ttk.Button, "guide_return", mapped=True).invoke()
+            assert visible_frame(self, "media_detail") is detail
+            named(detail, ttk.Button, "media_detail_close", mapped=True).invoke()
+
+            pick_production_project(self, "故事板组打包交付", copied)
+            delivery = visible_frame(self, "production_panel")
+            click(delivery, "生成逐格复核预览")
+            panel = visible_frame(self, "production_subpanel")
+            named(panel, ttk.Button, "page_help", mapped=True).invoke()
+            visible_frame(self, "storyboard_guide")
+            read_topic("deliver", 0)
+            named(guide, ttk.Button, "guide_return", mapped=True).invoke()
+            assert visible_frame(self, "production_subpanel") is panel
+            click(panel, "返回")
+            with patch.object(messagebox, "askyesno", return_value=True):
+                click(delivery, "确认本版画面")
+            delivered = guide_folder / "教程交付复测.zip"
+            with patch.object(filedialog, "asksaveasfilename", return_value=str(delivered)):
+                click(delivery, "验收并导出 ZIP")
+            with ZipFile(delivered) as archive:
+                assert archive.testzip() is None
+                assert "SB01/SD2_prompt.txt" in archive.namelist()
+
+            show_page(self, TUTORIAL_TAB)
+            named(guide, ttk.Button, "guide_overview", mapped=True).invoke()
+            click(visible_frame(self, "tutorial_overview"), "打开示例项目")
+            self.update()
+            native_project = next(walk(self, tk.Toplevel))
+            click(show_page(native_project, 2), "打开素材库")
+            self.update()
+            native_library = next(walk(native_project, tk.Toplevel))
+            assert self.grab_current() is native_library
+            named(native_library, ttk.Button, "page_help", mapped=True).invoke()
+            visible_frame(self, "storyboard_guide")
+            read_topic("media", 0)
+            assert self.grab_current() is None
+            named(guide, ttk.Button, "guide_return", mapped=True).invoke()
+            self.update()
+            assert native_project.winfo_viewable() and native_library.winfo_viewable()
+            assert self.grab_current() is native_library
+            named(native_library, ttk.Button, "media_close", mapped=True).invoke()
+            native_project.destroy()
+            assert bundled_example.read_bytes() == bundled_data
+            print("Verified bilingual storyboard guide, linked help, draft and modal return, isolated practice routes "
+                  "and a reopened storyboard delivery ZIP", flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
 
         def inspect_production_handoff(self):
             from src import drafting_dialog
@@ -3073,6 +3259,7 @@ def verify_windows_launcher(root=ROOT):
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("production-workspace", f' "{archive}"'),
+                               ("storyboard-guide", f' "{archive}"'),
                                ("workbench-bridges", f' "{archive}"'), ("job-recovery", f' "{archive}"'),
                                ("image-entry", ""),
                                ("action-sequence", f' "{archive}"'), ("task-navigation", f' "{archive}"'),
@@ -3081,10 +3268,11 @@ def verify_windows_launcher(root=ROOT):
                                ("batch-center", f' "{archive}"'),
                                ("batch-file", f' "{folder / "制片-batch-center.cfbatch"}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
-            if mode in {"file-only", "mode-switch", "production-workspace"}:
+            if mode in {"file-only", "mode-switch", "production-workspace", "storyboard-guide"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
             if mode.startswith("a-layout-") or mode in {
-                "task-navigation", "dialogue-blocking", "production-workspace", "workbench-bridges", "job-recovery",
+                "task-navigation", "dialogue-blocking", "production-workspace", "storyboard-guide",
+                "workbench-bridges", "job-recovery",
             }:
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(

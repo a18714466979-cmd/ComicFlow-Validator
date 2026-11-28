@@ -170,6 +170,8 @@ class PlanningDialog:
         self.import_button = self.button(toolbar, "导入 TXT / Markdown", "Open TXT / Markdown", self.load_source,
                                          name="import_planning_source")
 
+        footer = ttk.Frame(panel)
+        footer.pack(side="bottom", fill="x")
         panes = ttk.Panedwindow(panel, orient="horizontal")
         panes.pack(fill="both", expand=True)
         labels = (("创作要求或剧本正文", "Brief or script text"), ("模型草稿 · 待核对", "Model draft · Review required"))
@@ -182,12 +184,12 @@ class PlanningDialog:
         if self.linked_source:
             for widget in (self.source, self.title_entry, self.import_button):
                 widget.configure(state="disabled")
-            self.caption(ttk.Label(panel, wraplength=740),
+            self.caption(ttk.Label(footer, wraplength=740),
                          "已带入项目剧本和本组分镜。要分析其他稿件，可从首页打开资产分析。",
                          "The project script and current group's shots are linked. Open Asset Analysis from home for another draft."
                          ).pack(anchor="w", pady=(7, 0))
 
-        tools = ttk.Frame(panel)
+        tools = ttk.Frame(footer)
         tools.pack(fill="x", pady=(9, 6))
         self.caption(ttk.Label(tools), "文本模型", "Text model").pack(side="left", padx=(0, 6))
         self.settings = ()
@@ -199,7 +201,7 @@ class PlanningDialog:
         self.refresh_models()
         self.handoff_buttons = ()
         if task == "script" and on_use_script is not None:
-            handoff = ttk.Frame(panel)
+            handoff = ttk.Frame(footer)
             handoff.pack(fill="x", pady=(0, 6))
             self.handoff_buttons = (
                 self.button(handoff, "用左侧稿件拆分镜", "Plan shots with left draft",
@@ -209,7 +211,7 @@ class PlanningDialog:
             )
             if embedded:
                 self.build_target_picker(panel, before=panes)
-        actions = ttk.Frame(panel)
+        actions = ttk.Frame(footer)
         actions.pack(fill="x")
         self.import_report = None
         if task == "script":
@@ -223,7 +225,7 @@ class PlanningDialog:
         self.button(actions, "另存右侧候选", "Save right candidate as", lambda: self.save_text(self.output, ".md"))
         if not embedded or on_close is not None:
             self.button(actions, "关闭", "Close", self.close)
-        ttk.Label(panel, textvariable=self.status, wraplength=740).pack(anchor="w", pady=(7, 0))
+        ttk.Label(footer, textvariable=self.status, wraplength=740).pack(anchor="w", pady=(7, 0))
         self.saved = {editor: self.editor_text(editor) for editor in (self.source, self.output)}
         self.refresh_saved_title()
         if embedded:

@@ -7,6 +7,7 @@ from tkinter import font, ttk
 from PIL import Image, ImageTk
 
 from .dialogue_blocking import DIALOGUE_CARDS, dialogue_fields, dialogue_preview_path
+from .guide_links import guide_button
 from .workbench_style import ACCENT
 
 
@@ -101,6 +102,10 @@ class DialogueCardGallery(ttk.Frame):
         self.restore = ttk.Button(bar, name="dialogue_restore", command=lambda: self.set_immersive(False))
         self.label(self.enlarge, "放大", "Enlarge")
         self.label(self.restore, "返回", "Restore")
+        help_button = guide_button(bar, "dialogue")
+        if help_button is not None:
+            help_button.pack(side="right", padx=(6, 0))
+            help_button.bind("<Escape>", self.escape, add=True)
         self.enlarge.pack(side="right")
 
         self.stage = ttk.Frame(self.preview, style="A.Card.TFrame")

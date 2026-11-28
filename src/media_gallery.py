@@ -11,6 +11,7 @@ from tkinter import filedialog, font, messagebox, ttk
 
 from PIL import Image, ImageTk
 
+from .guide_links import guide_button
 from .media_catalog import MEDIA_FILTER
 from .media_preview import iter_video_frames, load_preview
 from .workbench_style import ACCENT, BACKGROUND, INK, LINE, MUTED, SUBTLE, SURFACE, TINT
@@ -217,6 +218,9 @@ class MediaGallery:
             caption = self.t("返回", "Back") if self.embedded else self.t("关闭", "Close")
             ttk.Button(actions, name="media_close", text=caption, command=self.close,
                        style="Workbench.TButton").pack(side="left")
+        help_button = guide_button(actions, "media")
+        if help_button is not None:
+            help_button.pack(side="left", padx=(6, 0))
 
     def filter_control(self, parent, column, name, caption):
         ttk.Label(parent, text=caption, foreground=MUTED).grid(row=0, column=column, sticky="w")
@@ -725,8 +729,13 @@ class MediaDetail:
         self.counter = ttk.Label(pages, foreground=MUTED)
         self.counter.pack(side="left", padx=(2, 0))
         caption = self.t("返回", "Back") if self.gallery.embedded else self.t("关闭", "Close")
-        ttk.Button(lower, name="media_detail_close", text=caption, command=self.close,
-                   style="Workbench.TButton").grid(row=1, column=1, sticky="e")
+        actions = ttk.Frame(lower)
+        actions.grid(row=1, column=1, sticky="e")
+        help_button = guide_button(actions, "media_preview")
+        if help_button is not None:
+            help_button.pack(side="left", padx=(0, 6))
+        ttk.Button(actions, name="media_detail_close", text=caption, command=self.close,
+                   style="Workbench.TButton").pack(side="left")
 
     def resize_header(self, width):
         text_width = max(160, width - 36)

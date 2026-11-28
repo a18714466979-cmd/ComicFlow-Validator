@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.8.0 · 2026-11-28
+
+### 简体中文
+
+- 「使用教程」新增 21 个故事板制作章节。中英文各有一套实际界面截图，可放大查看，支持离线阅读。
+- 制作工具的「本页帮助」直达对应章节。「返回发起页」可回到原任务、草稿或打开的预览。
+- 新增「从剧本练习」和「从已有分镜练习」。练习文件保存在用户选择的位置，便于编辑、串联工序和试导出交付 ZIP。
+
+### English
+
+- Tutorial adds 21 storyboard production topics with zoomable screenshots in Chinese and English, available offline.
+- Help for this page opens the relevant topic. Return to originating page restores the task, draft or open preview.
+- Practice from a script or from existing shots using independent local files, then follow the workflow through to ZIP delivery.
+
 ## 2.7.0 · 2026-11-28
 
 ### 简体中文

@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from .camera_preflight import camera_findings_text, project_camera_cuts
+from .guide_links import guide_button
 from .production_dialog import ProductionDialog, choose_project_file, project_filetypes
 from .production_drafting import SD2_TASK, SHOT_TASK
 from .production_flow import asset_shot_context, shot_sources
@@ -187,6 +188,8 @@ class ProductionWorkspace:
                options.get("start_task") if stage == "drafts" else
                options.get("adjacent_path") if stage == "layout" else
                options["source"].id if options.get("source") else rules if not location else None)
+        if stage == "script" and options.get("practice_script"):
+            key += (options["practice_script"],)
         existing = key in self.tasks.tasks
         task = self.tasks.open(key, lambda page, changed: ProductionStageTask(
             self, page, changed, stage, location, project, rules, options,
@@ -339,6 +342,9 @@ class ProductionStageTask:
         bar.pack(fill="x")
         self.heading = ttk.Label(bar, style="A.Muted.TLabel")
         self.heading.pack(side="left", fill="x", expand=True)
+        help_button = guide_button(bar, "project" if stage == "group" else stage)
+        if help_button is not None:
+            help_button.pack(side="right", padx=(4, 0))
         self.next_button = ttk.Button(bar, name="next_stage", style="Primary.Workbench.TButton",
                                       command=lambda: self.guard(self.next_stage))
         if stage in NEXT_STAGE and (project or stage != "inventory"):
@@ -430,10 +436,13 @@ class ProductionStageTask:
         if self.stage in {"script", "inventory"}:
             from .storyboard_planning_dialog import open_storyboard_planning
             source = options.get("source")
+            practice_script = options.get("practice_script")
             return open_storyboard_planning(
                 body, ws.text_session, task="script" if self.stage == "script" else "assets",
-                rules=self.rules, approved_script=source.text if source else None,
-                approved_title=f"{source.name} · {source.version}" if source else None,
+                rules=self.rules, approved_script=practice_script.read_text(encoding="utf-8")
+                if practice_script else source.text if source else None,
+                approved_title=practice_script.name if practice_script else f"{source.name} · {source.version}"
+                if source else None,
                 shot_context=asset_shot_context(self.project, source) if source else None, embedded=True,
                 on_change=self.changed, on_close=lambda: self.close_tab(),
                 on_use_script=(lambda title, text, **opts: ws.script_to_shots(self.rules, title, text, **opts))

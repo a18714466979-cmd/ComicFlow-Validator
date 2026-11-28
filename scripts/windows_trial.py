@@ -20,6 +20,7 @@ from src.production_layout import apply_layout, bind_window, render_layout, wind
 from src.production_project import ProductionProject, Shot
 from src.production_rules import CHINESE, ENGLISH
 from src.repair_package import write_delivery_zip
+from src.storyboard_guide import STORYBOARD_GUIDE_IMAGES, STORYBOARD_TOPICS
 from src.workbench_tutorial import SECTIONS, TUTORIAL_IMAGES, TUTORIAL_LOCALES
 from src.dialogue_blocking import DIALOGUE_CARDS, DIALOGUE_PREVIEW_DIRECTORY, dialogue_preview_path
 
@@ -184,6 +185,11 @@ def build(output, revision):
         copytree(ROOT / DIRECTOR_HOST, folder / DIRECTOR_HOST)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
         copytree(ROOT / TUTORIAL_IMAGES, folder / TUTORIAL_IMAGES)
+        guide_images = tuple(STORYBOARD_GUIDE_IMAGES / f"{topic}_{locale}.webp"
+                             for topic in STORYBOARD_TOPICS for locale in TUTORIAL_LOCALES)
+        (folder / STORYBOARD_GUIDE_IMAGES).mkdir(parents=True)
+        for relative in guide_images:
+            copy2(ROOT / relative, folder / relative)
         previews = tuple(ACTION_PREVIEW_DIRECTORY / f"{preset.id}.webp" for preset in ACTION_PRESETS)
         (folder / ACTION_PREVIEW_DIRECTORY).mkdir(parents=True)
         for relative in previews:
@@ -217,6 +223,11 @@ def build(output, revision):
                          for path in (ROOT / directory).rglob("*") if path.is_file())
         for name in (*INSTALL_FILES, *samples, *references, *validators, ecommerce_validator, *tutorial, *director):
             archive.getinfo(f"{APP_FOLDER}/{name}")
+        for relative in guide_images:
+            with Image.open(BytesIO(archive.read(f"{APP_FOLDER}/{relative.as_posix()}"))) as screenshot:
+                screenshot.load()
+                if screenshot.format != "WEBP" or screenshot.n_frames != 1 or screenshot.width < 600 or screenshot.height < 250:
+                    raise ValueError(f"Expected a readable storyboard guide screenshot: {relative.name}")
         for relative in previews:
             with Image.open(BytesIO(archive.read(f"{APP_FOLDER}/{relative.as_posix()}"))) as strip:
                 strip.load()

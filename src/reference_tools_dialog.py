@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk
 
 from .director_desk import director_uses, open_director
+from .guide_links import guide_button
 from .image_api import MAX_IMAGE_BYTES
 from .production_images import FORMATS
 from .production_project import ACTIONS
@@ -222,6 +223,9 @@ def open_reference_tools(parent, project, path, kind, on_confirm, *, mount=None,
     if not costume:
         ttk.Button(tools, text=tr("打开内置 3D 导演台", "Open built-in 3D Director Desk"),
                    command=launch_director).pack(side="left")
+        director_help = guide_button(tools, "director", name="director_help")
+        if director_help is not None:
+            director_help.pack(side="left", padx=(6, 0))
 
     body = ttk.Frame(content)
     body.pack(fill="both", expand=True)

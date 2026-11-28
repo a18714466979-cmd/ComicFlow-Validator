@@ -8,6 +8,7 @@ from tkinter import font, messagebox, ttk
 from PIL import Image, ImageTk
 
 from .action_card_catalog import ACTION_PRESETS, action_preview_path, get_preset
+from .guide_links import guide_button
 from .workbench_style import ACCENT, BACKGROUND, MUTED, SURFACE, configure_workbench
 
 
@@ -190,6 +191,9 @@ class _ActionPresetGallery:
         self.category.bind("<<ComboboxSelected>>", lambda _event: self.filter())
         self.count = ttk.Label(filter_bar, name="preset_count", foreground=MUTED)
         self.count.pack(side="left", padx=12)
+        help_button = guide_button(filter_bar, "action_gallery")
+        if help_button is not None:
+            help_button.pack(side="right", padx=(6, 0))
         if self.on_dialogue_apply is not None and self.dialogue_context is not None:
             self.dialogue_button = ttk.Button(
                 filter_bar, name="dialogue_card_library", text=self.t("对话与站位", "Dialogue blocking"),
@@ -538,6 +542,10 @@ class _ActionPresetGallery:
         back_button = ttk.Button(heading, name="back_to_presets", command=back,
                                  text=self.t("返回图库", "Back to gallery"), style="Workbench.TButton")
         back_button.pack(side="right", padx=(8, 0))
+        help_button = guide_button(heading, "action_preview")
+        if help_button is not None:
+            help_button.pack(side="right", padx=(8, 0))
+            help_button.bind("<Escape>", lambda _event: back())
         buttons = []
         for index, (key, caption) in enumerate(zip(STAGE_KEYS, STAGES)):
             choice = ttk.Button(choices, name=f"show_{key}", text=caption[self.locale],

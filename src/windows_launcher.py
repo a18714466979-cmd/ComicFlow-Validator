@@ -20,12 +20,15 @@ from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
 from .bundled_validators import bundled_validator
 from .ecommerce_page import EcommercePage
+from .guide_links import refresh_guide_buttons
+from .practice_project import make_practice, practice_example
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
 from .production_workspace import ProductionWorkspace, StageEditor
 from .image_api import ImageSettings
 from .release_notes import open_release_notes
 from .shot_review_dialog import open_shot_review
+from .storyboard_guide import StoryboardGuide
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
 from .ui_language import load_language, save_language, translate
@@ -139,6 +142,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     jobs = WorkbenchJobs(window)
     api_origin = ""
     api_explicit = False
+    help_origin = ""
+    suspended_help = None
     known_projects = set()
     if initial_zip and initial_project is None:
         navigation.select(review_page)
@@ -587,6 +592,9 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
                    lambda _key: tasks.select(review_page), lambda: run_review(arguments, directory), receive)
 
     def close() -> None:
+        if suspended_help:
+            return_from_help()
+            return
         modal = window.grab_current()
         if modal is not None and modal.winfo_toplevel() != window:
             modal.winfo_toplevel().lift()
@@ -620,6 +628,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         refresh_current_work()
         refresh_api_language()
         refresh_tutorial()
+        storyboard_guide.refresh()
+        refresh_guide_buttons(window)
         ecommerce.refresh_language()
         for column, caption in zip(columns, headings):
             table.heading(column, text=tr(caption))
@@ -667,6 +677,64 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         navigation.select(review_page)
         browse(entries[0][1], entries[0][2])
 
+    def restore_help_modal():
+        nonlocal suspended_help
+        if suspended_help is None:
+            return
+        holder, status, focus, ancestors = suspended_help
+        suspended_help = None
+        for dialog in reversed(ancestors):
+            if dialog.winfo_exists():
+                dialog.deiconify()
+                dialog.lift()
+        if holder.winfo_exists():
+            window.update_idletasks()
+            if status == "global":
+                holder.grab_set_global()
+            else:
+                holder.grab_set()
+            if focus is not None and focus.winfo_exists():
+                focus.focus_set()
+
+    def show_storyboard_help(topic="home", *, contextual=True):
+        nonlocal help_origin, suspended_help
+        selected = navigation.select()
+        if selected != str(tutorial_page):
+            help_origin = selected if contextual else ""
+        elif not contextual:
+            help_origin = ""
+        holder = window.grab_current()
+        if contextual and holder is not None and holder.winfo_toplevel() != window:
+            status, focus, ancestors = holder.grab_status(), holder.focus_get(), []
+            dialog = holder.winfo_toplevel()
+            holder.grab_release()
+            while dialog != window:
+                if dialog.state() == "normal":
+                    ancestors.append(dialog)
+                    dialog.withdraw()
+                dialog = dialog.master.winfo_toplevel()
+            suspended_help = holder, status, focus, ancestors
+        tutorial_overview.pack_forget()
+        storyboard_guide.frame.pack(fill="both", expand=True)
+        storyboard_guide.show(
+            topic, contextual=bool(help_origin or suspended_help),
+            can_practice=not suspended_help and practice_example(examples, active_rules).is_file(),
+            allow_overview=suspended_help is None,
+        )
+        tasks.select(tutorial_page)
+
+    def return_from_help():
+        nonlocal help_origin
+        origin = help_origin
+        help_origin = ""
+        tasks.select(origin if origin in navigation.tabs() and origin != str(tutorial_page) else production_page)
+        restore_help_modal()
+
+    def show_tutorial_overview():
+        storyboard_guide.frame.pack_forget()
+        tutorial_overview.pack(fill="both", expand=True)
+
+    window.open_storyboard_help = show_storyboard_help
     action_workspace = ActionWorkspace(
         window, tasks, lambda: active_rules,
         lambda: current_work["path"] if current_work and current_work["kind"] == "group" else None,
@@ -722,23 +790,47 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     sample_available = (examples / "SB01.cfproject").is_file()
 
     def open_tutorial_sample():
-        path = (examples / "中文制作" if active_rules == CHINESE else examples) / "SB01.cfproject"
+        path = practice_example(examples, active_rules)
         if path.is_file():
             produce(path, destination="shots")
         else:
             callbacks["open"]()
 
+    def start_practice(kind):
+        directory = filedialog.askdirectory(
+            parent=window,
+            title="Choose a folder for practice files" if window.ui_language == "en" else "选择练习文件的保存位置",
+            mustexist=True,
+        )
+        if not directory:
+            return
+        try:
+            path = make_practice(examples, directory, active_rules, existing=kind == "existing")
+            if kind == "existing":
+                production_workspace.open("assets", path)
+            else:
+                production_workspace.open("script", practice_script=path)
+        except (OSError, ValueError, RuntimeError, tk.TclError) as error:
+            production_workspace.show_error(error)
+
+    tutorial_overview = ttk.Frame(tutorial_page, name="tutorial_overview")
+    tutorial_overview.pack(fill="both", expand=True)
     refresh_tutorial, _ = build_tutorial(
-        tutorial_page,
+        tutorial_overview,
         {"start": callbacks["new"], "production": callbacks["script"],
          "review": choose_delivery_zip, "api": go_to_api},
         sample_action=open_tutorial_sample if sample_available else None,
+        open_storyboard_guide=lambda: show_storyboard_help(contextual=False),
     )
+    storyboard_guide = StoryboardGuide(tutorial_page, on_return=return_from_help, on_overview=show_tutorial_overview,
+                                      on_practice=start_practice)
 
     def sync_selected_page(event):
         nonlocal api_origin, api_explicit
         if event.widget is not navigation:
             return
+        if navigation.select() != str(tutorial_page):
+            restore_help_modal()
         if navigation.select() != str(api_page):
             api_explicit = False
             return

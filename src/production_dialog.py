@@ -17,6 +17,7 @@ from .ui_language import translate, window_title
 from .asset_registry import AssetRegistry, sha256_file
 from .bundled_validators import bundled_validator
 from .camera_preflight import camera_findings_text, project_camera_cuts
+from .guide_links import guide_button
 from .production_drafting import SD2_TASK, SHOT_TASK
 from .production_export import (
     chinese_text_records, preview_chinese_layout, preview_project, project_registry, publish_project,
@@ -137,6 +138,9 @@ class ProductionDialog:
         else:
             self.file_buttons = self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open),
                                              ("保存项目", self.save))
+            help_button = guide_button(top, "project")
+            if help_button is not None:
+                help_button.pack(side="right")
             guides = ttk.Frame(self.body, padding=(10, 0, 10, 8))
             guides.pack(fill="x")
             self.production_tools = self.buttons(
@@ -696,7 +700,7 @@ class ProductionDialog:
         if not self.embedded:
             self.window.grab_set()
 
-    def subpanel(self, title, geometry="", *, form=False, header=True):
+    def subpanel(self, title, geometry="", *, form=False, header=True, help_topic=None):
         if not self.embedded:
             panel = tk.Toplevel(self.window)
             panel.title(title)
@@ -711,6 +715,10 @@ class ProductionDialog:
             bar.pack(fill="x")
             ttk.Label(bar, text=title).pack(side="left", padx=(0, 8))
             caption(ttk.Button(bar, command=panel.destroy), "返回").pack(side="right")
+            if help_topic is not None:
+                help_button = guide_button(bar, help_topic)
+                if help_button is not None:
+                    help_button.pack(side="right", padx=(0, 6))
         self.overlay = panel
         self.overlay_has_form = form
         self.body.pack_forget()
@@ -1133,7 +1141,7 @@ class ProductionDialog:
             archive = make_preview(self.project, self.path, Path(temporary.name))
             with ZipFile(archive) as stream:
                 members = index_members(stream)
-            panel = self.subpanel(translate(self.window, "逐格复核"))
+            panel = self.subpanel(translate(self.window, "逐格复核"), help_topic="deliver")
             opened = open_shot_review(
                 self.window, ReviewResult(0, "", archive, members, []), group=self.project.group, mount=panel,
             )

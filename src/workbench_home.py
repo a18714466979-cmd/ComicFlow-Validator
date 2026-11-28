@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .brand import APP_NAME_ZH, VERSION
+from .guide_links import guide_button
 from .production_rules import DELIVERY_TARGET, OTHER_VIDEO_MODELS, RULE_LABELS
 from .workbench_style import ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, SURFACE, TINT, configure_workbench
 from .workbench_tasks import WorkbenchTasks
@@ -214,6 +215,9 @@ def build_production_page(page, label_text, callbacks, *, action_picker=None, pr
     route_header.pack(fill="x")
     label_text(tk.Label(route_header, bg=BACKGROUND, fg=INK, anchor="w", font=("TkDefaultFont", 10, "bold")),
                "项目入口").pack(side="left")
+    help_button = guide_button(route_header, "home")
+    if help_button is not None:
+        help_button.pack(side="right", padx=(7, 0))
     if "jobs" in callbacks:
         button(route_header, "任务中心", callbacks["jobs"], name="workbench_jobs", style="A.Home.Tool.TButton").pack(
             side="right")
