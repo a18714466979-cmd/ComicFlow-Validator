@@ -4,16 +4,18 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46093015806/artifacts/15241293839) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46094785742/artifacts/15242662421) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
 
 ## 工作台有什么
 
 | 页面 | 功能 |
 | --- | --- |
-| **故事板制作** | 剧本创作 → 分镜拆分 → 资产分析，可带着同一原稿和镜头接续。支持资产图、黑白故事板和彩色净板、23 套内置服装参考、角色动作参考、Seedance 2.0 提示词、排版、相邻组交接和 ZIP 交付。已有稿件或素材可从对应工序直接导入。 |
+| **故事板制作** | 剧本创作 → 分镜拆分 → 资产分析，可带着同一原稿和镜头接续。支持资产图、黑白故事板和彩色净板、23 套内置服装参考、人物动作编排、Seedance 2.0 提示词、排版、相邻组交接和 ZIP 交付。已有稿件或素材可从对应工序直接导入。 |
 | **检查验收** | 检查图片尺寸、比例和文件大小，复核 ZIP 成员、CRC 和文件指纹，逐格对照故事板、净板、制作记录和提示词，查看同组、跨页与跨组的镜头衔接。 |
 | **API 接入** | 为文本创作、AI 审图和图像生成分别配置模型。按任务锁定 API 指令，区分规则和用户资料，确认后才调用所选服务。生图接口只有一个提示词字段时，软件固定将规则放在补充需求之前。预检、排版、人工核图和打包可在本机进行。 |
 | **使用教程** | 中英文实机截图和简短步骤，覆盖快速开始、剧本到交付、ZIP 验收和 API 设置。可以直接打开内置示例或对应入口。 |
+
+「人物动作编排」内置 53 张中英双语卡片。可从表演、走位、救援或刀、长枪、剑、戟等影视道具卡起步，添加姿势参考图，在 12 格或 15 格预演中对照前后动作、持物手与道具，再选择要带入正式分镜的卡片。支持读取 [3D 导演台](https://github.com/xiaozangao/3d-director-desk) 工程中的人物和道具轨迹。
 
 ## 怎么减少 SD2 抽卡
 
@@ -53,10 +55,10 @@
 
 **ComicFlow is a Windows production and review workbench for ByteDance Seedance 2.0.**
 
-It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
+It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. Action sequencing includes 53 bilingual cards, 12- and 15-panel previews, local pose image references, and 3D Director Desk route import. Selected story actions can be sent to existing or source-bound new shots. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
 
 ComicFlow is designed to reduce avoidable regenerations by checking approved dialogue, shot framing and the nine-image budget before submission, and by tracing fixes to the affected images or shots. The English and Chinese workflows have separate dialogue and framing rules. Automated framing alerts use recorded shot fields. Camera geometry, composition, continuity and generated videos still need visual review.
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46093015806/artifacts/15241293839) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46094785742/artifacts/15242662421) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
