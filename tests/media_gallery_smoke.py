@@ -207,12 +207,21 @@ def bulk_import(root, gallery, canvas, catalog, native, folder):
         with patch.object(filedialog, "askopenfilenames", return_value=tuple(imports)):
             named(gallery, "media_import").invoke()
         wait(root, lambda: len(catalog.items(native)) == 108, "Mixed file import did not retain every item")
-        wait(root, lambda: canvas.yview()[1] < .8, "Large imports did not extend the scrollable viewport")
+        status = named(gallery, "media_status")
+        wait(root, lambda: str(status.getvar(status.cget("textvariable"))) == "Read 101 of 101 files."
+             and canvas.yview()[1] < .1, "The gallery did not finish refreshing the imported cards")
         assert pulses, "UI did not process its scheduled update during import"
-        canvas.yview_moveto(.99)
-        canvas.event_generate("<Configure>")
-        wait(root, lambda: canvas.yview()[0] > .5 and canvas.find_withtag("media-item-photo"),
-             "Could not scroll to and preview the final batch of imported images")
+        last_image = max(index for index, item in enumerate(catalog.items(native))
+                         if item.path.parent == batch and item.media_type == "image")
+        scrollbar = next(widget for widget in canvas.master.winfo_children() if isinstance(widget, ttk.Scrollbar))
+        scrollbar.tk.call(scrollbar.cget("command"), "moveto", 1.0)
+
+        def final_image_visible():
+            bounds = canvas.bbox(f"index:{last_image}&&media-item-photo")
+            return (bounds and canvas.yview()[0] > .5 and canvas.canvasy(0) <= (bounds[1] + bounds[3]) / 2
+                    < canvas.canvasy(canvas.winfo_height()))
+
+        wait(root, final_image_visible, "Could not scroll to and preview the final batch of imported images")
     finally:
         root.after_cancel(after_id)
 
