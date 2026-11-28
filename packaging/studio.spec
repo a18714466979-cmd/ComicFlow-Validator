@@ -43,5 +43,11 @@ if macos:
     bundle = BUNDLE(
         distribution, name=app_name + ".app", bundle_identifier="com.comicsequencestudio.desktop",
         version=(payload / "VERSION.txt").read_text().strip(),
-        info_plist={"CFBundleDisplayName": "Comic Sequence Studio", "NSHighResolutionCapable": True},
+        info_plist={
+            "CFBundleDisplayName": "Comic Sequence Studio",
+            "NSHighResolutionCapable": True,
+            "NSAppTransportSecurity": {"NSExceptionDomains": {
+                "127.0.0.1": {"NSExceptionAllowsInsecureHTTPLoads": True},
+            }},
+        },
     )

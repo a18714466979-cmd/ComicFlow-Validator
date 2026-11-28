@@ -607,13 +607,21 @@ def run_storyboard_validator(
             local_errors.extend(package_camera_errors(source, rules))
             break
     approved_error = panel_exception.diagnostic(archive, source) if panel_exception and archive else None
-    if not review_missing_sources and approved_error is None and not (asset_registry or local_errors):
-        return subprocess.run(command, check=False, creationflags=NO_CONSOLE).returncode
+    plain_report = not review_missing_sources and approved_error is None and not (asset_registry or local_errors)
+    frozen = getattr(sys, "frozen", False)
+    if plain_report and not frozen:
+        return subprocess.run(command, check=False).returncode
 
     result = subprocess.run(
         command, check=False, capture_output=True, encoding="utf-8", errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_CONSOLE,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_CONSOLE if frozen else 0,
     )
+    if plain_report:
+        # Windows frozen console workers have no console of their own. Pass the
+        # captured UTF-8 report to the caller, even in the plain validation path.
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
+        return result.returncode
     if asset_registry or local_errors:
         result = reconcile_local_checks(result, resolved, local_errors)
     return print_storyboard_review(result, review_missing_sources, panel_exception, approved_error)

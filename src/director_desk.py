@@ -88,6 +88,11 @@ def director_server(output, mode, language, *, port=0):
         def log_message(self, *_args):
             pass
 
+        def log_request(self, code="-", size="-"):
+            if os.environ.get("STUDIO_DIRECTOR_SMOKE") == "1":
+                with (output / "requests.log").open("a", encoding="utf-8") as stream:
+                    print(f"{self.command} {urlsplit(self.path).path} {code}", file=stream)
+
         def end_headers(self):
             self.send_header("Content-Security-Policy", CSP)
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -196,6 +201,21 @@ def run_window(output, instance, language, mode):
                 finished.set()
 
             def wait_for_result():
+                if os.environ.get("STUDIO_DIRECTOR_SMOKE") == "1":
+                    def diagnose():
+                        try:
+                            status = window.evaluate_js(
+                                "({secure:isSecureContext, text:document.querySelector('#status')?.textContent})"
+                            )
+                            (output / "webview-status.txt").write_text(str(status), encoding="utf-8")
+                        except Exception as error:
+                            (output / "webview-status.txt").write_text(type(error).__name__, encoding="utf-8")
+
+                    from threading import Timer
+
+                    timer = Timer(10, diagnose)
+                    timer.daemon = True
+                    timer.start()
                 finished.wait()
                 if not closed.is_set():
                     window.destroy()

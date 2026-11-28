@@ -1,6 +1,7 @@
 """Exercise the installed runtime without a system Python or system FFmpeg."""
 
 import json
+import os
 from pathlib import Path
 import platform
 from shutil import copytree
@@ -22,7 +23,7 @@ from src.windows_launcher import open_workbench
 def verify_director(folder):
     process = subprocess.Popen(
         python_command("-m", "src.director_desk", str(folder), "installer-smoke", "en", "pose"),
-        creationflags=NO_CONSOLE,
+        creationflags=NO_CONSOLE, env={**os.environ, "STUDIO_DIRECTOR_SMOKE": "1"},
     )
     try:
         deadline = time.monotonic() + 35
@@ -34,7 +35,9 @@ def verify_director(folder):
                 detail = error.read_text(encoding="utf-8") if error.is_file() else str(process.returncode)
                 raise RuntimeError(f"The bundled 3D Director Desk exited before drawing: {detail}")
             time.sleep(0.15)
-        raise TimeoutError("The bundled native 3D Director Desk did not signal bridge readiness.")
+        diagnostics = "\n".join(path.read_text(encoding="utf-8")[-3500:] for path in
+                                (folder / "requests.log", folder / "webview-status.txt") if path.is_file())
+        raise TimeoutError("The bundled native 3D Director Desk did not signal bridge readiness.\n" + diagnostics)
     finally:
         if process.poll() is None:
             process.terminate()
