@@ -47,3 +47,451 @@ index f9fbb71..258936b 100644
        },
      },
    },
+diff --git a/src/editor/runtime/__tests__/PrimitiveMannequin.test.tsx b/src/editor/runtime/__tests__/PrimitiveMannequin.test.tsx
+index 55ab8f6..1302705 100644
+--- a/src/editor/runtime/__tests__/PrimitiveMannequin.test.tsx
++++ b/src/editor/runtime/__tests__/PrimitiveMannequin.test.tsx
+@@ -21,7 +21,7 @@ it("renders a segmented humanoid mannequin with r3f-safe scene node names", () =
+     expect(container.querySelector(`mesh[name="${partId}"]`)).toBeInTheDocument();
+   });
+ 
+-  expect(container.querySelectorAll('mesh[name="humanoid-joint"]')).toHaveLength(12);
++  expect(container.querySelectorAll('mesh[name$="-joint"]')).toHaveLength(12);
+ });
+ 
+ it("renders every approved procedural body type safely", () => {
+diff --git a/src/editor/runtime/mannequin/ProceduralMannequin.tsx b/src/editor/runtime/mannequin/ProceduralMannequin.tsx
+index 3f2bd5a..d059f20 100644
+--- a/src/editor/runtime/mannequin/ProceduralMannequin.tsx
++++ b/src/editor/runtime/mannequin/ProceduralMannequin.tsx
+@@ -6,7 +6,7 @@ import { getObjectMotionActionSample, getObjectMotionSpeed } from "../../schema/
+ import { subscribeRuntimePlayback } from "../playbackRuntime";
+ import { getBodyPreset, type CharacterBodyType } from "./bodyTypes";
+ import { degreesToRadians, getBodyTypePoseLimit, getRotationFromControls, getSingleAxisRotation } from "./mannequinPose";
+-import { Foot, Hand, Head, Joint, Segment, Torso } from "./mannequinParts";
++import { Foot, Hand, Head, HumanoidMaterial, Joint, Segment, Torso } from "./mannequinParts";
+ 
+ interface ProceduralMannequinProps {
+   bodyType?: CharacterBodyType;
+@@ -60,16 +60,17 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+   const leftKneeRotation = getSingleAxisRotation(controls, "leftKnee.bend", preset.bodyType);
+   const rightKneeRotation = getSingleAxisRotation(controls, "rightKnee.bend", preset.bodyType);
+ 
+-  const abdomenY = p.hipY + p.pelvisRadius * 0.6 + p.torsoLowerHeight * 0.5;
++  const abdomenY = p.pelvisRadius * 0.6 + p.torsoLowerHeight * 0.5;
+   const chestY = abdomenY + p.torsoLowerHeight * 0.5 + p.torsoUpperHeight * 0.5 + p.torsoUpperRadius * 0.1;
+   const neckY = chestY + p.torsoUpperHeight * 0.5 + p.neckHeight * 0.5 + p.torsoUpperRadius * 0.2;
+-  const headY = neckY + p.neckHeight * 0.5 + p.headRadius * 0.75;
+ 
+-  const shoulderY = chestY + p.torsoUpperHeight * 0.16 + p.shoulderRadius * 0.4;
+-  const armOriginY = shoulderY - p.shoulderRadius * 0.55;
++  const armOriginY = chestY + p.torsoUpperHeight * 0.16 - p.shoulderRadius * 0.15;
++  // Center each shoulder connector between the chest wall and the arm pivot.
++  // Smaller body presets have a narrower chest without a matching reduction in arm placement.
++  const shoulderCenterX = (p.shoulderWidth + p.torsoUpperRadius * p.torsoUpperScale[0]) * 0.5;
+   const elbowY = -(p.upperArmLength + p.upperArmRadius + p.elbowRadius);
+   const wristY = -(p.forearmLength + p.forearmRadius + p.wristRadius);
+-  const handY = wristY - p.handRadius - 0.05;
++  const handY = wristY - (p.handRadius * p.handScale[1] + p.wristRadius * p.jointRadiusScale) * 0.75;
+ 
+   const hipJointY = p.hipY - p.pelvisRadius * 0.15;
+   const legOriginY = p.hipY - p.pelvisRadius * 0.35;
+@@ -105,16 +106,18 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+ 
+   return (
+     <group ref={bodyRef} name={`procedural-${preset.bodyType}`} rotation={bodyRotation} scale={preset.defaultScale}>
+-      <group ref={torsoRef} rotation={torsoRotation}>
++      <mesh name="humanoid-pelvis" position={[0, p.hipY, 0]} scale={p.pelvisScale}>
++        <sphereGeometry args={[p.pelvisRadius, 24, 20]} />
++        <HumanoidMaterial color={color} />
++      </mesh>
++      {/* Pivot the upper body about the pelvis. The pelvis and legs stay in the body's frame. */}
++      <group name="humanoid-torso-pivot" ref={torsoRef} position={[0, p.hipY, 0]} rotation={torsoRotation}>
+         <Torso
+           abdomenPosition={[0, abdomenY, 0]}
+           abdomenScale={p.torsoLowerScale}
+           chestPosition={[0, chestY, 0]}
+           chestScale={p.torsoUpperScale}
+           color={color}
+-          pelvisPosition={[0, p.hipY, 0]}
+-          pelvisRadius={p.pelvisRadius}
+-          pelvisScale={p.pelvisScale}
+           torsoLowerHeight={p.torsoLowerHeight}
+           torsoLowerRadius={p.torsoLowerRadius}
+           torsoUpperHeight={p.torsoUpperHeight}
+@@ -131,15 +134,14 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+           neckPosition={[0, neckY, 0]}
+           neckRadius={p.neckRadius}
+           noseScale={p.noseScale}
+-          position={[0, headY, 0]}
+           ref={headRef}
+           rotation={headRotation}
+         />
+ 
+-        <Joint color={color} position={[-p.shoulderWidth * 0.86, shoulderY, 0]} radius={p.shoulderRadius} scale={jointScale} />
+-        <Joint color={color} position={[p.shoulderWidth * 0.86, shoulderY, 0]} radius={p.shoulderRadius} scale={jointScale} />
++        <Joint color={color} name="humanoid-left-shoulder-joint" position={[-shoulderCenterX, armOriginY, 0]} radius={p.shoulderRadius} scale={jointScale} />
++        <Joint color={color} name="humanoid-right-shoulder-joint" position={[shoulderCenterX, armOriginY, 0]} radius={p.shoulderRadius} scale={jointScale} />
+ 
+-        <group ref={leftShoulderRef} position={[-p.shoulderWidth, armOriginY, 0]} rotation={leftShoulderRotation}>
++        <group name="humanoid-left-shoulder-pivot" ref={leftShoulderRef} position={[-p.shoulderWidth, armOriginY, 0]} rotation={leftShoulderRotation}>
+           <Segment
+             color={color}
+             length={p.upperArmLength}
+@@ -148,7 +150,7 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+             radius={p.upperArmRadius}
+           />
+           <group ref={leftElbowRef} position={[0, elbowY, 0]} rotation={leftElbowRotation}>
+-            <Joint color={color} position={[0, 0, 0]} radius={p.elbowRadius} scale={jointScale} />
++            <Joint color={color} name="humanoid-left-elbow-joint" position={[0, 0, 0]} radius={p.elbowRadius} scale={jointScale} />
+             <Segment
+               color={color}
+               length={p.forearmLength}
+@@ -156,12 +158,12 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+               position={[0, -(p.forearmLength * 0.5 + p.forearmRadius), 0]}
+               radius={p.forearmRadius}
+             />
+-            <Joint color={color} position={[0, wristY, 0]} radius={p.wristRadius} scale={jointScale} />
++            <Joint color={color} name="humanoid-left-wrist-joint" position={[0, wristY, 0]} radius={p.wristRadius} scale={jointScale} />
+             <Hand color={color} position={[0, handY, 0.02]} radius={p.handRadius} scale={p.handScale} side="left" />
+           </group>
+         </group>
+ 
+-        <group ref={rightShoulderRef} position={[p.shoulderWidth, armOriginY, 0]} rotation={rightShoulderRotation}>
++        <group name="humanoid-right-shoulder-pivot" ref={rightShoulderRef} position={[p.shoulderWidth, armOriginY, 0]} rotation={rightShoulderRotation}>
+           <Segment
+             color={color}
+             length={p.upperArmLength}
+@@ -170,7 +172,7 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+             radius={p.upperArmRadius}
+           />
+           <group ref={rightElbowRef} position={[0, elbowY, 0]} rotation={rightElbowRotation}>
+-            <Joint color={color} position={[0, 0, 0]} radius={p.elbowRadius} scale={jointScale} />
++            <Joint color={color} name="humanoid-right-elbow-joint" position={[0, 0, 0]} radius={p.elbowRadius} scale={jointScale} />
+             <Segment
+               color={color}
+               length={p.forearmLength}
+@@ -178,16 +180,16 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+               position={[0, -(p.forearmLength * 0.5 + p.forearmRadius), 0]}
+               radius={p.forearmRadius}
+             />
+-            <Joint color={color} position={[0, wristY, 0]} radius={p.wristRadius} scale={jointScale} />
++            <Joint color={color} name="humanoid-right-wrist-joint" position={[0, wristY, 0]} radius={p.wristRadius} scale={jointScale} />
+             <Hand color={color} position={[0, handY, 0.02]} radius={p.handRadius} scale={p.handScale} side="right" />
+           </group>
+         </group>
+       </group>
+ 
+-      <Joint color={color} position={[-p.legSpread, hipJointY, 0]} radius={p.thighRadius * 1.08} scale={jointScale} />
+-      <Joint color={color} position={[p.legSpread, hipJointY, 0]} radius={p.thighRadius * 1.08} scale={jointScale} />
++      <Joint color={color} name="humanoid-left-hip-joint" position={[-p.legSpread, hipJointY, 0]} radius={p.thighRadius * 1.08} scale={jointScale} />
++      <Joint color={color} name="humanoid-right-hip-joint" position={[p.legSpread, hipJointY, 0]} radius={p.thighRadius * 1.08} scale={jointScale} />
+ 
+-      <group ref={leftHipRef} position={[-p.legSpread, legOriginY, 0]} rotation={leftHipRotation}>
++      <group name="humanoid-left-hip-pivot" ref={leftHipRef} position={[-p.legSpread, legOriginY, 0]} rotation={leftHipRotation}>
+         <Segment
+           color={color}
+           length={p.thighLength}
+@@ -196,7 +198,7 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+           radius={p.thighRadius}
+         />
+         <group ref={leftKneeRef} position={[0, kneeY, 0]} rotation={leftKneeRotation}>
+-          <Joint color={color} position={[0, 0, 0]} radius={p.kneeRadius} scale={jointScale} />
++          <Joint color={color} name="humanoid-left-knee-joint" position={[0, 0, 0]} radius={p.kneeRadius} scale={jointScale} />
+           <Segment
+             color={color}
+             length={p.calfLength}
+@@ -204,12 +206,12 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+             position={[0, -(p.calfLength * 0.5 + p.calfRadius), 0]}
+             radius={p.calfRadius}
+           />
+-          <Joint color={color} position={[0, ankleY, 0]} radius={p.ankleRadius} scale={jointScale} />
++          <Joint color={color} name="humanoid-left-ankle-joint" position={[0, ankleY, 0]} radius={p.ankleRadius} scale={jointScale} />
+           <Foot color={color} length={p.footLength} position={[0, footY, p.footRadius * 0.74]} radius={p.footRadius} scale={p.footScale} side="left" />
+         </group>
+       </group>
+ 
+-      <group ref={rightHipRef} position={[p.legSpread, legOriginY, 0]} rotation={rightHipRotation}>
++      <group name="humanoid-right-hip-pivot" ref={rightHipRef} position={[p.legSpread, legOriginY, 0]} rotation={rightHipRotation}>
+         <Segment
+           color={color}
+           length={p.thighLength}
+@@ -218,7 +220,7 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+           radius={p.thighRadius}
+         />
+         <group ref={rightKneeRef} position={[0, kneeY, 0]} rotation={rightKneeRotation}>
+-          <Joint color={color} position={[0, 0, 0]} radius={p.kneeRadius} scale={jointScale} />
++          <Joint color={color} name="humanoid-right-knee-joint" position={[0, 0, 0]} radius={p.kneeRadius} scale={jointScale} />
+           <Segment
+             color={color}
+             length={p.calfLength}
+@@ -226,7 +228,7 @@ export function ProceduralMannequin({ bodyType, color = "#4F8EF7", rigState, run
+             position={[0, -(p.calfLength * 0.5 + p.calfRadius), 0]}
+             radius={p.calfRadius}
+           />
+-          <Joint color={color} position={[0, ankleY, 0]} radius={p.ankleRadius} scale={jointScale} />
++          <Joint color={color} name="humanoid-right-ankle-joint" position={[0, ankleY, 0]} radius={p.ankleRadius} scale={jointScale} />
+           <Foot color={color} length={p.footLength} position={[0, footY, p.footRadius * 0.74]} radius={p.footRadius} scale={p.footScale} side="right" />
+         </group>
+       </group>
+diff --git a/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx b/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx
+new file mode 100644
+index 0000000..6da267d
+--- /dev/null
++++ b/src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx
+@@ -0,0 +1,138 @@
++import { renderToStaticMarkup } from "react-dom/server";
++import { Euler, Matrix4, Quaternion, Vector3 } from "three";
++import { CHARACTER_ACTION_PRESETS, sampleCharacterActionControls } from "../../../presets/characterActionPresets";
++import { MANNEQUIN_POSE_PRESETS } from "../../../presets/mannequinPosePresets";
++import { BODY_TYPE_OPTIONS, type CharacterBodyType } from "../bodyTypes";
++import { ProceduralMannequin } from "../ProceduralMannequin";
++
++interface Mesh {
++  center: Vector3;
++  inverse: Matrix4;
++  radius: number;
++  halfLength: number;
++  cylinderBottomRadius?: number;
++  ends: [Vector3, Vector3];
++}
++
++function vector(attribute: string | null, fallback: [number, number, number]) {
++  const values = attribute?.split(",").map(Number) as [number, number, number] | undefined;
++  return values ?? fallback;
++}
++
++function readMeshes(body: CharacterBodyType, controls: Record<string, number>) {
++  const scene = document.createElement("div");
++  scene.innerHTML = renderToStaticMarkup(
++    <ProceduralMannequin bodyType={body} rigState={{ rigType: "mannequin", posePresetId: "stand", controls }} />
++  );
++  const meshes = new Map<string, Mesh>();
++
++  function read(node: Element, parent: Matrix4) {
++    const position = new Vector3(...vector(node.getAttribute("position"), [0, 0, 0]));
++    const rotation = new Quaternion().setFromEuler(new Euler(...vector(node.getAttribute("rotation"), [0, 0, 0])));
++    const scale = new Vector3(...vector(node.getAttribute("scale"), [1, 1, 1]));
++    const world = parent.clone().multiply(new Matrix4().compose(position, rotation, scale));
++    if (node.localName === "mesh" && node.firstElementChild && node.hasAttribute("name")) {
++      const geometry = node.firstElementChild;
++      if (["spheregeometry", "capsulegeometry", "cylindergeometry"].includes(geometry.localName)) {
++        const args = geometry.getAttribute("args")!.split(",").map(Number);
++        const cylinder = geometry.localName === "cylindergeometry";
++        const halfLength = cylinder ? args[2] / 2 : geometry.localName === "capsulegeometry" ? args[1] / 2 : 0;
++        meshes.set(node.getAttribute("name")!, {
++          center: new Vector3().applyMatrix4(world),
++          inverse: world.clone().invert(),
++          radius: args[0],
++          halfLength,
++          cylinderBottomRadius: cylinder ? args[1] : undefined,
++          ends: [new Vector3(0, -halfLength, 0).applyMatrix4(world),
++                 new Vector3(0, halfLength, 0).applyMatrix4(world)],
++        });
++      }
++    }
++    for (const child of Array.from(node.children)) read(child, world);
++  }
++
++  read(scene.firstElementChild!, new Matrix4());
++  return meshes;
++}
++
++function inside(point: Vector3, mesh: Mesh) {
++  const local = point.clone().applyMatrix4(mesh.inverse);
++  if (mesh.cylinderBottomRadius !== undefined) {
++    const t = (local.y + mesh.halfLength) / (2 * mesh.halfLength);
++    const radius = mesh.cylinderBottomRadius * (1 - t) + mesh.radius * t;
++    return Math.abs(local.y) < mesh.halfLength - 0.001 && Math.hypot(local.x, local.z) < radius - 0.001;
++  }
++  const nearestY = Math.max(-mesh.halfLength, Math.min(mesh.halfLength, local.y));
++  return Math.hypot(local.x, local.y - nearestY, local.z) < mesh.radius - 0.001;
++}
++
++function overlap(first: Mesh, second: Mesh) {
++  // Look for an interior point on the chord joining the closest parts of both mesh spines.
++  // This proves overlap in rendered coordinates even after nonuniform body-preset scaling.
++  const nearest = (from: Vector3, onto: Mesh) => {
++    const axis = onto.ends[1].clone().sub(onto.ends[0]);
++    const length = axis.lengthSq();
++    const t = length ? Math.max(0, Math.min(1, from.clone().sub(onto.ends[0]).dot(axis) / length)) : 0;
++    return onto.ends[0].clone().addScaledVector(axis, t);
++  };
++  const probes = [first.center, ...first.ends];
++  return probes.some((point) => crossesBoth(point, nearest(point, second), first, second))
++    || [second.center, ...second.ends].some((point) => crossesBoth(point, nearest(point, first), first, second));
++}
++
++function crossesBoth(from: Vector3, to: Vector3, first: Mesh, second: Mesh) {
++  for (let sample = 0; sample <= 24; sample++) {
++    const point = from.clone().lerp(to, sample / 24);
++    if (inside(point, first) && inside(point, second)) return true;
++  }
++  return false;
++}
++
++function assertConnected(body: CharacterBodyType, pose: string, controls: Record<string, number>) {
++  const meshes = readMeshes(body, controls);
++  const connections: string[][] = [
++    ["pelvis", "abdomen"],
++    ["abdomen", "chest", "neck", "head"],
++  ];
++  for (const side of ["left", "right"]) {
++    connections.push(
++      ["chest", `${side}-shoulder-joint`, `${side}-upper-arm`, `${side}-elbow-joint`, `${side}-forearm`, `${side}-wrist-joint`, `${side}-hand`],
++      ["pelvis", `${side}-hip-joint`, `${side}-thigh`, `${side}-knee-joint`, `${side}-calf`, `${side}-ankle-joint`, `${side}-foot`]
++    );
++  }
++  for (const chain of connections) {
++    for (let index = 1; index < chain.length; index++) {
++      const [a, b] = chain.slice(index - 1, index + 1);
++      const first = meshes.get(`humanoid-${a}`);
++      const second = meshes.get(`humanoid-${b}`);
++      expect(first && second && overlap(first, second), `${body}, ${pose}: ${a} → ${b}`).toBe(true);
++    }
++  }
++  return meshes;
++}
++
++it("keeps the pelvis in the same body frame when the torso bends and turns", () => {
++  const resting = readMeshes("mannequin", {}).get("humanoid-pelvis")!.center;
++  const rotated = readMeshes("mannequin", { "torso.pitch": -45, "torso.yaw": 30, "torso.roll": 32 });
++  expect(rotated.get("humanoid-pelvis")!.center.distanceTo(resting)).toBeLessThan(1e-6);
++  expect(rotated.get("humanoid-chest")!.center.distanceTo(readMeshes("mannequin", {}).get("humanoid-chest")!.center))
++    .toBeGreaterThan(0.1);
++});
++
++it.each(BODY_TYPE_OPTIONS.map(({ bodyType }) => bodyType))(
++  "keeps every %s joint connected in stored poses and sampled motion",
++  (body) => {
++    assertConnected(body, "manual lean/turn", { "torso.pitch": -45, "torso.yaw": 30, "torso.roll": 32 });
++    assertConnected(body, "manual head tilt", { "head.pitch": 90, "head.roll": 90 });
++    assertConnected(body, "manual head roll", { "head.roll": 90 });
++    for (const { id, controls } of MANNEQUIN_POSE_PRESETS) {
++      assertConnected(body, id, controls);
++    }
++    for (const action of CHARACTER_ACTION_PRESETS) {
++      for (const progress of [0, 0.25, 0.5, 0.75]) {
++        assertConnected(body, `${action.id}@${progress}`,
++          sampleCharacterActionControls(action.id, action.duration * progress));
++      }
++    }
++  }
++);
+diff --git a/src/editor/runtime/mannequin/mannequinParts.tsx b/src/editor/runtime/mannequin/mannequinParts.tsx
+index 1298b32..5f40bf6 100644
+--- a/src/editor/runtime/mannequin/mannequinParts.tsx
++++ b/src/editor/runtime/mannequin/mannequinParts.tsx
+@@ -46,9 +46,6 @@ interface TorsoProps {
+   chestPosition: [number, number, number];
+   chestScale: [number, number, number];
+   color: string;
+-  pelvisPosition: [number, number, number];
+-  pelvisRadius: number;
+-  pelvisScale: [number, number, number];
+   torsoLowerHeight: number;
+   torsoLowerRadius: number;
+   torsoUpperHeight: number;
+@@ -66,7 +63,6 @@ interface HeadProps {
+   neckPosition: [number, number, number];
+   neckRadius: number;
+   noseScale: [number, number, number];
+-  position: [number, number, number];
+   rotation: [number, number, number];
+ }
+ 
+@@ -152,9 +148,6 @@ export function Torso({
+   chestPosition,
+   chestScale,
+   color,
+-  pelvisPosition,
+-  pelvisRadius,
+-  pelvisScale,
+   torsoLowerHeight,
+   torsoLowerRadius,
+   torsoUpperHeight,
+@@ -191,10 +184,6 @@ export function Torso({
+         <torusGeometry args={[waistRingRadius, Math.max(torsoLowerRadius * 0.026, 0.005), 8, 40]} />
+         <DetailMaterial />
+       </mesh>
+-      <mesh name="humanoid-pelvis" position={pelvisPosition} scale={pelvisScale}>
+-        <sphereGeometry args={[pelvisRadius, 24, 20]} />
+-        <HumanoidMaterial color={color} />
+-      </mesh>
+     </>
+   );
+ }
+@@ -210,12 +199,13 @@ export const Head = forwardRef<Group, HeadProps>(function Head({
+   neckPosition,
+   neckRadius,
+   noseScale,
+-  position,
+   rotation,
+ }, ref) {
+   const eyeY = headRadius * 0.16;
+   const eyeX = headRadius * 0.26;
+   const faceZ = faceOffsetZ + headRadius * 0.08;
++  // A fixed point at the top of the neck keeps the tilted head attached.
++  const pivot: [number, number, number] = [neckPosition[0], neckPosition[1] + neckHeight * 0.5, neckPosition[2]];
+ 
+   return (
+     <>
+@@ -223,31 +213,33 @@ export const Head = forwardRef<Group, HeadProps>(function Head({
+         <cylinderGeometry args={[neckRadius * 0.9, neckRadius, neckHeight, 18]} />
+         <HumanoidMaterial color={color} />
+       </mesh>
+-      <group ref={ref} position={position} rotation={rotation}>
+-        <mesh name="humanoid-head" scale={headScale}>
+-          <sphereGeometry args={[headRadius, 28, 24]} />
+-          <HumanoidMaterial color={color} />
+-        </mesh>
+-        <mesh name="humanoid-face-muzzle" position={[0, -headRadius * 0.08, faceOffsetZ]} scale={[0.7, 0.52, 0.25]}>
+-          <sphereGeometry args={[headRadius * 0.38, 16, 12]} />
+-          <HumanoidMaterial color={color} />
+-        </mesh>
+-        <mesh name="humanoid-left-eye" position={[-eyeX, eyeY, faceZ]} scale={[1, 0.58, 0.32]}>
+-          <sphereGeometry args={[eyeRadius, 10, 8]} />
+-          <DetailMaterial />
+-        </mesh>
+-        <mesh name="humanoid-right-eye" position={[eyeX, eyeY, faceZ]} scale={[1, 0.58, 0.32]}>
+-          <sphereGeometry args={[eyeRadius, 10, 8]} />
+-          <DetailMaterial />
+-        </mesh>
+-        <mesh name="humanoid-nose" position={[0, -headRadius * 0.04, faceZ + headRadius * 0.05]} scale={noseScale}>
+-          <sphereGeometry args={[headRadius * 0.11, 12, 10]} />
+-          <HumanoidMaterial color={color} />
+-        </mesh>
+-        <mesh name="humanoid-mouth" position={[0, -headRadius * 0.24, faceZ + headRadius * 0.025]} scale={mouthScale}>
+-          <sphereGeometry args={[headRadius * 0.12, 12, 8]} />
+-          <DetailMaterial />
+-        </mesh>
++      <group ref={ref} name="humanoid-head-pivot" position={pivot} rotation={rotation}>
++        <group position={[0, headRadius * 0.75, 0]}>
++          <mesh name="humanoid-head" scale={headScale}>
++            <sphereGeometry args={[headRadius, 28, 24]} />
++            <HumanoidMaterial color={color} />
++          </mesh>
++          <mesh name="humanoid-face-muzzle" position={[0, -headRadius * 0.08, faceOffsetZ]} scale={[0.7, 0.52, 0.25]}>
++            <sphereGeometry args={[headRadius * 0.38, 16, 12]} />
++            <HumanoidMaterial color={color} />
++          </mesh>
++          <mesh name="humanoid-left-eye" position={[-eyeX, eyeY, faceZ]} scale={[1, 0.58, 0.32]}>
++            <sphereGeometry args={[eyeRadius, 10, 8]} />
++            <DetailMaterial />
++          </mesh>
++          <mesh name="humanoid-right-eye" position={[eyeX, eyeY, faceZ]} scale={[1, 0.58, 0.32]}>
++            <sphereGeometry args={[eyeRadius, 10, 8]} />
++            <DetailMaterial />
++          </mesh>
++          <mesh name="humanoid-nose" position={[0, -headRadius * 0.04, faceZ + headRadius * 0.05]} scale={noseScale}>
++            <sphereGeometry args={[headRadius * 0.11, 12, 10]} />
++            <HumanoidMaterial color={color} />
++          </mesh>
++          <mesh name="humanoid-mouth" position={[0, -headRadius * 0.24, faceZ + headRadius * 0.025]} scale={mouthScale}>
++            <sphereGeometry args={[headRadius * 0.12, 12, 8]} />
++            <DetailMaterial />
++          </mesh>
++        </group>
+       </group>
+     </>
+   );

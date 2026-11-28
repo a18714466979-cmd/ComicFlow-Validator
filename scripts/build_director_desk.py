@@ -18,6 +18,7 @@ SOURCE_PATHS = (
     "LICENSE", "index.html", "package.json", "package-lock.json", "src", "tsconfig.json",
     "tsconfig.node.json", "vite.config.ts", "public/benchmark-panorama.jpg",
 )
+MANNEQUIN_TEST = "src/editor/runtime/mannequin/__tests__/ProceduralMannequin.joints.test.tsx"
 
 
 def write_dependency_notices(source, destination):
@@ -60,6 +61,7 @@ def build(destination, checkout=None):
         patch = (VENDOR / "comicflow.patch").read_bytes().replace(b"\r\n", b"\n")
         run(["git", "-c", "core.autocrlf=false", "apply", "-"], input=patch, check=True, cwd=source)
         run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], check=True, cwd=source)
+        run([npm, "test", "--", MANNEQUIN_TEST], check=True, cwd=source)
         run([npm, "run", "build"], check=True, cwd=source)
         dist = source / "dist"
         copy2(source / "LICENSE", dist / "LICENSE")

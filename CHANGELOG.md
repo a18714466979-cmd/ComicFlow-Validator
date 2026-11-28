@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.1.1 · 2026-11-28
+
+### 简体中文
+
+- 修复内置 3D 导演台程序化人偶的躯干、骨盆和四肢接合问题。摆姿势和播放动作时，关节继续跟随各自的旋转中心。
+- 核对弯腰、转身、下蹲和抬臂，以及动作预览、截图与保存后打开。已保存的导演台工程继续使用原有姿势和动作数据。
+- 验证记录可按安装包里的 `REVISION.txt` 查询。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
+### English
+
+- Repair the joints of the built-in procedural mannequin in the 3D Director Desk. The torso, pelvis and limbs stay connected as their joints rotate in the editor and during playback.
+- Verify bending, twisting, crouching and arm raises, plus playback, capture and reopening a saved project. Existing Director Desk projects continue to use their saved pose and motion data.
+- Match the package revision in `REVISION.txt` to the installation and desktop verification run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
 ## 2.1.0 · 2026-11-28
 
 ### 简体中文
@@ -9,14 +23,14 @@
 - 新增图片与视频素材库。可在单组批准图像、批量公共资产、生图参考图及电商资料中按画面找素材。用可调大小的方形卡片查看完整画幅，双击看细节。
 - 场景、人物、道具、待分类可筛选与批量编辑。支持横图、竖图、故事板和视频的预览。视频可查看时长、拖动进度、播放及选择封面帧。
 - 分类和封面保存到各项目自己的素材索引。图片和视频保留原文件及比例。正式交付仍使用已批准和已绑定的资产。
-- 安装和界面验证以包内 `REVISION.txt` 对应的运行记录为准。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+- Windows 安装版验证通过，覆盖 101 个混合素材、双语高缩放、分类和封面保存，以及单组、生图参考、批量和电商四个入口。[2.1.0 Windows 验证](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46109376183)
 
 ### English
 
 - Browse images and videos from approved group images, batch shared assets, image-generation references, and e-commerce source materials. Square cards preserve the full frame and can be resized. Open a card for a larger preview.
 - Filter or bulk-edit scenes, characters, props, and unclassified media. Preview landscape and portrait images, storyboards, and videos. Video previews show duration and support seeking, playback and choosing a poster frame.
 - Categories and poster frames are saved in each project's media index. Source files and their aspect ratios are preserved. Formal delivery still uses the approved and linked production assets.
-- Match the package revision in `REVISION.txt` to the installation and desktop verification run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+- The 2.1.0 Windows installation passed tests for 101 mixed files, bilingual high-scaling layouts, saved categories and covers, and the group, image picker, batch and e-commerce media entry points. [2.1.0 Windows verification](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46109376183)
 
 ## 2.0.0 · 2026-11-28
 

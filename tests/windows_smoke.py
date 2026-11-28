@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+from base64 import b64decode
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -2023,12 +2024,12 @@ def drive_native_director(output, language, mode):
         window = webview.windows[0]
 
         def drive():
-            deadline = time.monotonic() + 26
+            deadline = time.monotonic() + (42 if mode == "pose" else 26)
 
             def until(script, message):
                 while time.monotonic() < deadline:
-                    if window.run_js(script):
-                        return
+                    if result := window.run_js(script):
+                        return result
                     time.sleep(0.15)
                 status = window.run_js('document.querySelector("#status")?.textContent')
                 raise RuntimeError(f"{message}. URL: {window.get_current_url()}, status: {status}")
@@ -2052,6 +2053,7 @@ def drive_native_director(output, language, mode):
                 if mode == "pose":
                     click('[aria-label="选择画幅比例"]')
                     click('.viewport-aspect-option:has(.viewport-aspect-option-frame-16-9)')
+                    exercise_director_pose_regression(window.run_js, until, desk, click, Path(output))
                 else:
                     click('[role="treeitem"][aria-label="角色01"] .object-select-button')
                     click('[aria-label="角色面板标签"] button:last-child')
@@ -2083,6 +2085,135 @@ def drive_native_director(output, language, mode):
         raise RuntimeError(errors[0])
 
 
+def mannequin_connected_fraction(frame):
+    """Measure the largest connected blue silhouette in a clean camera export."""
+    import numpy as np
+
+    with Image.open(BytesIO(frame)) as image:
+        assert image.format == "PNG" and image.size == (1280, 720), image.size
+        red, green, blue = np.asarray(image.convert("RGB"), dtype=np.int16).transpose(2, 0, 1)
+    y, x = np.nonzero((blue > red + 14) & (blue > green + 8) & (blue > 30))
+    pixels = set(zip(x.tolist(), y.tolist()))
+    total, largest = len(pixels), 0
+    assert total > 2_000, "No readable mannequin silhouette in the exported image"
+    while pixels:
+        pending, size = [pixels.pop()], 0
+        while pending:
+            px, py = pending.pop()
+            size += 1
+            for neighbor in ((px - 1, py), (px + 1, py), (px, py - 1), (px, py + 1)):
+                if neighbor in pixels:
+                    pixels.remove(neighbor)
+                    pending.append(neighbor)
+        largest = max(largest, size)
+    return largest / total
+
+
+def exercise_director_pose_regression(run_js, until, desk, click, output):
+    """Use real pose, playback and reopen controls, then check rendered joints from clean frames."""
+    def bridge_response(action, options=None):
+        run_js(f"""void (() => {{
+            const frame = document.querySelector('#desk').contentWindow;
+            const requestId = crypto.randomUUID();
+            window.studioDirectorSmoke = null;
+            const receive = (event) => {{
+                if (event.source !== frame || event.origin !== location.origin ||
+                    event.data?.type !== 'storyai:director-desk:response' ||
+                    event.data.payload?.requestId !== requestId) return;
+                window.removeEventListener('message', receive);
+                window.studioDirectorSmoke = event.data.payload;
+            }};
+            window.addEventListener('message', receive);
+            frame.postMessage({{
+                type: 'storyai:director-desk:request',
+                payload: {{requestId, action: {json.dumps(action)}, options: {json.dumps(options or {})}}}
+            }}, location.origin);
+        }})()""")
+        return until("window.studioDirectorSmoke", f"No director response to {action}")
+
+    def read_data(action):
+        answer = bridge_response(action)
+        assert answer["ok"], answer.get("error")
+        return answer["data"]
+
+    def set_range(label, value):
+        selector = f'input[type=range][aria-label="{label}"]'
+        target = f"desk.querySelector({json.dumps(selector)})"
+        until(desk(f"Boolean({target})"), f"Missing director slider {label}")
+        run_js(desk(f"""(() => {{
+            const input = {target};
+            const view = desk.defaultView;
+            Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value').set.call(input, {json.dumps(value)});
+            input.dispatchEvent(new view.Event('input', {{bubbles: true}}));
+            input.dispatchEvent(new view.Event('change', {{bubbles: true}}));
+        }})()"""))
+
+    def pose(label):
+        buttons = "Array.from(desk.querySelectorAll('.pose-preset-section .preset-grid button'))"
+        match = f"{buttons}.find(button => button.textContent.trim() === {json.dumps(label)})"
+        until(desk(f"Boolean({match})"), f"Missing mannequin pose {label}")
+        run_js(desk(f"{match}.click()"))
+
+    def rig():
+        objects = read_data("project.get")["project"]["objects"]
+        character, = (item for item in objects if item["kind"] == "character")
+        return character["characterRig"]
+
+    def capture(label):
+        for attempt in range(3):
+            answer = bridge_response("export.frame", {"quality": "720p", "position": "current"})
+            if answer["ok"]:
+                break
+            # A newly remounted viewport may still be initializing its clean export surface.
+            assert attempt < 2 and answer["error"]["message"] in {
+                "当前浏览器无法导出成片帧", "成片帧导出器尚未准备好",
+            }, (label, answer["error"])
+            time.sleep(.25)
+        frame = b64decode(answer["data"]["dataUrl"].partition(",")[2], validate=True)
+        (output / f"mannequin-{label}.png").write_bytes(frame)
+        connected = mannequin_connected_fraction(frame)
+        assert connected >= .97, f"{label}: {connected:.1%} of the mannequin silhouette remains attached"
+        return frame
+
+    actor = '[role="treeitem"][aria-label="角色01"] .object-select-button'
+    tabs = '[aria-label="角色面板标签"] button'
+    click(actor)
+    click(tabs + ":nth-child(2)")
+    pose("T型")
+    stand = capture("arms-raised")
+    set_range("躯干 · 侧倾 滑杆", "55")
+    assert rig()["controls"]["torso.roll"] == 55, "The torso-roll slider did not apply"
+    # Raising both arms prevents them from hiding a detached hip in the front camera.
+    tilted = capture("side-bend")
+    assert tilted != stand, "The viewport did not render the roll setting"
+
+    click('[aria-label="返回首页"]')
+    click(".director-home-card.is-active .director-home-card-main")
+    until(desk('Boolean(desk.querySelector("canvas"))'), "The saved director project did not reopen")
+    assert rig()["controls"]["torso.roll"] == 55, "Reopening lost the stored pose"
+    capture("reopened")
+
+    click(actor)
+    click(tabs + ":nth-child(2)")
+    pose("站立")
+    set_range("身体 · 转身 滑杆", "35")
+    assert rig()["controls"]["body.yaw"] == 35, "The body turn slider did not apply"
+    capture("turn")
+    for name, label, preset in (("bow", "鞠躬", "bow"), ("crouch", "蹲下", "crouch")):
+        pose(label)
+        assert rig()["posePresetId"] == preset
+        capture(name)
+
+    click(tabs + ":nth-child(3)")
+    click('[aria-label="播放动作 挥手打招呼"]')
+    until(desk('Boolean(desk.querySelector(\'[aria-label="暂停人物和物品动作"]\'))'), "The preset did not play")
+    set_range("场景动作时间轴", "0.22")
+    timeline = read_data("timeline.get")
+    assert .20 < timeline["progress"] < .24 and not timeline["playing"], "The timeline did not seek and pause"
+    capture("playback-midpoint")
+    print("Verified connected built-in mannequin in raised arms, side bend, turn, bow, crouch, reopened pose and action playback", flush=True)
+
+
 def verify_embedded_director(root, folder, env):
     """Exercise the real installed WebView, its renderer, and both file handoffs."""
     sys.path.insert(0, str(root))
@@ -2098,9 +2229,10 @@ def verify_embedded_director(root, folder, env):
                        "LOCALAPPDATA": str(folder / f"WebView-{mode}")}
         result = subprocess.run(
             [sys.executable, "-c", driver, str(Path(__file__).resolve()), str(output), language, mode],
-            cwd=root, env=webview_env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+            cwd=root, env=webview_env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=65,
         )
         assert result.returncode == 0, result.stderr
+        print(result.stdout, end="")
         assert (output / "ready").is_file(), "No real protocol initialization was received"
         if mode == "pose":
             with Image.open(output / "frame.png") as frame:
