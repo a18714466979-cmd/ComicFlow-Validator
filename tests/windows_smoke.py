@@ -730,19 +730,31 @@ def run_inside_launcher():
 
                 self.after(40, check)
 
-            def measure(window, buttons):
-                window.update_idletasks()
+            def measured_bounds(window, button):
                 left, top = window.winfo_rootx(), window.winfo_rooty()
                 right, bottom = left + window.winfo_width(), top + window.winfo_height()
+                caption = button.cget("text")
+                x, y = button.winfo_rootx(), button.winfo_rooty()
+                size = (button.winfo_width(), button.winfo_height())
+                requested = (button.winfo_reqwidth(), button.winfo_reqheight())
+                ancestry = []
+                current = button
+                while current is not window:
+                    ancestry.append((current.winfo_name(), current.winfo_manager(), current.winfo_ismapped(),
+                                     current.winfo_width(), current.winfo_height()))
+                    current = current.master
+                details = (caption, window.geometry(), (x - left, y - top), size, requested, ancestry)
+                assert button.winfo_ismapped(), ("control not visible", details)
+                assert left <= x and x + size[0] <= right, ("horizontal clipping", details)
+                assert top <= y and y + size[1] <= bottom, ("vertical clipping", details)
+                assert size[0] >= requested[0] and size[1] >= requested[1], ("label may be clipped", details)
+                return x, y
+
+            def measure(window, buttons):
+                window.update_idletasks()
                 rows = {}
                 for button in buttons:
-                    caption = button.cget("text")
-                    assert button.winfo_ismapped(), caption
-                    x, y = button.winfo_rootx(), button.winfo_rooty()
-                    assert left <= x and x + button.winfo_width() <= right, (caption, x, right)
-                    assert top <= y and y + button.winfo_height() <= bottom, (caption, y, bottom)
-                    assert button.winfo_width() >= button.winfo_reqwidth(), (caption, button.winfo_width(), button.winfo_reqwidth())
-                    assert button.winfo_height() >= button.winfo_reqheight(), (caption, button.winfo_height(), button.winfo_reqheight())
+                    _, y = measured_bounds(window, button)
                     rows.setdefault(y, []).append(button)
                 for controls in rows.values():
                     assert len({control.winfo_height() for control in controls}) == 1
@@ -809,12 +821,15 @@ def run_inside_launcher():
                 assert "SB01" in body and "SB02" in body and status in body, body
                 export_title = "Export episode ZIP" if english else "导出整集 ZIP"
                 export = next(control for control in walk(panel, ttk.Button) if control.cget("text") == export_title)
-                assert export.winfo_ismapped() and export.instate(["disabled"])
+                panel.update_idletasks()
+                assert export.instate(["disabled"]), (export_title, export.state(), groups.item("SB02", "values"))
+                measured_bounds(panel, export)
                 with patch.object(filedialog, "asksaveasfilename") as choose:
                     export.invoke()
                     assert not choose.called
 
                 def batch_steps():
+                    measured_bounds(panel, export)
                     return [named(panel, ttk.Button, "step_" + name) for name in step_names]
 
                 layout(panel, batch_steps, lambda: open_group_review(english, production, panel))

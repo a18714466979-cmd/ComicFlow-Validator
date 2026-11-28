@@ -400,8 +400,10 @@ class BatchDialog:
         self.wrap_toolbar(bar)
 
     def build_delivery(self, page):
+        page.columnconfigure(0, weight=1)
+        page.rowconfigure(0, weight=1)
         split = ttk.Panedwindow(page, orient="horizontal")
-        split.pack(fill="both", expand=True)
+        split.grid(row=0, column=0, sticky="nsew")
 
         listing = ttk.Frame(split, padding=(0, 0, 8, 0), style="A.TFrame")
         split.add(listing, weight=5)
@@ -431,7 +433,7 @@ class BatchDialog:
                                                          font="TkDefaultFont")
         self.delivery_detail.pack(fill="both", expand=True, pady=(0, 8))
         self.review_actions = ttk.Frame(information, style="A.Card.TFrame")
-        self.review_actions.pack(fill="x")
+        self.review_actions.pack(before=self.delivery_detail.frame, side="bottom", fill="x")
         self.review_group_button = self.button(self.review_actions, "打开本组复核", "Open group for review",
                                                self.open_delivery_group, "review_group", primary=True)
         self.review_boundary_button = self.button(self.review_actions, "打开组间衔接", "Open group handoff",
@@ -439,19 +441,34 @@ class BatchDialog:
         self.review_group_button.pack_configure(side="top", anchor="w", padx=0)
         self.review_boundary_button.pack_configure(side="top", anchor="w", padx=0)
 
-        footer = self.toolbar(page)
-        footer.pack_configure(before=split, side="bottom")
-        self.button(footer, "导出整集 ZIP", "Export episode ZIP", lambda: self.publish(False), "release_episode",
-                    primary=True, side="right")
-        self.button(footer, "导出多集总包", "Export series ZIP", lambda: self.publish(True), side="right")
-        self.button(footer, "复查本集覆盖", "Recheck coverage", self.reload)
-        self.button(footer, "查看原稿覆盖", "Script coverage", self.show_coverage)
-        self.wrap_toolbar(footer)
         self.delivery_status = tk.StringVar(self.window)
         label = ttk.Label(page, textvariable=self.delivery_status, style="A.Muted.TLabel",
                           wraplength=730, justify="left")
-        label.pack(before=footer, side="bottom", fill="x", anchor="w", pady=(4, 0))
+        label.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         page.bind("<Configure>", lambda event: label.configure(wraplength=max(200, event.width - 24)), add="+")
+
+        footer = ttk.Frame(page, style="A.TFrame")
+        footer.grid(row=2, column=0, sticky="ew", pady=(3, 0))
+        footer.columnconfigure(0, weight=1)
+        footer.columnconfigure(1, weight=1)
+        coverage = ttk.Frame(footer, style="A.TFrame")
+        release = ttk.Frame(footer, style="A.TFrame")
+        coverage.grid(row=0, column=0, sticky="w")
+        release.grid(row=0, column=1, sticky="e")
+        self.button(coverage, "复查本集覆盖", "Recheck coverage", self.reload)
+        self.button(coverage, "查看原稿覆盖", "Script coverage", self.show_coverage)
+        self.button(release, "导出整集 ZIP", "Export episode ZIP", lambda: self.publish(False), "release_episode",
+                    primary=True, side="right")
+        self.button(release, "导出多集总包", "Export series ZIP", lambda: self.publish(True), side="right")
+
+        def arrange_footer(event):
+            stacked = event.width < coverage.winfo_reqwidth() + release.winfo_reqwidth() + 8
+            target = (1, 0, 2) if stacked else (0, 1, 1)
+            current = release.grid_info()
+            if tuple(int(current[key]) for key in ("row", "column", "columnspan")) != target:
+                release.grid_configure(row=target[0], column=target[1], columnspan=target[2])
+
+        footer.bind("<Configure>", arrange_footer)
 
     def show_coverage(self):
         self.show_text(self.t("本集原稿覆盖", "Episode script coverage"), self.coverage_text())
