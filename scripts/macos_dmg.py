@@ -50,6 +50,8 @@ def launch_installed(bundle: Path, workspace: Path, arch: str, revision: str) ->
         )
         result = json.loads(marker.read_text(encoding="utf-8"))
         expected = {"status": "ok", "platform": "darwin", "architecture": arch, "revision": revision}
+        if build_revision := os.environ.get("GITHUB_SHA"):
+            expected["installer_build"] = build_revision
         if any(result.get(key) != value for key, value in expected.items()):
             raise ValueError(f"Installed app failed smoke verification: {result}")
         print(f"Verified LaunchServices start on macOS {arch}: {json.dumps(result, ensure_ascii=False)}", flush=True)

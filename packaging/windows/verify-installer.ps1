@@ -68,6 +68,9 @@ try {
     if ($result.status -ne 'ok' -or $result.revision -cne $Revision) {
         throw 'The installed application smoke report does not match the release.'
     }
+    if ($env:GITHUB_SHA -and $result.installer_build -cne $env:GITHUB_SHA) {
+        throw 'The installed application does not match this installer build.'
+    }
     Get-Content -LiteralPath $report -Raw
 
     $process = Start-Process -FilePath $appExe -WorkingDirectory $session -PassThru

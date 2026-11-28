@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: studio-installers-2.9.1
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   windows-media:

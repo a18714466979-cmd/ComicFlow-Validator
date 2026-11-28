@@ -34,7 +34,7 @@ def verify_director(folder):
                 detail = error.read_text(encoding="utf-8") if error.is_file() else str(process.returncode)
                 raise RuntimeError(f"The bundled 3D Director Desk exited before drawing: {detail}")
             time.sleep(0.15)
-        raise TimeoutError("The bundled native 3D Director Desk did not render.")
+        raise TimeoutError("The bundled native 3D Director Desk did not signal bridge readiness.")
     finally:
         if process.poll() is None:
             process.terminate()
@@ -80,7 +80,7 @@ def exercise(report_path):
                 raise RuntimeError(result["tk_error"])
             base.joinpath("director").mkdir()
             verify_director(base / "director")
-            checks.append("Bundled 3D Director Desk rendered in the native WebView")
+            checks.append("Bundled 3D Director Desk opened and completed its native WebView handshake")
         result["status"] = "ok"
     except Exception:
         result["error"] = traceback.format_exc()

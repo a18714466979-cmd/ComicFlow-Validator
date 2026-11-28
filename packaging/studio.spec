@@ -18,7 +18,8 @@ from PyInstaller.utils.hooks import copy_metadata
 for dependency in ("Pillow", "numpy", "pywebview", "bottle", "proxy_tools"):
     datas += copy_metadata(dependency)
 if macos:
-    for dependency in ("pyobjc-core", "pyobjc-framework-Cocoa", "pyobjc-framework-WebKit"):
+    for dependency in ("pyobjc-core", "pyobjc-framework-Cocoa", "pyobjc-framework-WebKit",
+                       "pyobjc-framework-Quartz", "pyobjc-framework-Security", "pyobjc-framework-UniformTypeIdentifiers"):
         datas += copy_metadata(dependency)
 else:
     for dependency in ("pythonnet", "clr_loader", "cffi"):

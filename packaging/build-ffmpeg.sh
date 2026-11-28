@@ -40,7 +40,7 @@ case "$target" in
         ;;
 esac
 
-ffmpeg_version=8.1.3
+ffmpeg_version=7.1.5
 zlib_version=1.3.2
 ffmpeg_archive="ffmpeg-$ffmpeg_version.tar.xz"
 zlib_archive="zlib-$zlib_version.tar.gz"
@@ -62,7 +62,7 @@ download() {
     printf '%s  %s\n' "$digest" "$path" | shasum -a 256 -c
 }
 
-download "$ffmpeg_url" "$ffmpeg_archive" 7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
+download "$ffmpeg_url" "$ffmpeg_archive" de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
 download "$zlib_url" "$zlib_archive" bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
 tar -xf "$ffmpeg_archive"
 tar -xf "$zlib_archive"
