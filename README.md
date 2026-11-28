@@ -4,9 +4,11 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46100062643/artifacts/15244428749) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46105244726/artifacts/15247196463) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
 
 ## 工作台有什么
+
+A 版工作台在首页提供五步入口和当前项目进度，可沿着流程继续，也可直接跳到所需工序。在批量制作中心的验收交付页，左侧选组，右侧看当前画面复核和前后组交接；可直接打开对应的复核工具。
 
 | 页面 | 功能 |
 | --- | --- |
@@ -62,6 +64,8 @@
 
 ## English
 
+The A layout uses five workflow steps and a live project summary on the production home. In batch review, select a storyboard group on the left and check its panel and handoff status on the right.
+
 **ComicFlow is a Windows production and review workbench for ByteDance Seedance 2.0.**
 
 It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. Action sequencing includes 53 bilingual cards, 12- and 15-panel previews, local pose image references, and 3D Director Desk route import. Selected story actions can be sent to existing or source-bound new shots. The Action reference library saves YouTube, Youku and Tencent Video playback links, time ranges and your own shot notes with each project. Open a clip in your browser, then create an action card from your notes or append them to a selected card. The Batch production center imports a script for each episode, maps passages to shots, tracks shared asset versions and saves task progress and request limits. After review, it packages each storyboard group independently and exports complete episodes or a series. The ecommerce workspace imports a local reference video and approved product photography, proposes cuts, and prepares independently usable vertical storyboard groups and delivery ZIPs. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
@@ -70,4 +74,4 @@ ComicFlow is designed to reduce avoidable regenerations by checking approved dia
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46100062643/artifacts/15244428749) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46105244726/artifacts/15247196463) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
