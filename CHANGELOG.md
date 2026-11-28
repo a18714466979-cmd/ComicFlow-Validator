@@ -8,12 +8,14 @@
 
 - 修复内置 3D 导演台程序化人偶的躯干、骨盆和四肢接合问题。摆姿势和播放动作时，关节继续跟随各自的旋转中心。
 - 核对弯腰、转身、下蹲和抬臂，以及动作预览、截图与保存后打开。已保存的导演台工程继续使用原有姿势和动作数据。
+- 素材库和预览关闭时，在界面线程释放预览图片与控件资源。
 - 验证记录可按安装包里的 `REVISION.txt` 查询。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
 
 ### English
 
 - Repair the joints of the built-in procedural mannequin in the 3D Director Desk. The torso, pelvis and limbs stay connected as their joints rotate in the editor and during playback.
 - Verify bending, twisting, crouching and arm raises, plus playback, capture and reopening a saved project. Existing Director Desk projects continue to use their saved pose and motion data.
+- The media library and detail preview release their display resources on the UI thread when closed.
 - Match the package revision in `REVISION.txt` to the installation and desktop verification run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
 
 ## 2.1.0 · 2026-11-28

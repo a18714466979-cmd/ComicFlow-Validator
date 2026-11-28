@@ -1,5 +1,6 @@
 """Exercise media browsing with real image and video files and an unpacked Tk app."""
 
+import gc
 import hashlib
 import shutil
 import subprocess
@@ -8,6 +9,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import current_thread, enumerate as active_threads
 from tkinter import filedialog, messagebox, ttk
 from unittest.mock import patch
 
@@ -215,7 +217,7 @@ def bulk_import(root, gallery, canvas, catalog, native, folder):
         root.after_cancel(after_id)
 
 
-def exercise(working, native, locale, percentage):
+def exercise(root, working, native, locale, percentage):
     from src.media_catalog import MediaCatalog
     from src.media_gallery import open_media_gallery
 
@@ -225,93 +227,85 @@ def exercise(working, native, locale, percentage):
     source_digests = {item.path: hashlib.sha256(item.path.read_bytes()).digest()
                       for item in native if item.path.is_file()}
     picked = []
-    root = tk.Tk()
     root.ui_language = locale
     root.tk.call("tk", "scaling", 96 / 72 * percentage / 100)
     root.geometry("580x350+0+0")
-    root.callback_errors = []
-    root.report_callback_exception = lambda _kind, failure, trace: root.callback_errors.append(
-        failure.with_traceback(trace)
+    gallery = open_media_gallery(root, native, catalog=catalog, on_select=picked.append, allow_import=True)
+    if gallery is None:
+        gallery = named(root, "media_gallery")
+    canvas = named(gallery, "media_cards")
+    genre = named(gallery, "media_category")
+    kind = named(gallery, "media_kind")
+    size = named(gallery, "media_size")
+    assignment = named(gallery, "media_assign_category")
+    gallery.geometry("820x675+0+0")
+    bounds = wait(root, lambda: first_square(canvas), "Square cards did not display")
+    assert abs((bounds[2] - bounds[0]) - (bounds[3] - bounds[1])) <= 1, bounds
+    original = bounds[2] - bounds[0]
+
+    choose(kind, images)
+
+    def varied_sizes():
+        sizes = visible_photo_sizes(canvas)
+        return sizes if any(w > h for w, h in sizes) and any(w < h for w, h in sizes) else None
+
+    sizes = wait(root, varied_sizes, "Horizontal and vertical images were not both rendered")
+    assert all(w <= original + 1 and h <= original + 1 for w, h in sizes), sizes
+    choose(size, large)
+
+    def larger_square():
+        box = first_square(canvas)
+        return box if box and box[2] - box[0] > original + 10 else None
+
+    enlarged = wait(root, larger_square, "Resizing cards did not enlarge the preview")
+    assert abs((enlarged[2]-enlarged[0]) - (enlarged[3]-enlarged[1])) <= 1
+
+    choose(genre, scene)
+    full_scene = wait(root, lambda: find_picture(canvas, "media-item-photo"), "Filtered scene did not render")
+    width, height, _ = full_scene
+    assert abs(width * 9 - height * 16) <= 24, full_scene
+    top_r, top_g, _ = picture_color(canvas, full_scene, width // 2, 1)
+    bottom_r, bottom_g, _ = picture_color(canvas, full_scene, width // 2, height - 2)
+    assert top_r > top_g + 50 and bottom_g > top_g + 65 and bottom_r > bottom_g, (
+        top_r, top_g, bottom_r, bottom_g,
     )
-    try:
-        gallery = open_media_gallery(root, native, catalog=catalog, on_select=picked.append, allow_import=True)
-        if gallery is None:
-            gallery = named(root, "media_gallery")
-        canvas = named(gallery, "media_cards")
-        genre = named(gallery, "media_category")
-        kind = named(gallery, "media_kind")
-        size = named(gallery, "media_size")
-        assignment = named(gallery, "media_assign_category")
-        gallery.geometry("820x675+0+0")
-        bounds = wait(root, lambda: first_square(canvas), "Square cards did not display")
-        assert abs((bounds[2] - bounds[0]) - (bounds[3] - bounds[1])) <= 1, bounds
-        original = bounds[2] - bounds[0]
 
-        choose(kind, images)
+    choose(genre, unclassified)
+    wait(root, lambda: find_picture(canvas, "media-item-photo"), "Unclassified image was not visible")
+    click_card(root, canvas, photo=True)
+    choose(assignment, prop)
+    named(gallery, "media_apply_category").invoke()
+    wait(root, lambda: any(item.key == "unknown" and item.category == "prop"
+                            for item in MediaCatalog(path).items(native)),
+         "Category assignment was not written to disk")
 
-        def varied_sizes():
-            sizes = visible_photo_sizes(canvas)
-            return sizes if any(w > h for w, h in sizes) and any(w < h for w, h in sizes) else None
+    choose(genre, all_categories)
+    choose(kind, videos)
+    validate_video(root, gallery, canvas, catalog)
 
-        sizes = wait(root, varied_sizes, "Horizontal and vertical images were not both rendered")
-        assert all(w <= original + 1 and h <= original + 1 for w, h in sizes), sizes
-        choose(size, large)
+    choose(kind, all_media)
+    if locale == "en":
+        bulk_import(root, gallery, canvas, catalog, native, working)
+    gallery.destroy()
 
-        def larger_square():
-            box = first_square(canvas)
-            return box if box and box[2] - box[0] > original + 10 else None
-
-        enlarged = wait(root, larger_square, "Resizing cards did not enlarge the preview")
-        assert abs((enlarged[2]-enlarged[0]) - (enlarged[3]-enlarged[1])) <= 1
-
-        choose(genre, scene)
-        full_scene = wait(root, lambda: find_picture(canvas, "media-item-photo"), "Filtered scene did not render")
-        width, height, _ = full_scene
-        assert abs(width * 9 - height * 16) <= 24, full_scene
-        top_r, top_g, _ = picture_color(canvas, full_scene, width // 2, 1)
-        bottom_r, bottom_g, _ = picture_color(canvas, full_scene, width // 2, height - 2)
-        assert top_r > top_g + 50 and bottom_g > top_g + 65 and bottom_r > bottom_g, (
-            top_r, top_g, bottom_r, bottom_g,
-        )
-
-        choose(genre, unclassified)
-        wait(root, lambda: find_picture(canvas, "media-item-photo"), "Unclassified image was not visible")
-        click_card(root, canvas, photo=True)
-        choose(assignment, prop)
-        named(gallery, "media_apply_category").invoke()
-        wait(root, lambda: any(item.key == "unknown" and item.category == "prop"
-                                for item in MediaCatalog(path).items(native)),
-             "Category assignment was not written to disk")
-
-        choose(genre, all_categories)
-        choose(kind, videos)
-        validate_video(root, gallery, canvas, catalog)
-
-        choose(kind, all_media)
-        if locale == "en":
-            bulk_import(root, gallery, canvas, catalog, native, working)
-        gallery.destroy()
-
-        relaunched_catalog = MediaCatalog(path)
-        assert (relaunched_catalog.poster_time("video") or 0) >= 1800
-        assert len(relaunched_catalog.items(native)) == (108 if locale == "en" else 7)
-        gallery = open_media_gallery(root, native, catalog=relaunched_catalog, on_select=picked.append,
-                                     selected=("character",), select_types=("image",))
-        if gallery is None:
-            gallery = named(root, "media_gallery")
-        canvas = named(gallery, "media_cards")
-        wait(root, lambda: len(visible_photo_sizes(canvas)) >= 2, "Reopened image picker drew no assets")
-        named(gallery, "media_choose").invoke()
-        assert len(picked) == 1 and tuple(item.key for item in picked[0]) == ("character",), picked
-        for source, digest in source_digests.items():
-            assert hashlib.sha256(source.read_bytes()).digest() == digest, source
-        print(f"Verified real media cards, poster, playback, image picker and saved categories at "
-              f"{percentage}% ({locale})", flush=True)
-    finally:
-        root.destroy()
+    relaunched_catalog = MediaCatalog(path)
+    assert (relaunched_catalog.poster_time("video") or 0) >= 1800
+    assert len(relaunched_catalog.items(native)) == (108 if locale == "en" else 7)
+    gallery = open_media_gallery(root, native, catalog=relaunched_catalog, on_select=picked.append,
+                                 selected=("character",), select_types=("image",))
+    if gallery is None:
+        gallery = named(root, "media_gallery")
+    canvas = named(gallery, "media_cards")
+    wait(root, lambda: len(visible_photo_sizes(canvas)) >= 2, "Reopened image picker drew no assets")
+    named(gallery, "media_choose").invoke()
+    assert len(picked) == 1 and tuple(item.key for item in picked[0]) == ("character",), picked
+    for source, digest in source_digests.items():
+        assert hashlib.sha256(source.read_bytes()).digest() == digest, source
+    print(f"Verified real media cards, poster, playback, image picker and saved categories at "
+          f"{percentage}% ({locale})", flush=True)
 
 
-def exercise_integrations(working, native):
+def exercise_integrations(root, working, native):
     from src.batch_dialog import BatchDialog
     from src.batch_workspace import BatchWorkspace
     from src.ecommerce_page import EcommercePage
@@ -321,82 +315,113 @@ def exercise_integrations(working, native):
     from src.production_project import ProductionProject
     from src.production_rules import ENGLISH
 
-    root = tk.Tk()
     root.ui_language = "zh"
+    root.tk.call("tk", "scaling", 96 / 72)
     root.geometry("1100x820+0+0")
     scene, portrait, prop, _, video, *_ = native
-    try:
-        path = working / "已有单组.cfproject"
-        project = ProductionProject("已有单组", "EP01", "SB01")
-        approved = project.import_image(path, portrait.path, "protagonist_reference.png", action="直接复用",
-                                        reason="离线合成样例", inspection="人工核对色彩和比例")
-        project.save(path)
-        original_project = path.read_bytes()
-        project_media_catalog(path).import_paths((video.path,), category="character")
-        group = open_production_dialog(root, {}, tk.StringVar(root), {}, {}, ENGLISH, lambda _rules: None,
-                                       initial_project=path, destination="assets")
-        wait(root, lambda: group.project is not None, "Existing group did not open")
-        by_caption(group.window, "打开素材库").invoke()
-        catalog_view = named(group.window, "media_gallery")
-        canvas = named(catalog_view, "media_cards")
-        wait(root, lambda: len(visible_photo_sizes(canvas)) == 2, "Group library omitted image or video")
-        catalog_view.destroy()
+    path = working / "已有单组.cfproject"
+    project = ProductionProject("已有单组", "EP01", "SB01")
+    approved = project.import_image(path, portrait.path, "protagonist_reference.png", action="直接复用",
+                                    reason="离线合成样例", inspection="人工核对色彩和比例")
+    project.save(path)
+    original_project = path.read_bytes()
+    project_media_catalog(path).import_paths((video.path,), category="character")
+    group = open_production_dialog(root, {}, tk.StringVar(root), {}, {}, ENGLISH, lambda _rules: None,
+                                   initial_project=path, destination="assets")
+    wait(root, lambda: group.project is not None, "Existing group did not open")
+    by_caption(group.window, "打开素材库").invoke()
+    catalog_view = named(group.window, "media_gallery")
+    canvas = named(catalog_view, "media_cards")
+    wait(root, lambda: len(visible_photo_sizes(canvas)) == 2, "Group library omitted image or video")
+    catalog_view.destroy()
 
-        image_job = ImageProductionDialog(group, {})
-        by_caption(image_job.window, "按图选择参考").invoke()
-        chooser = named(image_job.window, "media_gallery")
-        canvas = named(chooser, "media_cards")
-        wait(root, lambda: len(visible_photo_sizes(canvas)) == 1, "Approved reference did not render")
-        assert len(canvas.find_withtag("square")) == 1, "The model reference picker showed a linked video"
-        click_card(root, canvas)
-        named(chooser, "media_choose").invoke()
-        assert [item.id for item in image_job.chosen_refs()] == [approved.id]
-        assert path.read_bytes() == original_project, "Viewing a media catalog rewrote the old project"
-        group.window.destroy()
+    image_job = ImageProductionDialog(group, {})
+    by_caption(image_job.window, "按图选择参考").invoke()
+    chooser = named(image_job.window, "media_gallery")
+    canvas = named(chooser, "media_cards")
+    wait(root, lambda: len(visible_photo_sizes(canvas)) == 1, "Approved reference did not render")
+    assert len(canvas.find_withtag("square")) == 1, "The model reference picker showed a linked video"
+    click_card(root, canvas)
+    named(chooser, "media_choose").invoke()
+    assert [item.id for item in image_job.chosen_refs()] == [approved.id]
+    assert path.read_bytes() == original_project, "Viewing a media catalog rewrote the old project"
+    group.window.destroy()
 
-        batch_path = working / "已有批次.cfbatch"
-        batch_model = BatchWorkspace.create(batch_path, "已有批次", ENGLISH)
-        batch_model.approve_asset("入口", "白天", "R1", scene.path, "已核对边缘", filename="scene_entry.png")
-        batch = BatchDialog(root, ENGLISH, {}, {}, {}, lambda *_args: None)
-        batch.open_path(batch_path)
-        wait(root, lambda: not batch.busy and batch.workspace is not None, "Existing batch did not open")
-        batch.select_stage("assets")
-        by_caption(batch.window, "打开素材库").invoke()
-        batch_view = named(batch.window, "media_gallery")
-        canvas = named(batch_view, "media_cards")
-        wait(root, lambda: visible_photo_sizes(canvas), "Approved shared scene did not render")
-        assert "场景" in named(batch_view, "media_category")["values"]
-        batch.window.destroy()
+    batch_path = working / "已有批次.cfbatch"
+    batch_model = BatchWorkspace.create(batch_path, "已有批次", ENGLISH)
+    batch_model.approve_asset("入口", "白天", "R1", scene.path, "已核对边缘", filename="scene_entry.png")
+    batch = BatchDialog(root, ENGLISH, {}, {}, {}, lambda *_args: None)
+    batch.open_path(batch_path)
+    wait(root, lambda: not batch.busy and batch.workspace is not None, "Existing batch did not open")
+    batch.select_stage("assets")
+    by_caption(batch.window, "打开素材库").invoke()
+    batch_view = named(batch.window, "media_gallery")
+    canvas = named(batch_view, "media_cards")
+    wait(root, lambda: visible_photo_sizes(canvas), "Approved shared scene did not render")
+    assert "场景" in named(batch_view, "media_category")["values"]
+    batch.window.destroy()
 
-        frame = ttk.Frame(root)
-        frame.pack(fill="both", expand=True)
-        ecommerce = EcommercePage(frame, {}, {}, lambda: None)
-        with patch.object(filedialog, "askopenfilename", return_value=str(video.path)):
-            by_caption(frame, "导入参考视频").invoke()
-        wait(root, lambda: getattr(ecommerce.poster, "image", None), "The source video cover did not render")
-        assert ecommerce.poster.image.width() == ecommerce.poster.image.height()
-        with patch.object(filedialog, "askopenfilenames", return_value=(str(prop.path),)):
-            by_caption(frame, "导入产品照片").invoke()
-        wait(root, lambda: len(ecommerce.project.product_refs) == 1, "E-commerce product photo did not import")
-        by_caption(frame, "打开素材库").invoke()
-        ecommerce_view = named(root, "media_gallery")
-        canvas = named(ecommerce_view, "media_cards")
-        wait(root, lambda: len(visible_photo_sizes(canvas)) == 2,
-             "E-commerce library omitted the source video or product photo")
-        assert "产品" in named(ecommerce_view, "media_category")["values"]
-        print("Verified real single-group, generation picker, batch and ecommerce entry points", flush=True)
-    finally:
-        root.destroy()
+    frame = ttk.Frame(root)
+    frame.pack(fill="both", expand=True)
+    ecommerce = EcommercePage(frame, {}, {}, lambda: None)
+    with patch.object(filedialog, "askopenfilename", return_value=str(video.path)):
+        by_caption(frame, "导入参考视频").invoke()
+    wait(root, lambda: getattr(ecommerce.poster, "image", None), "The source video cover did not render")
+    assert ecommerce.poster.image.width() == ecommerce.poster.image.height()
+    with patch.object(filedialog, "askopenfilenames", return_value=(str(prop.path),)):
+        by_caption(frame, "导入产品照片").invoke()
+    wait(root, lambda: len(ecommerce.project.product_refs) == 1, "E-commerce product photo did not import")
+    by_caption(frame, "打开素材库").invoke()
+    ecommerce_view = named(root, "media_gallery")
+    canvas = named(ecommerce_view, "media_cards")
+    wait(root, lambda: len(visible_photo_sizes(canvas)) == 2,
+         "E-commerce library omitted the source video or product photo")
+    assert "产品" in named(ecommerce_view, "media_category")["values"]
+    print("Verified real single-group, generation picker, batch and ecommerce entry points", flush=True)
+
+
+def finish_workers(preexisting, timeout=12):
+    deadline = time.monotonic() + timeout
+    while threads := [worker for worker in active_threads() if worker not in preexisting]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(f"Media smoke workers held files after shutdown: {[worker.name for worker in threads]}")
+        threads[0].join(min(remaining, .2))
 
 
 def verify():
     with TemporaryDirectory(prefix="studio-media-") as name:
         working = Path(name)
         native = fixtures(working)
-        with patch.object(messagebox, "showerror", side_effect=AssertionError):
-            exercise(working, native, "zh", 125)
-            exercise(working, native, "en", 150)
-            exercise_integrations(working, native)
+        preexisting = {*active_threads(), current_thread()}
+        root = tk.Tk()
+        callback_errors = []
+        root.callback_errors = callback_errors
+
+        def record_callback_error(_kind, error, trace):
+            callback_errors.append(error.with_traceback(trace))
+
+        root.report_callback_exception = record_callback_error
+        try:
+            with patch.object(messagebox, "showerror", side_effect=AssertionError):
+                exercise(root, working, native, "zh", 125)
+                exercise(root, working, native, "en", 150)
+                exercise_integrations(root, working, native)
+                if callback_errors:
+                    raise callback_errors[0]
+        finally:
+            try:
+                root.destroy()
+            finally:
+                # Closing windows cancels queued work. Running FFmpeg and Pillow jobs
+                # must leave the files before Windows can remove the fixture folder.
+                finish_workers(preexisting)
+                # Tk resources must be collected on this main test thread.
+                del root.report_callback_exception
+                del root
+                gc.collect()
+        if callback_errors:
+            raise callback_errors[0]
 
 
 if __name__ == "__main__":

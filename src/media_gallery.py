@@ -561,6 +561,10 @@ class MediaGallery:
                 self.operation_stop.set()
             self.thumb_pool.shutdown(wait=False, cancel_futures=True)
             self.work_pool.shutdown(wait=False, cancel_futures=True)
+            # Release Tcl-owned resources here on the UI thread. A decode worker
+            # can trigger Python's cyclic collector after these widgets close.
+            self.photos.clear()
+            self.status = None
 
 
 class MediaDetail:
@@ -961,3 +965,5 @@ class MediaDetail:
             if self.stop is not None:
                 self.stop.set()
             self.executor.shutdown(wait=False, cancel_futures=True)
+            self.photo = None
+            self.seek_value = None
