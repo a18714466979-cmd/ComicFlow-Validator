@@ -1,10 +1,12 @@
-# ComicFlow Validator
+# 漫剧镜序制片台 · Comic Sequence Studio
 
 **面向 Seedance 2.0 的 Windows 漫剧制片工作台**
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46105244726/artifacts/15247196463) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载 Windows v2.0.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46108317565/artifacts/15247849179) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [更新日志](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [English](#english)
+
+首页点版本号，或打开「帮助 → 更新日志」，即可离线查看各版改动和已知问题。
 
 ## 工作台有什么
 
@@ -34,7 +36,7 @@ A 版工作台在首页提供五步入口和当前项目进度，可沿着流程
 - **把参考材料核在提交前。** 预检单组九图预算。并排检查故事板、彩色净板和文字，提前发现重复景别、跨镜跳变、漏件或机位对应错误。
 - **有问题修到具体位置。** 记录批准原图和版本，定位受影响的镜头、字段和像素窗口，支持以原图为底进行局部返修。打包后重新打开最终 ZIP 核对。
 
-这些步骤减少的是输入错误、素材漂移和整组返工带来的可预防试错。模型仍有随机性，实际减少多少取决于项目和输入质量。ComicFlow 输出供 Seedance 2.0 使用的素材和提示词，成片生成在 Seedance 2.0 服务中进行。换用其他视频模型时，需要按模型调整参考图和提示词。
+这些步骤减少的是输入错误、素材漂移和整组返工带来的可预防试错。模型仍有随机性，实际减少多少取决于项目和输入质量。软件输出供 Seedance 2.0 使用的素材和提示词，成片生成在 Seedance 2.0 服务中进行。换用其他视频模型时，需要按模型调整参考图和提示词。
 
 ## 制作规则与检查边界
 
@@ -56,8 +58,8 @@ A 版工作台在首页提供五步入口和当前项目进度，可沿着流程
 
 ## 试用
 
-1. 下载并解压 Windows 试用 ZIP。安装带 Tcl/Tk 的 Python 3.13，再双击 `ComicFlow-Setup.bat`。
-2. 双击 `ComicFlow-Windows.bat`。可以打开新项目，也可以把已有 `.cfproject` 或 ZIP 拖到启动器。
+1. 下载并解压 Windows 试用 ZIP。安装带 Tcl/Tk 的 Python 3.13，再双击 `Comic-Sequence-Studio-Setup.bat`。
+2. 双击 `Comic-Sequence-Studio.bat`。可以打开新项目，也可以把已有 `.cfproject` 或 ZIP 拖到启动器。
 3. 用 `Examples` 里的中英文示例体验排版、逐格复核、单组和相邻组交付。进入「资产图生成」选已有项目时会显示加载状态，打开项目本身不改写项目文件。
 
 当前 Windows 工作台代码在 [开发分支](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)。试用 ZIP 是 GitHub Actions 构建产物。当前链接到期后，可到上方构建列表打开通过的运行并下载试用包。
@@ -66,12 +68,12 @@ A 版工作台在首页提供五步入口和当前项目进度，可沿着流程
 
 The A layout uses five workflow steps and a live project summary on the production home. In batch review, select a storyboard group on the left and check its panel and handoff status on the right.
 
-**ComicFlow is a Windows production and review workbench for ByteDance Seedance 2.0.**
+**Comic Sequence Studio is a Windows production and review workbench for ByteDance Seedance 2.0.**
 
 It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. Action sequencing includes 53 bilingual cards, 12- and 15-panel previews, local pose image references, and 3D Director Desk route import. Selected story actions can be sent to existing or source-bound new shots. The Action reference library saves YouTube, Youku and Tencent Video playback links, time ranges and your own shot notes with each project. Open a clip in your browser, then create an action card from your notes or append them to a selected card. The Batch production center imports a script for each episode, maps passages to shots, tracks shared asset versions and saves task progress and request limits. After review, it packages each storyboard group independently and exports complete episodes or a series. The ecommerce workspace imports a local reference video and approved product photography, proposes cuts, and prepares independently usable vertical storyboard groups and delivery ZIPs. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
 
-ComicFlow is designed to reduce avoidable regenerations by checking approved dialogue, shot framing and the nine-image budget before submission, and by tracing fixes to the affected images or shots. The English and Chinese workflows have separate dialogue and framing rules. Automated framing alerts use recorded shot fields. Camera geometry, composition, continuity and generated videos still need visual review.
+Comic Sequence Studio is designed to reduce avoidable regenerations by checking approved dialogue, shot framing and the nine-image budget before submission, and by tracing fixes to the affected images or shots. The English and Chinese workflows have separate dialogue and framing rules. Automated framing alerts use recorded shot fields. Camera geometry, composition, continuity and generated videos still need visual review.
 
-To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
+To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that the app creates when you choose **New project**.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46105244726/artifacts/15247196463) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows v2.0.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46108317565/artifacts/15247849179) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Changelog](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
