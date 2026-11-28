@@ -44,7 +44,7 @@ def build(destination, checkout=None):
     if npm is None:
         raise RuntimeError("Node.js and npm are needed to build 3D Director Desk.")
     with TemporaryDirectory(prefix="comicflow-director-build-") as folder:
-        scratch = Path(folder)
+        scratch = Path(folder).resolve()
         if checkout is None:
             checkout = scratch / "checkout"
             run(["git", "init", "-q", str(checkout)], check=True)
