@@ -2,7 +2,7 @@
 
 面向字节跳动 **Seedance 2.0** 的 Windows 漫剧工作台。把一集定稿带进来，拆成分镜和故事板组，复用角色、场景和道具，最后交付每组的参考图与视频提示词。已有分镜、图片或交付 ZIP 时，可以直接从对应工序开始。
 
-**[下载 Windows 试用包 v2.9.0][trial]** · [Windows 验证记录][run] · [安装与操作指南][guide] · [更新日志][changes] · [工作台源码][source] · [English](#english)
+**[下载 Windows 试用包 v2.9.1][trial]** · [Windows 验证记录][run] · [安装与操作指南][guide] · [更新日志][changes] · [工作台源码][source] · [English](#english)
 
 ## 第一次打开
 
@@ -26,31 +26,34 @@
 
 ## 制作规则怎样减少返工
 
-- **按项目选择英文或中文影片制作。** 界面语言可以独立切换。英文规则 v14.10.4 和中文规则 v14.8.8 分别处理对白、分组和机位。英文导出的逐镜提示词绑定到具体 PNG 和板格，保留批准英文对白。中文按每组最多 100 个实际发声字符规划。
-- **生图前检查可判断的错误。** 英文预检可拦截有记录的相邻中景或大全景重复同一叙事目的，以及标记为打斗的组三镜同景别同角度。九图预算、对白与两份 TXT、素材版本及格号可提前核对。英文流程内置离线严格校验器，中文正式交付需要另选可信的中文规则校验脚本。
+- **按项目选择英文或中文影片制作。** 界面语言可以独立切换。英文规则 v14.10.5 和中文规则 v14.8.9 分别处理对白、分组和机位。英文导出的逐镜提示词绑定到具体 PNG 和板格，保留批准英文对白。中文按每组最多 100 个实际发声字符规划。
+- **生图前检查可判断的错误。** 相邻独立镜头在英文流程中须改变景别或角度，在中文流程中须改变景别。预检根据登记的镜头字段检查同页、跨页和连续组的交界。九图预算、对白与两份 TXT、素材版本及格号也可提前核对。中英文正式交付的校验脚本均随 Windows 试用包提供。
 - **逐格核对画面后再打包。** 景别警告依据已填镜头字段。实际机位、人物身份、动作接续和画面质量需要看图确认。这个流程针对可预防的返工，尚无实测的试生成降幅。素材和提示词最终提交到 Seedance 2.0 服务生成成片。其他视频模型的输入限制和提示词格式可能不同。
 
 ## 这个试用包验证了什么
 
-v2.9.0 的 Windows 构建通过了自动化测试、生成 ZIP、解压安装、桌面操作与样例交付检查。样例覆盖中英文单组、相邻两组、局部返修及重新打包。上述检查不含真实付费模型调用或最终视频的动态、口型与音频质量验收。[查看该版本的 GitHub Actions 步骤][run]
+v2.9.1 在 Windows 上运行了 353 项自动化测试，全部通过。随后在解压安装的试用包中验证了桌面操作，并用随包的中英文校验器分别重新打开单组、相邻双组和局部返修 ZIP。英文样例三个包各有 9、18、9 镜，中文样例各有 10、19、10 镜。每个包均检查 CRC 和 SHA-256，返修样图还核对了编辑框以外的像素。真实付费模型调用及成片的动态、口型和音频质量仍待实测。[查看 Windows 验证步骤][windows-job]
+
+试用 ZIP 的 SHA-256 为 `00f4a956feef4796d3c2f9371e973a1bef2cf7a1ca72dccbcce422578ed24a70`。
 
 ## English
 
 **Comic Sequence Studio** is a Windows workbench for preparing and reviewing storyboard deliveries for ByteDance Seedance 2.0. Start with an approved script, carry shots and references into the next stage, or open existing local work. The output is a group, episode or series ZIP for production.
 
-**[Download the Windows v2.9.0 trial][trial]** · [Verified Windows build][run] · [Setup and walkthrough][guide] · [Changelog][changes] · [Workbench source][source]
+**[Download the Windows v2.9.1 trial][trial]** · [Verified Windows build][run] · [Setup and walkthrough][guide] · [Changelog][changes] · [Workbench source][source]
 
 1. Sign in to GitHub, download and extract `Comic-Sequence-Studio-Windows.zip`, then install Python 3.13 with Tcl/Tk and pip. Run `Comic-Sequence-Studio-Setup.bat` once and `Comic-Sequence-Studio.bat` to launch.
 2. Choose **New project** for a text or Markdown script, **Resume saved project** for a `.cfproject`, or **Validate an existing ZIP** for a delivery. **Tutorial** includes five offline exercises and 38 illustrated topics in each interface language.
 3. **Storyboard production** connects script, shots, assets, wardrobe, action blocking, boards, clean plates, SD2 prompts and delivery. Its batch center tracks script coverage and handoffs across groups and episodes. **E-commerce video recreation** starts with a local video and your product photos and produces vertical storyboard groups. **Inspection and validation** checks images and archives and supports side-by-side visual review. **API connections** configures text, vision and image-generation models separately.
 
-English and Chinese film workflows use separate dialogue, framing and delivery rules. English strict validation is bundled. Formal Chinese delivery requires a trusted Chinese validator script. Preflight uses recorded fields to flag avoidable input errors. Composition, identity and continuity require review of the actual frames. Submit the exported material to Seedance 2.0 for final rendering.
+English and Chinese film workflows use separate dialogue, framing and delivery rules. Both workflow validators ship with the Windows trial. Adjacent independent shots must change size or angle in the English workflow and change shot size in the Chinese workflow. Preflight checks within a page, across pages and at boundaries between consecutive groups. Checks use the recorded shot fields. Composition, identity and continuity require review of the actual frames. Submit the exported material to Seedance 2.0 for final rendering.
 
-The linked Windows job tests installation, desktop interactions and sample delivery archives. Live paid API calls and final video or audio quality are outside that test. The desktop source is on [codex/chinese-production][source]. The default branch contains the original validator. Trial downloads expire after 30 days. If a link has expired, open a recent successful [Windows build][builds] and download the ZIP under **Artifacts**.
+The Windows job passed all 353 automated tests, installed the trial, exercised the desktop and reopened six sample delivery ZIPs with the bundled validators. It verified archive CRC and SHA-256 and checked pixels outside the edit box in the image-repair samples. Live paid API calls and final video or audio quality remain unverified. [View the Windows job][windows-job] The desktop source is on [codex/chinese-production][source]. The default branch contains the original validator. Trial downloads expire after 30 days. If a link has expired, open a recent successful [Windows build][builds] and download the ZIP under **Artifacts**.
 
-[trial]: https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46133461516/artifacts/15259185095
-[run]: https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46133461516
-[builds]: https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production
-[guide]: https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md
-[changes]: https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md
-[source]: https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production
+[trial]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/runs/46137217538/artifacts/15260660522
+[run]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/runs/46137217538
+[windows-job]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/runs/46137217538/job/140955258699
+[builds]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production
+[guide]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/blob/codex/chinese-production/WINDOWS-TRYOUT.md
+[changes]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/blob/codex/chinese-production/CHANGELOG.md
+[source]: https://github.com/a18714466979-cmd/Comic-Sequence-Studio/tree/codex/chinese-production
