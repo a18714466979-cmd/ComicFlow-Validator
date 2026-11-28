@@ -4,7 +4,7 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46084287357/artifacts/15238043205) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46085986030/artifacts/15239171657) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
 
 ## 工作台有什么
 
@@ -31,6 +31,14 @@
 | **生图前与交付复核** | 分镜和故事板生成提示会写入对应规则。「镜头清单 → 景别与角度预检」会按已登记字段定位重复，预警进入生图确认和画面确认。跨组可并排核对前组末镜和后组首镜。实际构图、真实机位、身份和动作承接由人看图确认。 |
 | **正式验收** | 至多九张交付图，核对图件命名、比例、编号、批准对白和两份 TXT 的对应关系。完整规则检查需选对应版本的故事板校验脚本。文件检查和视觉验收分别记录。 |
 
+## 第一次打开选哪个入口
+
+| 手里有什么 | 从哪里开始 |
+| --- | --- |
+| 从零开始，或有 TXT / Markdown 剧本 | 点「新建项目」并选保存位置，软件会创建 `.cfproject`。已有原稿可在项目中点「导入批准剧本」。 |
+| 有保存过的 `.cfproject` | 点「继续已有项目」。想先练习，可以打开试用包里的 `Examples/SB01.cfproject`。 |
+| 有已做好的故事板交付包 | 点「验收已有 ZIP」，选原始压缩包，再点「开始验收」。 |
+
 ## 试用
 
 1. 下载并解压 Windows 试用 ZIP。安装带 Tcl/Tk 的 Python 3.13，再双击 `ComicFlow-Setup.bat`。
@@ -47,4 +55,6 @@ It connects script writing, shot planning, asset analysis, reference preparation
 
 ComicFlow is designed to reduce avoidable regenerations by checking approved dialogue, shot framing and the nine-image budget before submission, and by tracing fixes to the affected images or shots. The English and Chinese workflows have separate dialogue and framing rules. Automated framing alerts use recorded shot fields. Camera geometry, composition, continuity and generated videos still need visual review.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46084287357/artifacts/15238043205) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
+
+[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46085986030/artifacts/15239171657) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
