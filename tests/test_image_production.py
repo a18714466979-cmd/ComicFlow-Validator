@@ -96,7 +96,7 @@ def test_offline_preview_uses_same_locked_provider_payload_without_credentials(p
         actual = body["Prompt" if adapter == "tencent" else "prompt"]
     assert actual == job_request_prompt(job)
     rules, data = actual.split("\n\n用户资料\n")
-    assert rules.startswith("软件锁定规则\n制作规则：英文影片制作 v14.10.4。") and "输出一张图。" in rules
+    assert rules.startswith("软件锁定规则\n制作规则：英文影片制作 v14.10.5。") and "输出一张图。" in rules
     assert target not in rules
     assert json.loads(data) == {"批准镜头与场景": "", "本次补充需求": target}
     with pytest.raises(ValueError, match="API 密钥"):

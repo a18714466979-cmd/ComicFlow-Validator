@@ -383,8 +383,8 @@ ENGLISH = {
     "生成逐格复核预览": "Preview panels",
     "确认本版画面": "Approve current visuals",
     "验收并导出 ZIP": "Validate & export ZIP",
-    "核对故事板格号、净板局部、对白与画面后再确认。报告显示交付包校验结果。":
-        "Check storyboard panels, clean plates, dialogue and visuals before approval. See the report for validation results.",
+    "按源镜 ID 逐格对照批准分镜、实际板格和 SD2，检查景别、角度、入画人物、动作和对白。并排核对相邻格及跨板末格与首格；缺图时记下待核镜号。":
+        "Match each approved shot, rendered panel and SD2 prompt by source ID. Check framing, angle, cast, action and dialogue. Compare adjacent panels, including the last and first across boards. Record missing panels for review.",
     "预览两份 TXT": "Preview both TXT files",
     "导出两份 TXT": "Export both TXT files",
     "逐格复核排版": "Review layout panels",
@@ -399,6 +399,7 @@ ENGLISH = {
     "打开 JSON": "Open JSON",
     "批准剧本": "Approved script",
     "源段位置": "Script range",
+    "批准父镜 ID（细拆时填写）": "Approved parent shot ID (for split shots)",
     "净板 PNG": "Clean plate PNG",
     "地点": "Location",
     "净板机位说明": "Clean-plate camera notes",

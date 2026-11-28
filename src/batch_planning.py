@@ -6,7 +6,7 @@ from copy import deepcopy
 from hashlib import sha256
 
 from assets.workflow_validators.english.plan_english_dialogue import MAX_ENGLISH_WORDS, english_word_count
-from .production_project import ApprovedLine, ApprovedSource, ProductionProject, Shot
+from .production_project import PARENT_SHOT_FIELD, ApprovedLine, ApprovedSource, ProductionProject, Shot
 from .production_rules import CHINESE, ENGLISH
 from .storyboard_preflight import CHINESE_SPEECH_LIMIT, chinese_breaks, chinese_speech_length
 
@@ -369,10 +369,13 @@ def materialize_group(plan, group_id):
     project = ProductionProject(plan["name"], plan["episode"], group_id, rules=plan["rules"])
     project.sources = [ApprovedSource(identity, plan["source_name"], plan["version"], plan["source_text"])]
     by_id = {s["id"]: s for s in plan["shots"]}
+    split_sources = {p["id"] for p in plan["passages"] if len(p["shot_ids"]) > 1}
     scope = {}
     for sid in group["shot_ids"]:
         shot = by_id[sid]
         fields = {"画面/事件": shot["text"]} if not shot["dialogue"] else {}
+        if shot["passage_id"] in split_sources:
+            fields[PARENT_SHOT_FIELD] = shot["passage_id"]
         if shot.get("cue"):
             fields["声源位置"] = shot["cue"]
         project.shots.append(Shot(id=sid, source=identity, anchor=_anchor(shot), scene=shot["scene"], fields=fields,

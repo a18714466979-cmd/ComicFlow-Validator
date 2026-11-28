@@ -180,7 +180,7 @@ def run_inside_launcher():
                 assert tabs.tab(1, "state") == "normal" and tabs.tab(3, "text") == "文本与排版"
                 assert any(widget.instate(["selected"]) for widget in walk(self, ttk.Radiobutton)
                            if widget.cget("text") == "中文影片制作")
-                assert any("中文影片制作 · v14.8.8" in self.getvar(variable)
+                assert any("中文影片制作 · v14.8.9" in self.getvar(variable)
                            for label in walk(dialog, ttk.Label) if (variable := label.cget("textvariable")))
                 self.destroy()
                 marker.write_text("COMICFLOW_GUI_OK", encoding="utf-8")
@@ -401,7 +401,7 @@ def run_inside_launcher():
                 with patch.object(messagebox, "showinfo") as info:
                     click(dialog, "查看固定审图规则")
                     title, instructions = info.call_args.args
-                    assert title == "查看固定审图规则" and "英文影片制作 v14.10.4" in instructions
+                    assert title == "查看固定审图规则" and "英文影片制作 v14.10.5" in instructions
                 assert input_field(dialog, "模型 ID").get() == "image-review-test"
                 assert input_field(dialog, "API Key").get() == key
                 close_current_task(self)
@@ -1027,7 +1027,7 @@ def run_inside_launcher():
                 return next((value for value in rows if value.startswith("软件锁定规则\n")), None)
             content = wait_for(self, request_text, "Asset request preview did not display the approved source")
             policy, material = content.split("\n\n用户资料\n", 1)
-            assert "英文影片制作 v14.10.4" in policy
+            assert "英文影片制作 v14.10.5" in policy
             shot_id = grouped.shots[0].id
             assert shot_id not in policy and shot_id in material
             assert "SB01-01" in material and "值班员拿起钥匙" in material
@@ -2727,10 +2727,7 @@ def run_inside_launcher():
                                  and int(widget.grid_info().get("row", -1)) == 1)
             for choice, script in zip((english, chinese), scripts):
                 choice.invoke()
-                if choice is english:
-                    assert Path(validator.get()) == bundled_validator(ENGLISH)
-                else:
-                    assert not validator.get()
+                assert Path(validator.get()) == bundled_validator(ENGLISH if choice is english else CHINESE)
                 filedialog.askopenfilename = lambda **_kwargs: str(script)
                 select_script.invoke()
                 assert validator.get() == str(script)
@@ -2859,12 +2856,16 @@ def run_inside_launcher():
                 preflight = next(walk(dialog, tk.Toplevel))
                 assert preflight.title() == "景别与角度预检"
                 content = next(walk(preflight, tk.Text)).get("1.0", "end-1c")
-                assert "SB01-01 → SB01-02" in content and "分镜记录景别相同" in content
+                assert "SB01-01 → SB01-02" in content and "登记景别相同" in content
                 preflight.destroy()
 
             self.after(75, inspect_camera_warning)
             click(dialog, "景别与角度预检")
             print("Verified repeated Chinese shot scales are flagged before generation", flush=True)
+            # Correct the declared cut before testing the successful export path.
+            example.shots[1].fields["景别"] = "特写"
+            example.save(path)
+            click(dialog, "打开单组项目")
 
             def adopt():
                 drafting = next(walk(dialog, tk.Toplevel))

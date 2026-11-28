@@ -1,7 +1,6 @@
 """Synthetic layout and adjoining-group export use actual decoded windows."""
 
 import json
-import os
 from io import BytesIO
 from shutil import copytree
 from zipfile import ZipFile
@@ -69,7 +68,7 @@ def test_insert_blocks_export_until_reflow_and_updates_real_files(production, va
     lay(project, production, tmp_path / "layout-before")
     earlier = project.shots[1]
     inserted = Shot(source=earlier.source, anchor="明确的新增动作", scene=earlier.scene,
-                    plate_note=earlier.plate_note, fields={**earlier.fields, "本格新增叙事功能": "窗闩回位"})
+                    plate_note=earlier.plate_note, fields={**earlier.fields, "景别": "特写", "本格新增叙事功能": "窗闩回位"})
     project.shots.insert(1, inserted)
     attach(project, production, inserted, 10)
     assert "storyboard_8panel_bw_16x9.png" in project.impacts()
@@ -98,8 +97,6 @@ def test_insert_blocks_export_until_reflow_and_updates_real_files(production, va
 
 
 def test_two_groups_with_shared_plates_dialogue_and_deferred_tail(production, validator, tmp_path):
-    if not os.environ.get("COMICFLOW_M1_TEST_VALIDATOR"):
-        pytest.skip("This integration case uses the installed strict storyboard workflow.")
     left = ProductionProject.open(production)
     right = ProductionProject.open(production)
     rhs = tmp_path / "后组.cfproject"

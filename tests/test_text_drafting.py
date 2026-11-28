@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.bundled_validators import bundled_planner
 from src.production_dialogue import handoff_rows, plan_project_dialogue, select_scope, validated_scope
 from src.production_drafting import (
     HANDOFF_TASK, SD2_TASK, SHOT_TASK, apply_candidate, build_context, record_candidate, revise_candidate,
@@ -136,9 +137,7 @@ def test_scope_disallows_replacing_assigned_approved_dialogue():
 
 def test_real_workflow_capacity_and_continuations():
     configured = os.environ.get("COMICFLOW_M1_TEST_VALIDATOR")
-    if not configured:
-        pytest.skip("The installed storyboard workflow is used for this planner integration test.")
-    planner = Path(configured).with_name("plan_english_dialogue.py")
+    planner = Path(configured).with_name("plan_english_dialogue.py") if configured else bundled_planner()
     first = " ".join(["Wait"] * 54 + ["here."])
     second = " ".join(["Keep"] * 14 + ["moving."])
     original = first + " " + second

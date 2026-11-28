@@ -4,7 +4,9 @@ import hashlib
 import os
 import subprocess
 import sys
+from contextlib import nullcontext
 from dataclasses import dataclass
+from itertools import zip_longest
 from pathlib import Path
 from shutil import copyfileobj
 from tempfile import TemporaryDirectory
@@ -53,19 +55,47 @@ class PackageResult:
     removed: tuple[str, ...] = ()
 
 
-def write_delivery_zip(folder: Path, target: Path) -> None:
-    """Write stable member metadata so an approved draft hash binds its final ZIP."""
-    with ZipFile(target, "x") as package:
+def _newline_only_change(original, staged) -> str | None:
+    """Return the staged SHA only when LF/CRLF conversion accounts for every change."""
+    digest = hashlib.sha256()
+    changed = False
+    for old, new in zip_longest(original, staged, fillvalue=b""):
+        if old != new:
+            if old.replace(b"\r\n", b"\n") != new.replace(b"\r\n", b"\n"):
+                return None
+            changed = True
+        digest.update(new)
+    return digest.hexdigest() if changed else None
+
+
+def write_delivery_zip(folder: Path, target: Path, baseline: Path | None = None) -> dict[str, str]:
+    """Write stable ZIP members and retain legacy text bytes for newline-only changes."""
+    retained = {}
+    old_package = ZipFile(baseline) if baseline is not None else nullcontext()
+    with old_package as previous, ZipFile(target, "x") as package:
+        members = index_members(previous) if previous else {}
         for file in sorted(folder.rglob("*"), key=lambda path: path.relative_to(folder).as_posix()):
             if file.is_symlink():
                 raise ValueError(f"交付目录包含符号链接：{file.relative_to(folder)}")
-            if file.is_file():
-                item = ZipInfo(file.relative_to(folder).as_posix())
-                item.compress_type = ZIP_DEFLATED
-                item.create_system = 3
-                item.external_attr = 0o100644 << 16
-                with file.open("rb") as source, package.open(item, "w") as destination:
-                    copyfileobj(source, destination)
+            if not file.is_file():
+                continue
+            name = file.relative_to(folder).as_posix()
+            item = ZipInfo(name)
+            item.compress_type = ZIP_DEFLATED
+            item.create_system = 3
+            item.external_attr = 0o100644 << 16
+            with file.open("rb") as source, package.open(item, "w") as destination:
+                if file.suffix.lower() == ".txt" and name in members:
+                    with previous.open(members[name]) as old:
+                        digest = _newline_only_change(old, source)
+                        if digest is not None:
+                            retained[name] = digest
+                            old.seek(0)
+                            copyfileobj(old, destination)
+                            continue
+                    source.seek(0)
+                copyfileobj(source, destination)
+    return retained
 
 
 def pack_repair(
@@ -91,10 +121,13 @@ def pack_repair(
         before = zip_fingerprints(baseline)
     with TemporaryDirectory(prefix="comicflow-repair-", dir=output.parent) as temporary:
         draft = Path(temporary) / output.name
-        write_delivery_zip(folder, draft)
+        retained = write_delivery_zip(folder, draft, baseline)
         command = [sys.executable, "-m", "src.delivery_checker"]
-        if panel_exception:
-            command.extend((str(draft), "--panel-exception", str(panel_exception.resolve())))
+        if retained or panel_exception:
+            # Validate the actual ZIP bytes, including any preserved original line endings.
+            command.append(str(draft))
+            if panel_exception:
+                command.extend(("--panel-exception", str(panel_exception.resolve())))
         else:
             command.extend((str(folder), "--zip", str(draft)))
         command.extend(("--storyboard-validator", str(validator)))
@@ -110,6 +143,9 @@ def pack_repair(
         after = zip_fingerprints(draft)
         current = {path.relative_to(folder).as_posix(): sha256_file(path)
                    for path in folder.rglob("*") if path.is_file()}
+        for name, staged_hash in retained.items():
+            if current.get(name) == staged_hash:
+                current[name] = before[name]
         if after != current:
             return PackageResult(1, report + "\n返修目录与 ZIP 成员或 SHA-256 不一致。", digest)
         changed = added = removed = ()

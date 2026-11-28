@@ -3,7 +3,7 @@
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from .storyboard_review import GROUP, PREVIEW_LIMIT, ReviewResult, read_preview
 
@@ -56,6 +56,47 @@ def shot_sections(text: str, kind: str, group: str) -> dict[str, list[str]]:
         if identity:
             sections[identity].append(text[match.start():end].strip())
     return dict(sections)
+
+
+def package_camera_errors(root: Path, rules: str) -> list[str]:
+    """Apply the same declared-camera checks to an extracted production package."""
+    from .camera_preflight import camera_findings_text, recorded_camera_cuts
+    from .production_project import Shot
+
+    errors = []
+    previous = []
+    last_group = 0
+    groups = sorted((path for path in root.iterdir() if path.is_dir() and GROUP.fullmatch(path.name)),
+                    key=lambda path: (int(path.name.partition("_")[0][2:]), path.name))
+    for group in groups:
+        documents = [path for path in group.iterdir() if path.is_file() and path.name.lower().endswith("_shot_details.txt")]
+        if len(documents) != 1:
+            previous = []
+            continue  # The production validator reports ambiguous or missing records.
+        record = documents[0]
+        try:
+            content = record.read_text(encoding="utf-8-sig")
+        except UnicodeError:
+            previous = []
+            continue  # The matching validator reports malformed text.
+        label = group.name.partition("_")[0].upper()
+        sections = shot_sections(content, "production", label)
+        header = SHOT_HEADERS["production"].split(content, maxsplit=1)[0]
+        notes = dict(re.findall(r"^([^：:\r\n]+?)[：:][ \t]*(.*(?:\n[-*•] [^\n]*)*)$", header, re.MULTILINE))
+        entries = []
+        for shot_label, rows in sections.items():
+            fields = dict(re.findall(r"^([^：:\r\n]+?)[：:][ \t]*([^\r\n]*)", rows[0], re.MULTILINE))
+            entries.append((shot_label, Shot(id=fields.get("源镜ID", "").strip(), fields=fields)))
+        number = int(label[2:])
+        cuts = list(recorded_camera_cuts(rules, notes, entries))
+        if number == last_group + 1 and previous and entries:
+            cuts.extend(recorded_camera_cuts(rules, notes, [previous[-1], entries[0]]))
+        for cut in cuts:
+            summary = camera_findings_text((cut,)).splitlines()[0]
+            errors.append(f"ERROR: {group.name}/{record.name}: {cut.shots[-1]} · {summary}")
+        previous = entries
+        last_group = number
+    return errors
 
 
 def plate_references(text: str, group: str) -> dict[str, list[PlateReference]]:

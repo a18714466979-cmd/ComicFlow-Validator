@@ -264,3 +264,24 @@ def test_short_regular_group_blocks_visual_spend_but_other_groups_and_assets_run
     assert all(r["status"] == "blocked" and r["attempts"] == 0 and "调整组界" in r["message"] for r in paused)
     assert queue._job(asset)["status"] == "review"
     assert any(r["group_id"] == "SB02" and r["kind"] == "board" and r["status"] == "review" for r in rows)
+
+
+def test_duplicate_shot_candidates_cannot_change_project_or_approve_jobs(workspace, monkeypatch):
+    workspace.approve_plan("EP01")
+    queue = BatchQueue(workspace)
+    jobs = queue.enqueue("EP01", ("shot",))
+    assert jobs > 1
+
+    def transport(settings, instructions, body):
+        line = int(next(iter(json.loads(body)["approved_source"]["lines"])))
+        return TextReply(json.dumps({"shots": [{"line_start": line, "line_end": line,
+                                               "fields": {"景别": "中景", "机位/角度": "正面"}}]}))
+
+    monkeypatch.setattr(batch_runner, "request_text", transport)
+    queue.run(TEXT_SETTINGS, max_requests=jobs)
+    path = workspace.group_path("EP01", "SB01")
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="SB01-01 → SB01-02"):
+        queue.apply_group_text("EP01", "SB01", "shot")
+    assert path.read_bytes() == before
+    assert all(row["status"] == "review" for row in queue.jobs())

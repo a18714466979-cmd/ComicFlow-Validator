@@ -84,8 +84,9 @@ def _read_group_trace(result: ReviewResult, group: str):
     title, _, episode = header.rpartition(" · ") if not header.startswith(("-", "•", "*")) else ("", "", "")
     if not title:
         episode = ""
-    rules = next((key for key in (CHINESE, ENGLISH)
-                  if rule and rule[1] in (key, rule_revision(key))), "")
+    revisions = {CHINESE: (CHINESE, rule_revision(CHINESE)),
+                 ENGLISH: (ENGLISH, "14.10.4", rule_revision(ENGLISH))}
+    rules = next((key for key, versions in revisions.items() if rule and rule[1] in versions), "")
     ledger = next((n for n in range(start + 1, end) if lines[n].strip() in ("镜头与来源：", "镜头与来源:")), None)
     shots = []
     if ledger is not None:

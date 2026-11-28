@@ -9,8 +9,10 @@ import pytest
 from PIL import Image, ImageChops, ImageOps
 
 from src.asset_registry import sha256_file
+from src.bundled_validators import bundled_validator
+from src.production_rules import CHINESE
 from src.production_export import preview_chinese_layout, write_chinese_layout
-from src.production_images import image_prompt
+from src.production_images import image_prompt, shot_signature
 from src.production_layout import apply_layout, render_layout
 from src.production_project import ProductionProject
 from src.shot_review import load_shots
@@ -82,6 +84,11 @@ def test_default_ten_panels_use_six_and_four_and_preserve_original_views(tmp_pat
     second = image_prompt(project, "故事板", project.shots[6].id, "文生图")
     assert "SB01-06" in first and "SB01-07" not in first
     assert "SB01-07" in second and "SB01-06" not in second
+    assert f"页外后邻（只作衔接参考）：源镜 ID {project.shots[6].id}" in first
+    assert f"页外前邻（只作衔接参考）：源镜 ID {project.shots[5].id}" in second
+    signature = shot_signature(project, "故事板", project.shots[5].id)
+    project.shots[6].fields["机位/角度"] = "高位俯拍"
+    assert shot_signature(project, "故事板", project.shots[5].id) != signature
 
 
 def test_multiscene_details_are_paged_and_same_camera_is_reused(tmp_path):
@@ -112,16 +119,16 @@ def test_scene_packing_precedes_board_packing_and_matches_chinese_geometry_valid
     _, record = verify_preview(project, path, tmp_path)
     assert "场景合并来源：常规" in record and "南厅/main；南厅/reverse；南厅/details；南厅/details" in record
     assert "原始总图数=10" in record and "最终总图数=8" in record
-    validator = os.environ.get("COMICFLOW_TEST_CN_VALIDATOR")
-    if validator:
-        checks = runpy.run_path(validator)
-        layouts = {}
-        for sheet in project.layout["output"]["sheets"]:
-            asset = next(image for image in project.images if image.id == sheet["asset"])
-            count = len(sheet["cells"]) if sheet["kind"] == "board" else None
-            layouts[asset.filename] = ((asset.width, asset.height), count)
-        assert not checks["cell_layout_errors"](record, layouts)
-        assert not checks["budget_record_errors"](record, "scene", 8)
+    validator = os.environ.get("COMICFLOW_TEST_CN_VALIDATOR") or bundled_validator(CHINESE)
+    assert validator is not None
+    checks = runpy.run_path(str(validator))
+    layouts = {}
+    for sheet in project.layout["output"]["sheets"]:
+        asset = next(image for image in project.images if image.id == sheet["asset"])
+        count = len(sheet["cells"]) if sheet["kind"] == "board" else None
+        layouts[asset.filename] = ((asset.width, asset.height), count)
+    assert not checks["cell_layout_errors"](record, layouts)
+    assert not checks["budget_record_errors"](record, "scene", 8)
 
 
 def test_board_packing_needs_remaining_overflow_and_scene_record(tmp_path):

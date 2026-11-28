@@ -466,8 +466,8 @@ STORYBOARD_TOPICS = {
                 "For an English group, use Preview panels. For a Chinese group, use Preview final delivery or Preview both TXT files to inspect the texts alone. Check panel order, clarity, identity, visible cast, clean-plate crops and dialogue. Fix problems in the relevant stage, then preview again before choosing Approve current visuals.",
             )),
             (("验证和查看 ZIP", "Validate and reopen the ZIP"), (
-                "英文交付可用软件内置的严格校验。中文正式 ZIP 需要匹配的中文版校验脚本，先在主窗口选择，再点「验收并导出 ZIP」。在可写目录保存后，打开最终 ZIP 查看实际图像、TXT 和说明，用「检查验收」也可重新检查。交付预检与打包本身无需模型接口。",
-                "English delivery can use the bundled strict validator. For final Chinese delivery, select the matching Chinese production validator in the main window, then use Validate & export ZIP. Save in a writable folder and reopen the final ZIP to inspect its images, texts and notes. Inspection & validation can also check the exported archive. Local preflight and packaging require no model API.",
+                "在主窗口选定项目的制作规则，软件会自动载入对应的中英文严格校验器。点「验收并导出 ZIP」。在可写目录保存后，打开最终 ZIP 查看实际图像、TXT 和说明，用「检查验收」也可重新检查。交付预检与打包本身无需模型接口。",
+                "Select the project’s production rules in the main window to load the matching bundled English or Chinese validator. Choose Validate & export ZIP. Save in a writable folder and reopen the final ZIP to inspect its images, texts and notes. Inspection & validation can also check the exported archive. Local preflight and packaging require no model API.",
             )),
             (("验收未通过时", "If validation fails"), (
                 "从报告定位到对应镜头、图片或文本，修正实际内容后再次预览、确认并导出。项目画面更新后重新执行交付复核，确保交接使用的是有效 ZIP。",

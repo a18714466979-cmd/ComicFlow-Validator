@@ -5,12 +5,13 @@ import re
 from datetime import datetime, timezone
 from hashlib import sha256
 
+from .camera_preflight import boundary_camera_cuts, camera_findings_text
 from .image_api import REFERENCE, TEXT
 from .production_drafting import (
     SD2_TASK, SHOT_TASK, build_context, checked_output, instructions_for, read_candidate,
 )
 from .production_images import prepare_job, storyboard_job_page
-from .production_project import identifier
+from .production_project import ProductionProject, identifier
 from .text_api import build_text_request
 
 
@@ -26,7 +27,7 @@ def target_shot(project, shot_id):
     raise ValueError("目标镜头已经改变，请核对分组。")
 
 
-def prepare_text(project, plan, row, settings):
+def prepare_text(project, plan, row, settings, *, include_neighbors=True):
     shot = target_shot(project, row["shot_id"])
     source = next((item for item in project.sources if item.id == shot.source), None)
     record = next((item for item in plan["shots"] if item["id"] == shot.id), None)
@@ -41,6 +42,16 @@ def prepare_text(project, plan, row, settings):
     data["approved_source"]["lines"] = {str(number): record["text"]}
     data.pop("existing_shots", None)
     data["target"] = {"id": shot.id, "scene": shot.scene, "anchor": shot.anchor, "fields": shot.fields}
+    if task == SHOT_TASK and include_neighbors:
+        index = project.shots.index(shot)
+        context["camera_neighbors"] = True
+        data["adjacent_shots"] = [
+            {"ordinal": other + 1, "id": project.shots[other].id,
+             "fields": {key: project.shots[other].fields[key] for key in
+                        ("景别", "机位/角度", "机位空间", "动作起止", "连续性")
+                        if project.shots[other].fields.get(key)}}
+            for other in (index - 1, index + 1) if 0 <= other < len(project.shots)
+        ]
     lines = {line.id: line for line in project.lines}
     data["approved_dialogue"] = [{"speaker": lines[i].speaker, "approved": lines[i].text[a:b]}
                                  for i, a, b in shot.dialogue]
@@ -70,7 +81,22 @@ def apply_fields(project, row, candidate):
     shot.fields = {**shot.fields, **additions}
 
 
+def check_neighbor_cameras(workspace, episode, project):
+    paths = workspace.group_paths(episode)
+    for before, after in zip(paths, paths[1:]):
+        if before.stem == project.group:
+            findings = boundary_camera_cuts(project, ProductionProject.open(after))
+        elif after.stem == project.group:
+            findings = boundary_camera_cuts(ProductionProject.open(before), project)
+        else:
+            continue
+        if findings:
+            raise ValueError(camera_findings_text(findings))
+
+
 def prepare_image(workspace, project, path, row, settings, spec):
+    if row["kind"] == "board":
+        check_neighbor_cameras(workspace, row["episode"], project)
     kind = {"asset": spec.get("kind"), "board": "故事板", "plate": "净板"}[row["kind"]]
     target = row["shot_id"]
     references = []

@@ -243,8 +243,8 @@ WORKBENCH_TOPICS = {
         ),
         (
             (("选择包和校验规则", "Select the archive and rules"), (
-                "在「交付 ZIP」点「浏览」，直接选择未解压 ZIP。选与交付包相符的制作规则。英文严格校验使用内置校验器，中文严格校验可选择对应的可信 .py。点「开始验收」，在「验收结果」「完整报告」查看问题与范围。",
-                "Use Browse beside Delivery ZIP and select the unopened archive. Select the rules used to produce it. English strict validation has a bundled validator. For Chinese strict validation, select a corresponding trusted .py. Click Validate ZIP, then inspect Validation results and Full report.",
+                "在「交付 ZIP」点「浏览」，直接选择未解压 ZIP。选与交付包相符的制作规则。中英文制作规则分别使用对应的内置严格校验器，也可为当前语言指定可信的校验脚本。点「开始验收」，在「验收结果」「完整报告」查看问题与范围。",
+                "Use Browse beside Delivery ZIP and select the unopened archive. Select the rules used to produce it. Each language has its own bundled strict validator. You can also select a trusted validator for the current language. Click Validate ZIP, then inspect Validation results and Full report.",
             )),
             (("区分文件和内容检查", "Read the scope of validation"), (
                 "看到「文件完整性检查通过 · 工作流未验」时，表示尚未跑规则校验。选择对应校验器后重新验收。复用原图路径不可访问时，可用资产登记库恢复来源，或明确标为未验证。自动验收通过后仍用「逐格复核」看画面和文字对应。",

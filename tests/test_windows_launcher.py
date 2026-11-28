@@ -5,6 +5,7 @@ import pytest
 
 from src import windows_launcher
 from src.brand import APP_FOLDER
+from src.bundled_validators import bundled_validator
 from src.production_export import build_delivery
 from src.production_handoff import adjacent
 from src.production_project import ProductionProject
@@ -34,7 +35,7 @@ def test_each_mode_keeps_its_own_validator_and_respects_legacy_preferences(tmp_p
     legacy.write_text(json.dumps({"validator": str(english)}), encoding="utf-8")
 
     assert windows_launcher.saved_validator() == str(english)
-    assert not windows_launcher.saved_validator(CHINESE)
+    assert windows_launcher.saved_validator(CHINESE) == str(bundled_validator(CHINESE))
     windows_launcher.remember_validator(str(chinese), CHINESE)
     assert windows_launcher.saved_validator(CHINESE) == str(chinese)
     assert windows_launcher.saved_validator(ENGLISH) == str(english)

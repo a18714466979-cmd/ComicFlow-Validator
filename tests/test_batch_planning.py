@@ -121,6 +121,8 @@ def test_editor_cuts_action_at_selected_source_position_and_rebuilds_coverage(tm
     group = projects(plan)[0]
     assert not coverage_issues(plan, [group])
     assert group.shots[0].id == projects(base)[0].shots[0].id
+    assert [shot.fields["批准父镜ID"] for shot in group.shots[:2]] == [p["id"], p["id"]]
+    assert group.shots[0].id != group.shots[1].id
     rows = [r for r in trace_rows(plan) if r["passage_id"] == p["id"]]
     assert [r["text"] for r in rows] == ["甲推开门。", "乙听见动静，抬头。"]
     assert split_passage(plan, p["id"], []) == base

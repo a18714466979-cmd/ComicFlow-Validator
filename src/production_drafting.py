@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
 
-from .camera_preflight import require_english_camera_rules
+from .camera_preflight import require_camera_rules
 from .production_project import SHOT_FIELDS, ApprovedSource, ProductionProject, Shot, identifier
 from .production_rules import (
     CAMERA_ACTION_FIELD, CAMERA_DRAFTING, CHINESE, ENGLISH, ENGLISH_SD2_RULES, ENGLISH_SHOT_RULES, RULE_LABELS,
@@ -47,9 +47,18 @@ def instructions_for(task: str, rules: str = ENGLISH) -> str:
         direction = "只建议所选镜头的成片动作和声效，不写生产审计、净板加工、角色数量、设备状态变更或对白。"
         if rules == ENGLISH:
             direction += ENGLISH_SD2_RULES
+        else:
+            direction += ("依据批准分镜、对应板格与稳定源镜 ID 核对可见人数，再写本镜的动作、反应及声音。"
+                          "对白由批准中文原句回填，保留实际说话人；不在候选中编写对白。"
+                          "未提供最终实图时只依据文字设计，不能声称画面、表演或跨批交接已经核实。")
     elif task == HANDOFF_TASK:
         example = {"handoff": dict.fromkeys(HANDOFF_FIELDS, "")}
         direction = "按前后相邻实际状态建议入组和出组交接，缺证据写入待核对。"
+        if rules == ENGLISH:
+            direction += ("跨板、跨批按末格→首格核对景别和实际角度、位置、速度、动作阶段、朝向、伤势侧、持物和持续效果。"
+                          "缺少相邻成图时，写明待核镜号，取得后并排核图。")
+        if rules == CHINESE:
+            direction += "记录前镜落幅与后镜起幅的主体、实际景别与角度、轴线、视线、动作和持续状态；缺少实图或前后批材料时将具体镜对列为待核。"
     else:
         raise ValueError("不支持此文本任务。")
     profile = f"当前制作规则：{RULE_LABELS[rules]} v{rule_revision(rules)}。"
@@ -67,7 +76,7 @@ def build_context(project: ProductionProject, source: ApprovedSource, task: str,
     if task == SD2_TASK and (not shot or shot.source != source.id):
         raise ValueError("请选择一个已绑定当前剧本版本的镜头。")
     excerpt = "\n".join(lines[start - 1:end])
-    camera_context = project.rules == ENGLISH and task == SHOT_TASK and include_camera
+    camera_context = task == SHOT_TASK and include_camera
     dialogue = []
     for line in project.lines:
         if line.source != source.id:
@@ -109,6 +118,7 @@ def build_context(project: ProductionProject, source: ApprovedSource, task: str,
                                         if key in project.notes})
         data["existing_shots"] = [
             {"anchor": item.anchor, "已记录事件": item.fields.get("画面/事件", ""),
+             **({"源镜ID": item.id} if camera_context and project.rules == CHINESE else {}),
              **({key: item.fields[key] for key in known_fields if item.fields.get(key)}
                 if camera_context else {})}
             for item in project.shots if item.source == source.id
@@ -215,7 +225,7 @@ def apply_candidate(project: ProductionProject, candidate: dict, selected: tuple
             row = output["shots"][index]
             anchor = f"剧本第 {row['line_start']}–{row['line_end']} 行"
             additions.append(Shot(source=context["source"], anchor=anchor, fields=row["fields"]))
-        require_english_camera_rules(replace(project, shots=project.shots + additions))
+        require_camera_rules(replace(project, shots=project.shots + additions))
         project.shots.extend(additions)
     elif task == SD2_TASK:
         shot = next((item for item in project.shots if item.id == context["shot_id"]), None)

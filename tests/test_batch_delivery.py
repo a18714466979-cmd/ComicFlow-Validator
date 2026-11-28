@@ -119,9 +119,8 @@ def test_chinese_current_validator_two_groups_including_tail(tmp_path, monkeypat
     from src.production_rules import CHINESE
 
     setting = os.environ.get("COMICFLOW_TEST_CN_VALIDATOR")
-    if not setting:
-        pytest.skip("requires the external Chinese storyboard validator")
-    validator = Path(setting)
+    validator = Path(setting) if setting else bundled_validator(CHINESE)
+    assert validator is not None
     workspace = BatchWorkspace.create(tmp_path / "中文验收.cfbatch", "信号站", CHINESE)
     script = "\n".join(f"值守室门灯发生第{index}次明暗变化。" for index in range(1, 20))
     workspace.add_episode("EP01", "灯光交接", script)

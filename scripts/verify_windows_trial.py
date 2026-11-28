@@ -40,30 +40,6 @@ def check_archive(result, count):
     return rows
 
 
-def fixture_validator(folder):
-    path = folder / "fixture_validator_zh.py"
-    path.write_text(
-        'import re, sys\nfrom pathlib import Path\n'
-        'groups = sorted(Path(sys.argv[1]).glob("SB*"))\n'
-        'assert 1 <= len(groups) <= 2\n'
-        'for group in groups:\n'
-        '    production = (group / (group.name + "_shot_details.txt")).read_text(encoding="utf-8-sig")\n'
-        '    prompt = (group / "SD2_prompt.txt").read_text(encoding="utf-8-sig")\n'
-        '    count = 10 if group.name == "SB01" else 9\n'
-        '    expected = [f"{group.name}-{n:02d}" for n in range(1, count+1)]\n'
-        '    assert re.findall(r"^分镜 (SB\\d+-\\d+)", production, re.M) == expected\n'
-        '    assert re.findall(r"^分镜编号：(SB\\d+-\\d+)", prompt, re.M) == expected\n'
-        '    assert "总发声字数：0" in production and "允许中文" in prompt\n'
-        '    if group.name == "SB01":\n'
-        '        assert len(list(group.glob("storyboard*.png"))) == 2\n'
-        '    else:\n'
-        '        assert "场景资产模式：多场景局部" in production\n'
-        'print("RESULT: 0 error(s), 0 warning(s)")\n',
-        encoding="utf-8",
-    )
-    return path
-
-
 def verify(archive_path, validator=None, install=False, chinese_validator=None):
     from scripts.windows_trial import SETUP_SCRIPT
 
@@ -89,15 +65,14 @@ def verify(archive_path, validator=None, install=False, chinese_validator=None):
             for name in ("media_gallery_smoke.py", "action_previews_smoke.py"):
                 subprocess.run([python, "-c", "import runpy, sys; runpy.run_path(sys.argv[1], run_name='__main__')",
                                 str(smoke.with_name(name))], cwd=folder, check=True, timeout=65)
-        chinese_validator = chinese_validator or fixture_validator(base)
         run_in_kit = (
             "import runpy, sys; from pathlib import Path; "
             "sys.path.insert(0, str(Path.cwd())); "
             "runpy.run_path(sys.argv[1])['exercise']("
-            "Path.cwd(), Path(sys.argv[2]) if sys.argv[2] else None, Path(sys.argv[3]))"
+            "Path.cwd(), Path(sys.argv[2]) if sys.argv[2] else None, Path(sys.argv[3]) if sys.argv[3] else None)"
         )
         subprocess.run([python, "-I", "-c", run_in_kit, str(Path(__file__).resolve()), str(validator or ""),
-                        str(chinese_validator)], cwd=folder, check=True, timeout=90)
+                        str(chinese_validator or "")], cwd=folder, check=True, timeout=90)
 
 
 def exercise(folder, validator, chinese_validator):
@@ -107,7 +82,9 @@ def exercise(folder, validator, chinese_validator):
     base = folder.parent
     local = bundled_validator(ENGLISH)
     assert local is not None and local.is_relative_to(folder)
-    assert bundled_validator(CHINESE) is None
+    local_chinese = bundled_validator(CHINESE)
+    assert local_chinese is not None and local_chinese.is_relative_to(folder) and local_chinese != local
+    chinese_validator = chinese_validator or local_chinese
     validator = validator or local
     exercise_sample(folder / "Examples", base, validator, ENGLISH, (9, 9))
     exercise_sample(folder / "Examples" / "中文制作", base, chinese_validator, CHINESE, (10, 9))
@@ -116,7 +93,7 @@ def exercise(folder, validator, chinese_validator):
 def exercise_sample(samples, base, validator, rules, counts):
     chinese = rules == CHINESE
     language = "Chinese" if chinese else "English"
-    print(f"{language} validator used for this run: {validator.name}")
+    print(f"{language} validator used for this run: {validator.parent.name}/{validator.name}")
     left_path, right_path = (samples / f"SB{number:02d}.cfproject" for number in (1, 2))
     left, right = (ProductionProject.open(path) for path in (left_path, right_path))
     assert left.rules == right.rules == rules

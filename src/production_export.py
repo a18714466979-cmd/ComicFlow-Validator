@@ -8,14 +8,14 @@ from shutil import copyfile, copyfileobj
 from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
-from .camera_preflight import require_english_camera_rules
+from .camera_preflight import boundary_camera_cuts, camera_findings_text, require_camera_rules
 from .production_dialogue import handoff_rows
 from .production_handoff import active_scope, adjacent, boundary_report, pending_record, reviewed_boundary
 from .production_images import provenance_rows
 from .production_layout import exact_box, mark_ledger, overlap, valid_box, windows_for_shots
 from .production_project import (
     CHINESE_CHARACTER_FIELDS, CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
-    PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
+    PARENT_SHOT_FIELD, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
 )
 from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH, rule_revision
 from .repair_package import pack_repair, write_delivery_zip
@@ -28,7 +28,8 @@ ENGLISH_COLOR = ("16:9 彩色真人电影。黑白线稿只管机位、构图、
 LANGUAGE = "成片画面、标牌、界面及拟声字禁止中文，仅允许英文或通用符号。无配乐、无字幕。"
 CHINESE_LANGUAGE = "成片字幕、标牌、UI/HUD、系统提示和拟声字允许中文，按本剧已批准文案呈现。参考标签仅用于制作定位。"
 MARKS = "故事板的彩色辅助线、箭头、序号和图例仅作动作参考，不得出现在成片中。"
-ENGLISH_COMMON = ("一个格号对应一个镜头。只出现指定人物，保持方向、持物手、伤势和设备状态。"
+ENGLISH_COMMON = ("一个格号对应一个镜头。按对应格的实际景别和观察角度取景，跨切保持视线、站位和动作阶段。"
+                  "只出现指定人物，保持方向、持物手、伤势和设备状态。"
                   "原说话人发声，听者不代说，跨镜续声不从头重念。"
                   "辅助线、标注、运动箭头、格号和参考图标签不得出现在成片。")
 ENGLISH_SCENE_PREFIX = re.compile(r"^@图\s*\d+\s*的局部\s*\d+。\s*地点「[^」]+」。\s*")
@@ -126,7 +127,7 @@ def check_english_board_input(project: ProductionProject, planner: Path | None) 
     """Check the full English group before committing to a board image request."""
     if project.rules != ENGLISH:
         return
-    require_english_camera_rules(project)
+    require_camera_rules(project)
     scope = active_scope(project, planner)
     _, _, words = render_dialogue(project, planner, scope)
     spec = project.notes.get("对白规格", "").strip()
@@ -179,6 +180,11 @@ def shot_records(shot, name, dialogue, sources, *, english_scene=None):
     notes_text = format_fields(fields, (*PRODUCTION_SHOT_FIELDS, CAMERA_ACTION_FIELD), (CAMERA_ACTION_FIELD,))
     production = (f"分镜 {name}\n源镜ID：{shot.id}\n源段：{shot.anchor}\n时间码：待剪辑\n"
                   f"{notes_text}\n对白编号：{ids}\n对白衔接：{cues}\n对白：{spoken}")
+    parent_id = fields.get(PARENT_SHOT_FIELD, "").strip()
+    if parent_id:
+        if any(char in parent_id for char in "|\r\n"):
+            raise ValueError(f"{name} 的批准父镜 ID 需为不含竖线的单行标识。")
+        production += f"\n源镜号：{parent_id} → {shot.id}"
     prompt = {"景别": fields["景别"], "机位/角度": f"{fields['机位/角度']}；{fields['机位空间']}",
               "人物数量限制": fields["唯一角色数量锁定"], "人物位置": fields["人物站位"],
               "动作": fields.get("成片动作", "").strip() or fields["动作起止"], "运镜": fields["运镜"],
@@ -524,7 +530,7 @@ def build_chinese_delivery(project, project_path, folder, registry_path, *, writ
         source = sources[shot.source]
         shot_rows.append(f"- {group}-{number:02d} | {shot.id} | {source.name} {source.version} | {shot.anchor} | {slot}")
     readme = (
-        f"{project.name} · {project.episode}\n制作规则：{project.rules}\n组号：{group}\n"
+        f"{project.name} · {project.episode}\n制作规则：{rule_revision(project.rules)}\n组号：{group}\n"
         f"镜头数：{len(project.shots)}\n图片数：{len(images)}\n本组进入状态：{project.notes['本组进入状态']}\n"
         f"本组退出状态：{project.notes['本组退出状态']}\n镜头与来源：\n" + "\n".join(shot_rows) + "\n"
     )
@@ -540,6 +546,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
         if project.rules == CHINESE:
             raise ValueError("中文项目的交付模板需要完整的项目名、集次、批准剧本和镜头。")
         raise ValueError("完整组需要项目名、集次、批准剧本和镜头。")
+    require_camera_rules(project)
     if project.rules == CHINESE:
         return build_chinese_delivery(project, project_path, folder, registry_path, write_root=write_root)
     images = [image for image in project.images if not image.reference_only]
@@ -549,7 +556,6 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     windows = windows_for_shots(project)
     if len(storyboard_files) != 1 or not re.search(rf"(?<!\d){len(project.shots)}panel", storyboard_files[0].filename, re.I):
         raise ValueError("请导入一张格数与镜头清单一致的正式故事板，文件名包含实际格数，如 storyboard_8panel。")
-    require_english_camera_rules(project)
 
     planner = validator.with_name("plan_english_dialogue.py")
     scope = active_scope(project, planner)
@@ -626,7 +632,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
         production.append("图像生成和返修来源：\n" + "\n".join(jobs))
     if window_rows:
         production.append("实际画面窗口：\n" + "\n".join(window_rows))
-    (group_folder / f"{group_id}_shot_details.txt").write_text("\n\n".join(production) + "\n", encoding="utf-8-sig")
+    (group_folder / f"{group_id}_shot_details.txt").write_text("\n\n".join(production) + "\n", encoding="utf-8-sig", newline="\n")
     (group_folder / "SD2_prompt.txt").write_text("\n\n".join(sd2) + "\n", encoding="utf-8-sig", newline="\n")
     readme = (
         f"{project.name} · {project.episode}\n制作规则：{rule_revision(project.rules)}\n组号：{group_id}\n"
@@ -641,8 +647,8 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
 def write_summary(folder, summary, pending, count):
     if pending:
         summary += f"\n待制作镜头数：{count}\n未完成内容见顶层待制作分镜.txt，下一批优先接续。\n"
-        (folder / "待制作分镜.txt").write_text(pending, encoding="utf-8-sig")
-    (folder / "README.txt").write_text(summary, encoding="utf-8-sig")
+        (folder / "待制作分镜.txt").write_text(pending, encoding="utf-8-sig", newline="\n")
+    (folder / "README.txt").write_text(summary, encoding="utf-8-sig", newline="\n")
 
 
 def project_registry(project_path: Path) -> Path:
@@ -671,11 +677,15 @@ def publish_project(project: ProductionProject, project_path: Path, validator: P
 
 
 def build_batch(groups, folder, validator, registry):
+    for (left, _), (right, _) in zip(groups, groups[1:]):
+        adjacent(left, right)
+        findings = boundary_camera_cuts(left, right)
+        if findings:
+            raise ValueError(camera_findings_text(findings))
     summaries, boundaries = [], []
     for index, (project, path) in enumerate(groups):
         if index:
             previous = groups[index - 1][0]
-            adjacent(previous, project)
             if project.rules == CHINESE:
                 if previous.notes.get("分组状态", "").strip() == "整集尾组":
                     raise ValueError(f"{previous.group} 后仍有正式组，请核对整集尾组状态。")

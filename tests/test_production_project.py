@@ -11,8 +11,10 @@ import pytest
 from PIL import Image, ImageDraw
 
 from src.asset_registry import AssetRegistry, sha256_file
+from src.bundled_validators import bundled_validator
+from src.production_rules import ENGLISH
 from src.production_export import preview_project, project_registry, publish_project
-from src.production_project import ProductionProject, Shot
+from src.production_project import PARENT_SHOT_FIELD, ProductionProject, Shot
 from src.shot_review import load_shots
 from src.storyboard_review import ReviewResult, index_members
 
@@ -89,21 +91,11 @@ def production(tmp_path):
 
 
 @pytest.fixture
-def validator(tmp_path):
+def validator():
     configured = os.environ.get("COMICFLOW_M1_TEST_VALIDATOR")
-    if configured:
-        return Path(configured)
-    checker = tmp_path / "validate_storyboard_package.py"
-    checker.write_text('print("RESULT: 0 error(s), 0 warning(s)")\n', encoding="utf-8")
-    checker.with_name("plan_english_dialogue.py").write_text(
-        'import json, sys\n'
-        'items = json.load(open(sys.argv[1], encoding="utf-8"))\n'
-        'for item in items:\n'
-        '    item["text"] = item["text"][item["start"]:item["end"]]\n'
-        '    item["cue"] = "续说" if item["start"] else "首说"\n'
-        'print(json.dumps([{"words": 4, "fragments": items}]))\n', encoding="utf-8",
-    )
-    return checker
+    script = Path(configured) if configured else bundled_validator(ENGLISH)
+    assert script is not None and script.is_file()
+    return script
 
 
 def test_single_group_reopen_render_and_verify_zip(production, validator, tmp_path):
@@ -194,6 +186,26 @@ def test_source_revision_and_missing_spoken_line(production, validator, tmp_path
     project.shots[3].dialogue.clear()
     with pytest.raises(ValueError, match="有遗漏：D001"):
         preview_project(project, production, validator, tmp_path)
+
+
+def test_split_shots_preserve_parent_and_children_without_leaking_into_model_prompt(production, validator, tmp_path):
+    from src.production_images import image_prompt
+
+    project = ProductionProject.open(production)
+    children = project.shots[1:3]
+    for shot in children:
+        shot.fields[PARENT_SHOT_FIELD] = "source-07"
+    project.save(production)
+    project = ProductionProject.open(production)
+    board = image_prompt(project, "故事板", "", "文生图")
+    with ZipFile(preview_project(project, production, validator, tmp_path)) as archive:
+        record = archive.read("SB01/SB01_shot_details.txt").decode("utf-8-sig")
+        prompt = archive.read("SB01/SD2_prompt.txt").decode("utf-8-sig")
+    for shot in children:
+        assert f"子镜ID {shot.id}" in board
+        assert f"源镜号：source-07 → {shot.id}" in record
+        assert shot.id not in prompt
+    assert "source-07" not in prompt
 
 
 def test_english_prompt_manifest_binds_approved_assets_in_upload_order(production, validator, tmp_path):

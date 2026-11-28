@@ -12,7 +12,7 @@ def test_script_language_follows_production_rules_and_source_is_preserved():
     en, text = planning_request("script", "集次 1", source, ENGLISH)
     zh, _ = planning_request("script", "集次 1", source, CHINESE)
     assert "英文剧本草稿" in en and "简体中文剧本草稿" in zh
-    assert "英文影片制作 v14.10.4" in en and "中文影片制作 v14.8.8" in zh
+    assert "英文影片制作 v14.10.5" in en and "中文影片制作 v14.8.9" in zh
     assert source not in en and source not in zh
     assert json.loads(text) == {"title": "集次 1", "draft_or_brief": source}
     _, analysis = planning_request("assets", "集次 1", source, CHINESE)

@@ -13,9 +13,9 @@ from tempfile import NamedTemporaryFile
 from PIL import Image, ImageChops, ImageDraw, ImageOps
 
 from .asset_registry import sha256_file
-from .camera_preflight import require_english_camera_rules
+from .camera_preflight import require_camera_rules
 from .image_api import EDIT, REFERENCE, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES, IMAGE_PROVIDERS, ImageReply, ImageSettings, build_image_request
-from .production_project import ProductionProject, checked_name, identifier
+from .production_project import PARENT_SHOT_FIELD, ProductionProject, checked_name, identifier
 from .production_layout import replace_laid_out_asset, windows_for_shots
 from .production_rules import (
     CAMERA_ACTION_FIELD, CAMERA_BOARD, CHINESE, ENGLISH, ENGLISH_BOARD_RULES, RULE_LABELS, rule_revision,
@@ -62,6 +62,17 @@ def storyboard_job_page(project, target, base_image=None):
     return 1, total, f"storyboard_{total}panel_bw_16x9.png"
 
 
+def chinese_board_neighbors(project, first, last):
+    neighbors = []
+    for label, index in (("前邻", first - 2), ("后邻", last)):
+        if 0 <= index < len(project.shots):
+            shot = project.shots[index]
+            details = "；".join(f"{key} {shot.fields[key]}" for key in
+                               ("景别", "机位/角度", "可见范围", "动作起止", "连续性") if shot.fields.get(key))
+            neighbors.append(f"页外{label}（只作衔接参考）：源镜 ID {shot.id}。{details}")
+    return neighbors
+
+
 def shot_signature(project, kind, target, base_image=None) -> str:
     if kind == "故事板":
         first, last, _ = storyboard_job_page(project, target, base_image)
@@ -69,6 +80,8 @@ def shot_signature(project, kind, target, base_image=None) -> str:
         for shot in data:
             shot.pop("plate")
             shot.pop("plate_note")
+        if project.rules == CHINESE:
+            data.extend(chinese_board_neighbors(project, first, last))
     elif kind == "净板":
         ordinal, shot = shot_input(project, target)
         if shot is None:
@@ -102,10 +115,14 @@ def image_prompt_sections(project, kind, target, mode, base_image=None) -> tuple
             lines.append(CAMERA_BOARD[project.rules])
         fields = ("景别", "机位/角度", "机位空间", "可见范围", "人物站位", "动作起止",
                   "情绪/表演", "连续性", CAMERA_ACTION_FIELD)
-        if project.rules == ENGLISH:
-            fields += ("画面/事件", "唯一角色数量锁定", "本格新增叙事功能", "环境威胁/视觉副线")
+        fields += ("画面/事件", "唯一角色数量锁定", "本格新增叙事功能", "环境威胁/视觉副线")
+        fields += (PARENT_SHOT_FIELD,)
+        if project.rules == CHINESE and mode != EDIT:
+            context.extend(chinese_board_neighbors(project, first, last))
         for index, shot in enumerate(project.shots[first - 1:last], first):
             details = "；".join(f"{key} {shot.fields[key]}" for key in fields if shot.fields.get(key))
+            if shot.fields.get(PARENT_SHOT_FIELD):
+                details += f"；子镜ID {shot.id}"
             context.append(f"{project.group}-{index:02d} {shot.anchor}。{details}")
     if kind == "场景" and project.rules == CHINESE:
         lines.append("按已批准地点生成单张无人物、无说明标签的完整单机位画面。真反打从空间另一侧朝正打机位拍摄，保留空间锚点、色温与照明方向，禁止水平镜像。")
@@ -213,7 +230,7 @@ def prepare_job(project, project_path, settings, mode, kind, target, prompt, ref
     if kind == "故事板" and not project.shots:
         raise ValueError("请先保存本组的镜头清单。")
     if kind == "故事板" and mode != EDIT:
-        require_english_camera_rules(project)
+        require_camera_rules(project)
     if kind == "净板" and mode != EDIT:
         _, shot = shot_input(project, target)
         if not shot or not shot.scene.strip() or not (shot.plate_note.strip() or shot.fields.get("机位空间", "").strip()):

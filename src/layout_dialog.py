@@ -10,7 +10,6 @@ from zipfile import ZipFile
 from PIL import Image, ImageTk
 
 from .ui_language import translate, window_title
-from .camera_preflight import camera_cuts, camera_findings_text
 from .image_production_dialog import display_picture, select_image_region
 from .production_dialog import fields_text, project_filetypes, write_text
 from .production_export import project_registry, publish_batch
@@ -430,13 +429,8 @@ class LayoutDialog:
     def compare_boundary(self):
         groups = self.projects()
         right = groups[1][0]
-        summary, issues = boundary_report(self.project, right, self.planner())
-        pair = ((f"{self.project.group}-{len(self.project.shots):02d}", self.project.shots[-1].fields),
-                (f"{right.group}-01", right.shots[0].fields))
-        findings = camera_findings_text(camera_cuts(pair, self.project.rules),
-                                       english=getattr(self.window._root(), "ui_language", "zh") == "en")
-        if findings:
-            summary += "\n\n" + findings
+        summary, issues = boundary_report(self.project, right, self.planner(),
+                                          english=getattr(self.window._root(), "ui_language", "zh") == "en")
         self.report_text(summary)
         checked = (self.project.fingerprint(), right.fingerprint()) if not issues else None
         dialog = self.preview_page("layout_boundary", "对照前组末镜与后组首镜",

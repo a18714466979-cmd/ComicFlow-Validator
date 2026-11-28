@@ -592,34 +592,40 @@ def run_storyboard_validator(
     asset_registry: Path | None = None,
 ) -> int:
     from .asset_registry import AssetRegistry, check_package_assets
+    from .bundled_validators import VALIDATOR_BUNDLES, bundled_validator
+    from .shot_review import package_camera_errors
 
     command = [sys.executable, str(script), str(source.resolve())]
     if archive is not None:
         command.extend(("--zip", str(archive)))
     if allow_legacy:
         command.append("--allow-legacy")
-    resolved, asset_errors = check_package_assets(source, AssetRegistry(asset_registry) if asset_registry else None)
+    resolved, local_errors = check_package_assets(source, AssetRegistry(asset_registry) if asset_registry else None)
+    for rules in VALIDATOR_BUNDLES:
+        if bundled_validator(rules) == script.resolve() and source.is_dir():
+            local_errors.extend(package_camera_errors(source, rules))
+            break
     approved_error = panel_exception.diagnostic(archive, source) if panel_exception and archive else None
-    if not review_missing_sources and approved_error is None and not (asset_registry or asset_errors):
+    if not review_missing_sources and approved_error is None and not (asset_registry or local_errors):
         return subprocess.run(command, check=False).returncode
 
     result = subprocess.run(
         command, check=False, capture_output=True, encoding="utf-8", errors="replace",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
-    if asset_registry or asset_errors:
-        result = reconcile_asset_report(result, resolved, asset_errors)
+    if asset_registry or local_errors:
+        result = reconcile_local_checks(result, resolved, local_errors)
     return print_storyboard_review(result, review_missing_sources, panel_exception, approved_error)
 
 
-def reconcile_asset_report(
-    result: subprocess.CompletedProcess[str], resolved: set[str], asset_errors: list[str],
+def reconcile_local_checks(
+    result: subprocess.CompletedProcess[str], resolved: set[str], local_errors: list[str],
 ) -> subprocess.CompletedProcess[str]:
     lines = result.stdout.splitlines()
     summaries = [line for line in lines if re.fullmatch(r"RESULT: \d+ error\(s\), \d+ warning\(s\)", line)]
     def incompatible() -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(result.args, result.returncode or 1, result.stdout,
-                                           result.stderr + "资产登记核验未完成：校验脚本未返回完整报告。\n")
+                                           result.stderr + "制作包核验未完成：校验脚本未返回完整报告。\n")
 
     if result.stderr or result.returncode not in (0, 1) or len(summaries) != 1:
         return incompatible()
@@ -630,7 +636,7 @@ def reconcile_asset_report(
         return incompatible()
     if summaries[0] != f"RESULT: {len(errors)} error(s), {len(warnings)} warning(s)":
         return incompatible()
-    remaining = [line for line in errors if line not in resolved] + asset_errors
+    remaining = [line for line in errors if line not in resolved] + local_errors
     output = [*warnings, *remaining, f"RESULT: {len(remaining)} error(s), {len(warnings)} warning(s)"]
     if not remaining:
         output.extend(manual or ["MANUAL REVIEW STILL REQUIRED: 仍须人工复核画面和镜头连续性。"])

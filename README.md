@@ -4,7 +4,7 @@
 
 面向字节跳动 Seedance 2.0 的漫剧制片工作台，贯通剧本、分镜、资产、故事板、提示词和 ZIP 交付。
 
-[Windows 安装包和测试记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [安装和试用说明](WINDOWS-TRYOUT.md) · [更新日志 / Changelog](CHANGELOG.md)
+[Windows 安装包和测试记录](https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [安装和试用说明](WINDOWS-TRYOUT.md) · [更新日志 / Changelog](CHANGELOG.md)
 
 [English](#english) | [简体中文](#简体中文)
 
@@ -30,13 +30,13 @@ English Film Production and Chinese Film Production are designed for delivery to
 - Aspect ratio validation
 - ZIP entry and CRC checks, with a SHA-256 digest from the archive checker
 - Directory and ZIP delivery reports with optional JSON rules for required files, directories, and extensions
-- Strict English storyboard package validation with the bundled offline validator. A trusted external validator can still be selected.
+- Strict English and Chinese storyboard package validation using the bundled offline validator for the selected workflow. Trusted external overrides are optional.
 
 ### Workflow and visual review
 
-- English Film Production uses v14.10.4, including when reopening an existing English project. Chinese Film Production uses v14.8.8. Model calls send selected material to the configured provider after confirmation.
+- English Film Production uses v14.10.5, including when reopening an existing English project. Chinese Film Production uses v14.8.9. Model calls send selected material to the configured provider after confirmation.
 - English SD2 export writes the shot order, the actual PNG upload list starting at `@图1`, and each shot's scene page and panel reference. The group instructions specify color references, visible text in English or universal symbols, and default settings for no music and no subtitles. Spoken lines come from the approved dialogue.
-- Shot drafting and board image prompts include the workflow's camera guidance by default. English preflight blocks a new full storyboard request and formal SD2 delivery if the shot records declare the same purpose in consecutive medium or extreme-wide shots of the same size, or three consecutive shots with the same size and angle in a group marked as a fight. Other framing findings support visual review.
+- The active language rules travel with shot drafting, board generation, SD2 prompt drafting and visual review. English preflight blocks adjacent independent shots recorded with the same shot size and angle. Chinese preflight checks for a change of shot size, including the cut between panels 6 and 7 in a ten-panel board. Checks also span adjacent groups. A single continuous shot can contain several actions.
 - Compare the actual panels and clean plates for camera geometry, composition, identity and action continuity. Approve the reviewed version before delivery. Review the final Seedance 2.0 video separately.
 
 ### Batch production
@@ -72,7 +72,7 @@ python -m src.delivery_checker "path/to/delivery.zip"
 python -m pytest -q
 ```
 
-For a complete storyboard package, provide the final ZIP and the trusted `scripts/validate_storyboard_package.py` from your installed storyboard workflow. The workbench checks the ZIP and unpacks it temporarily for storyboard validation.
+For a complete storyboard package, provide the final ZIP and select the English or Chinese validator under `assets/workflow_validators/`. The workbench checks the ZIP and unpacks it temporarily for storyboard validation.
 
 ```bash
 python -m src.delivery_checker "path/to/delivery.zip" --storyboard-validator "path/to/workflow/scripts/validate_storyboard_package.py"
@@ -88,7 +88,7 @@ Strict mode is the default. Use `--allow-legacy` for historical packages. `--rul
 
 When reviewing a package from another workspace, add `--review-missing-sources` to report inaccessible local reuse sources as unverified. Exit code `3` means that source availability was the only outstanding check. Exit code `1` still indicates errors such as missing deliverables, mismatched file bytes, or invalid panel counts. Code `0` indicates that the automated checks ran without errors.
 
-On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher prefers the project's `.venv`, then tries `python` and `py -3` for an interpreter with its desktop dependencies. Double-click `Comic-Sequence-Studio.bat`. Choose **New project** to create a `.cfproject`, **Resume saved project** to open one (try `Examples/SB01.cfproject`), or **Validate an existing ZIP** to check a delivery archive. You can also drop a ZIP on the `.bat` file in Explorer. English mode defaults to its bundled validator. Select a trusted workflow validator for Chinese mode or to override the English default. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill the English override. The result table shows groups, shot IDs and filenames when the validator identifies them. Select a row to preview its text or image in the window, or switch to the full report tab.
+On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher prefers the project's `.venv`, then tries `python` and `py -3` for an interpreter with its desktop dependencies. Double-click `Comic-Sequence-Studio.bat`. Choose **New project** to create a `.cfproject`, **Resume saved project** to open one (try `Examples/SB01.cfproject`), or **Validate an existing ZIP** to check a delivery archive. You can also drop a ZIP on the `.bat` file in Explorer. English and Chinese modes each default to their own bundled validator. Choose a trusted script to override either mode. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill the English override. The result table shows groups, shot IDs and filenames when the validator identifies them. Select a row to preview its text or image in the window, or switch to the full report tab.
 
 Open the **media library** from Approved images, the batch center's Shared assets, or the e-commerce workspace. Resize the square cards, filter by category and media type, or open an item for a full-frame preview. Videos can be scrubbed and played locally, and the current frame can become the card's poster. Image production has a visual picker for approved stills.
 
@@ -128,7 +128,7 @@ In 「返修打包」, enter a shot ID to see related files in the most recently
 - 图片宽高比例检查
 - ZIP 成员及 CRC 检查，基础压缩包模块可计算 SHA-256 指纹
 - 文件夹及 ZIP 交付报告，可用 JSON 配置必需文件、目录和允许的扩展名
-- 英文完整交付包默认使用内置脚本离线严格验收，也可选可信的外部校验脚本
+- 中英文交付包分别使用随包提供的正式校验脚本，可离线验收，也可为各制作模式选用可信的外部脚本
 
 ### 设计原则
 
@@ -168,7 +168,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 1. 安装带 Tcl/Tk 的 Python 3.13，再双击 `Comic-Sequence-Studio-Setup.bat` 安装依赖。试用包下载位置、内置样例和操作说明见 [Windows 试用指南](WINDOWS-TRYOUT.md)。
 2. 双击 `Comic-Sequence-Studio.bat`。点「新建项目」会创建 `.cfproject`，点「继续已有项目」可打开已保存的项目或示例 `Examples/SB01.cfproject`。拿到已交付的压缩包，点「验收已有 ZIP」，也可以把 ZIP 拖到启动器上。
-3. 点击「开始验收」可检查交付包。英文模式默认用内置脚本严格验收。中文严格验收或英文自定义验收可选择对应工作流的可信脚本。主窗口会记住该路径，也可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填英文自定义路径。
+3. 点击「开始验收」可检查交付包。两个模式均默认用各自的内置脚本严格验收。需要自定义时可为当前模式选择可信脚本。主窗口会记住该路径，也可通过环境变量 `COMICFLOW_STORYBOARD_VALIDATOR` 预填英文自定义路径。
 4. 在「验收结果」点选一条记录，查看可定位的组、镜号和对应文件。可在下方切换组内文件，也可打开「完整报告」看原始输出。预览与验收使用同一份临时 ZIP 副本，关闭窗口即清理，全程在本机工作。
 5. 点「逐格复核」，按镜号查看故事板整图、对应的彩色净板和局部号，以及同镜的生产记录与 SD2 提示词。下方显示前后镜的缩略图和动作摘要，可点「上一镜／下一镜」跨组切换。拖动框选图片中的格子可放大对照。前后镜有框选时显示所选格，否则标为整板。框选范围按镜号保留到本次复核窗口关闭。复核不会改写交付包。
 
@@ -214,7 +214,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 「中文影片制作」与「英文影片制作」专为字节跳动 Seedance 2.0 成片交付适配。工作台按该流程准备故事板、PNG 参考素材、SD2 提示词和交付 ZIP。使用其他视频模型时，素材上限、提示词结构和镜头衔接可能需要重新调整，匹配度可能较低。导出的素材和提示词需在 Seedance 2.0 服务中提交。 [字节跳动 Seedance 2.0](https://seed.bytedance.com/seedance2_0) · [火山方舟视频生成说明](https://console.volcengine.com/ark/region%3Acn-beijing/docs/video-generation-tutorial)
 
-「英文影片制作」采用 v14.10.4，打开已有英文项目也会按新版规则制作和导出。英文严格验收与整句对白预排默认使用内置脚本。中文项目按 v14.8.8 制作，严格验收时选择对应的可信工作流脚本。
+「英文影片制作」采用 v14.10.5，打开已有英文项目也会按新版规则制作和导出。英文严格验收与整句对白预排默认使用内置脚本。中文项目使用 v14.8.9 和随包提供的中文正式校验脚本。
 
 进入「单组制片」后，导入带版本的批准剧本、该组对白和 PNG。按镜头绑定剧本源段、净板文件和对白 ID，填写制片记录与成片要求。镜头移动时，来源 ID 保持稳定，播放镜号与净板局部号按新顺序生成。
 
@@ -246,7 +246,7 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 「图像制片」提供文生图、参考图生图和局部编辑。按服务商和当前预设选择可用模式。用途包括角色、道具 / HUD、场景、故事板和净板。生成净板时，选择已有批准故事板和目标镜头，软件将该镜的机位信息和组内局部号加入提示。「预览本次发送」在本机显示完整提示词、接口地址和每张参考图的批准版本。确认提交时才需要密钥，并使用所选服务的额度。
 
-分镜起草和故事板生图请求默认加入对应工作流规则。英文组连续镜头在登记内容中使用同一中景或大全景表达同一目的，或打斗组登记连续三镜同景别、同角度时，软件会拦截新的整板生成和正式交付。实际画面是否同机位、人物身份是否一致、动作是否接上，要在逐格复核时核对实图。
+拆镜、故事板生图、SD2 提示词和审图都使用当前制作模式的规则。英文的相邻独立镜头登记为同景别且同角度时会被拦截；中文要求相邻独立镜头拉开景别，十格双页的第 6→7 格和连续组的末格→首格都要核对。实图中的景别、轴线、人物身份和动作承接仍需逐格复核。
 
 | 预设 | 接口 |
 | --- | --- |

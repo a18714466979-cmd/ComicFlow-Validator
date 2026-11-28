@@ -14,9 +14,9 @@ from hashlib import sha256
 from threading import Event
 
 from .batch_ai_adapter import (
-    ASSET_KINDS, IMAGE_KINDS, TEXT_KINDS, apply_fields, prepare_image, prepare_text, text_result,
+    ASSET_KINDS, IMAGE_KINDS, TEXT_KINDS, apply_fields, check_neighbor_cameras, prepare_image, prepare_text, text_result,
 )
-from .camera_preflight import require_english_camera_rules
+from .camera_preflight import require_camera_rules
 from .image_api import ImageRequestError, query_image, submit_image
 from .production_images import store_reply, storyboard_job_page
 from .production_project import ProductionProject
@@ -364,7 +364,8 @@ class BatchQueue:
             candidate = json.loads(row["candidate"])
             if candidate["id"] in adopted:
                 continue
-            _, context, _, _ = prepare_text(project, plan, row, None)
+            _, context, _, _ = prepare_text(project, plan, row, None,
+                                            include_neighbors=candidate["context"].get("camera_neighbors", False))
             if candidate["context"]["fingerprint"] != context["fingerprint"]:
                 raise ValueError(f"源段或镜头已经变化，请核对后重新生成 {row['group_id']} 候选。")
             updates.append((row, candidate))
@@ -373,7 +374,8 @@ class BatchQueue:
             project.text_drafts.append({**candidate, "batch": True})
         if updates:
             if rows[0]["kind"] == "shot":
-                require_english_camera_rules(project)
+                require_camera_rules(project)
+                check_neighbor_cameras(self.workspace, rows[0]["episode"], project)
             project.save(path)
         with self._db() as db:
             db.executemany("UPDATE jobs SET status='approved',message='已将候选采纳到原镜头。' WHERE id=?",

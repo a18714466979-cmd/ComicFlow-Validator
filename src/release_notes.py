@@ -12,7 +12,7 @@ from .workbench_style import ACCENT, BACKGROUND, INK, MUTED, SURFACE
 
 
 BUILD_HISTORIES = (
-    "https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml"
+    "https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/workflows/windows-smoke.yml"
     "?branch=codex%2Fchinese-production"
 )
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]

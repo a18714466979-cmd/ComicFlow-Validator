@@ -3,7 +3,7 @@
 APP_NAME_ZH = "漫剧镜序制片台"
 APP_NAME_EN = "Comic Sequence Studio"
 APP_FOLDER = "Comic-Sequence-Studio"
-VERSION = "2.9.0"
+VERSION = "2.9.1"
 
 
 def app_name(language: str) -> str:

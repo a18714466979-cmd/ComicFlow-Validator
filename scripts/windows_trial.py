@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 from scripts.workbench_guide_examples import build_workbench_examples
 from src.action_card_catalog import ACTION_PRESETS, ACTION_PREVIEW_DIRECTORY
 from src.brand import APP_FOLDER, VERSION
-from src.bundled_validators import ENGLISH_VALIDATOR_DIRECTORY, ENGLISH_VALIDATOR_FILES
+from src.bundled_validators import VALIDATOR_BUNDLES
 from src.director_desk import DIRECTOR_BUNDLE, DIRECTOR_HOST
 from src.image_api import EDIT, IMAGE_PROVIDERS, ImageReply, ImageSettings
 from src.production_export import build_batch, project_registry
@@ -35,10 +35,15 @@ ECOMMERCE_VALIDATOR_DIRECTORY = Path("assets/workflow_validators/ecommerce")
 PRACTICE_BATCH = "Examples/Workbench/Batch/Signal-Station"
 PRACTICE_BATCH_INDEX = f"{PRACTICE_BATCH}.batch/index.sqlite3"
 CONTINUITY = "门保持关闭，右侧绿灯稳定，左侧柜体仍在原位"
-ENGLISH_EXAMPLE_FRAMING = ("全景", "中景", "近景", "特写", "全景", "中景", "近景", "特写", "全景")
+EXAMPLE_CROPS = {
+    "全景": ((0, 0, 640, 360), "完整门框、左柜与右灯"),
+    "中景": ((80, 40, 592, 328), "门框、柜门与灯座"),
+    "近景": ((260, 76, 580, 256), "门侧与完整信号灯"),
+    "特写": ((404, 100, 548, 181), "信号灯及其固定边框"),
+}
 
 
-def draw_frame(path, beat, *, board, reverse=False, east=False, steady=False):
+def draw_frame(path, beat, *, board, reverse=False, east=False, steady=False, framing="全景"):
     lights = ((19, 91, 146), (80, 168, 118), (248, 173, 51))
     background = (248, 248, 248) if board else lights[0]
     wall = (226, 226, 226) if board else (128, 95, 66) if east else (76, 110, 133)
@@ -58,7 +63,8 @@ def draw_frame(path, beat, *, board, reverse=False, east=False, steady=False):
     draw.line((left + 121, 176, left + 150, 176), fill="#171717", width=4)
     for offset in (0, 45, 90):
         draw.line((154 + offset, 252, 40 + offset * 3, 359), fill="#222222", width=2)
-    draw.text((27, 38), f"{beat:02d}", fill="#ffffff" if not board else "#111111")
+    frame = frame.crop(EXAMPLE_CROPS[framing][0]).resize((640, 360), Image.Resampling.LANCZOS)
+    ImageDraw.Draw(frame).text((27, 38), f"{beat:02d}", fill="#ffffff" if not board else "#111111")
     frame.save(path)
 
 
@@ -90,9 +96,9 @@ def make_group(dest, scratch, number, rules):
         })
     project.prompt = {"场景/总体状态": "彩色空信号站，墙上的右侧灯点亮。", "公共限制": CONTINUITY}
 
-    def import_frame(filename, beat, *, board=False, reverse=False, east=False, formal=False):
+    def import_frame(filename, beat, *, board=False, reverse=False, east=False, formal=False, framing="全景"):
         original = scratch / filename
-        draw_frame(original, beat, board=board, reverse=reverse, east=east, steady=chinese)
+        draw_frame(original, beat, board=board, reverse=reverse, east=east, steady=chinese, framing=framing)
         return project.import_image(path, original, filename, action="直接复用", reference_only=not formal,
                                     reason="本地生成的试用素材", inspection="供试用版逐格核图",
                                     origin_label=f"合成样例 {name}/{filename}")
@@ -106,14 +112,14 @@ def make_group(dest, scratch, number, rules):
     for ordinal in range(1, count + 1):
         beat = (number - 1) * (10 if chinese else 9) + ordinal
         scene = scenes[-1] if ordinal > 5 else scenes[0]
-        camera = (ordinal - 1) % 3 + 1 if chinese else ordinal
+        camera = (beat - 1) % 3 + 1 if chinese else ordinal
+        framing = tuple(EXAMPLE_CROPS)[camera - 1 if chinese else (beat - 1) % len(EXAMPLE_CROPS)]
         shot = Shot(source=source.id, anchor=f"信号站合成节拍 {beat:02d}", scene=scene,
-                    plate_note=f"机位 {camera:02d} 对照门框、左柜与右灯",
+                    plate_note=f"机位 {camera:02d} 对照{EXAMPLE_CROPS[framing][1]}",
                     fields={
-                        "景别": ("全景" if ordinal in (1, 5, 9) else "中景")
-                        if chinese else ENGLISH_EXAMPLE_FRAMING[ordinal - 1],
+                        "景别": framing,
                         "机位/角度": "同侧平视",
-                        "机位空间": f"{scene}同侧机位 {camera:02d}", "可见范围": "门框、左柜和右灯", "运镜": "固定",
+                        "机位空间": f"{scene}同侧机位 {camera:02d}", "可见范围": EXAMPLE_CROPS[framing][1], "运镜": "固定",
                         "画面/事件": "记录合成设备在当前观察角度的状态", "人物站位": "无人物",
                         "动作起止": "观察门和信号灯，保持画面可见的设备位置",
                         "唯一角色数量锁定": "无", "本格新增叙事功能": "给出本镜设备位置的合成对照",
@@ -123,11 +129,11 @@ def make_group(dest, scratch, number, rules):
                     })
         project.shots.append(shot)
         east = scene == "东走廊"
-        board = import_frame(f"板格_原图_{beat:02d}.png", beat, board=True, east=east)
+        board = import_frame(f"板格_原图_{beat:02d}.png", beat, board=True, east=east, framing=framing)
         bind_window(project, path, shot.id, "board", board.id)
         key = (scene, camera)
         if key not in cameras:
-            cameras[key] = import_frame(f"净板_原图_{beat:02d}.png", beat, east=east)
+            cameras[key] = import_frame(f"净板_原图_{beat:02d}.png", beat, east=east, framing=framing)
         bind_window(project, path, shot.id, "plate", cameras[key].id)
     sheets = scratch / name
     sheets.mkdir()
@@ -207,10 +213,11 @@ def build(output, revision):
         for relative in dialogue_views:
             copy2(ROOT / relative, folder / relative)
         copytree(ROOT / ECOMMERCE_VALIDATOR_DIRECTORY, folder / ECOMMERCE_VALIDATOR_DIRECTORY)
-        (folder / ENGLISH_VALIDATOR_DIRECTORY).mkdir(parents=True)
-        for filename in ENGLISH_VALIDATOR_FILES:
-            relative = ENGLISH_VALIDATOR_DIRECTORY / filename
-            copy2(ROOT / relative, folder / relative)
+        for directory, files in VALIDATOR_BUNDLES.values():
+            (folder / directory).mkdir(parents=True)
+            for filename in files:
+                relative = directory / filename
+                copy2(ROOT / relative, folder / relative)
         for name, content in metadata.items():
             (folder / name).write_bytes(content.encode("utf-8"))
         make_examples(folder / "Examples", scratch / "en", ENGLISH, "预览_信号站_相邻两组.zip")
@@ -228,7 +235,7 @@ def build(output, revision):
                    "Examples/Workbench/Batch/EP01.txt", "Examples/Workbench/Batch/EP02.txt",
                    "Examples/Workbench/Batch/Shared-Station-Door.png", f"{PRACTICE_BATCH}.cfbatch", PRACTICE_BATCH_INDEX)
         references = tuple(path.relative_to(ROOT).as_posix() for path in (ROOT / COSTUME_REFERENCES).iterdir())
-        validators = tuple((ENGLISH_VALIDATOR_DIRECTORY / name).as_posix() for name in ENGLISH_VALIDATOR_FILES)
+        validators = tuple((directory / name).as_posix() for directory, files in VALIDATOR_BUNDLES.values() for name in files)
         ecommerce_validator = (ECOMMERCE_VALIDATOR_DIRECTORY / "validate_storyboard_package.py").as_posix()
         tutorial = tuple((TUTORIAL_IMAGES / f"{section[0]}_{language}.png").as_posix()
                          for section in SECTIONS for language in TUTORIAL_LOCALES)

@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from .camera_preflight import boundary_camera_cuts, camera_findings_text
 from .production_dialogue import approved_breaks, handoff_rows, validated_scope
 from .production_rules import CHINESE
 
@@ -123,13 +124,14 @@ def adopt_pending(previous, project):
         project.dialogue_scope = None
 
 
-def boundary_report(left, right, planner):
+def boundary_report(left, right, planner, *, english=False):
     adjacent(left, right)
     if not left.shots or not right.shots:
         raise ValueError("相邻两组需要实际首尾镜头。")
     a, b = active_scope(left, planner), active_scope(right, planner)
     older, newer = ({line.id: line for line in project.lines} for project in (left, right))
-    transcript, issues = [], []
+    transcript = []
+    issues = [camera_findings_text((cut,), english=english) for cut in boundary_camera_cuts(left, right)]
     for identity, (start, end) in b.items():
         if identity in a:
             x, y = older[identity], newer[identity]

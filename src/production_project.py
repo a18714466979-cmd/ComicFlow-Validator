@@ -18,6 +18,7 @@ from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH, rule_revisi
 
 
 RULE_VERSION = ENGLISH
+PARENT_SHOT_FIELD = "批准父镜ID"
 GROUP_FIELDS = (
     "分组状态", "覆盖段落", "内容类型", "打斗节奏依据", "对白规格", "本组进入状态", "本组退出状态",
     "连续性锁定", "场景资产模式", "场景清单", "场景身份判定", "人物判定", "人物资产表",
@@ -313,8 +314,7 @@ class ProductionProject:
 
     def fingerprint(self) -> str:
         payload = asdict(self)
-        if self.rules == ENGLISH:
-            payload["delivery_rule_revision"] = rule_revision(self.rules)
+        payload["delivery_rule_revision"] = rule_revision(self.rules)
         del payload["structure_review"]
         del payload["text_drafts"]
         del payload["handoffs"]

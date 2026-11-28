@@ -24,7 +24,7 @@ from .production_export import (
     render_dialogue, write_chinese_layout, write_chinese_texts,
 )
 from .production_flow import asset_shot_context, shot_sources
-from .production_project import ACTIONS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
+from .production_project import ACTIONS, PARENT_SHOT_FIELD, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
 from .production_rules import CHINESE, DELIVERY_TARGET, ENGLISH, RULE_LABELS, rule_revision
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import ReviewResult, index_members
@@ -367,7 +367,8 @@ class ProductionDialog:
         bar.pack(fill="x", pady=8)
         self.buttons(bar, ("对白与图数预检", self.preflight), ("生成逐格复核预览", self.preview),
                      ("确认本版画面", self.confirm), ("验收并导出 ZIP", self.publish))
-        ttk.Label(self.english_delivery, text=translate(self.english_delivery, "核对故事板格号、净板局部、对白与画面后再确认。报告显示交付包校验结果。")).pack(anchor="w")
+        ttk.Label(self.english_delivery, wraplength=680, text=translate(self.english_delivery,
+                  "按源镜 ID 逐格对照批准分镜、实际板格和 SD2，检查景别、角度、入画人物、动作和对白。并排核对相邻格及跨板末格与首格；缺图时记下待核镜号。")).pack(anchor="w")
         text_bar = ttk.Frame(self.chinese_delivery)
         text_bar.pack(fill="x", pady=5)
         self.buttons(text_bar, ("预览两份 TXT", self.preview_chinese_text), ("导出两份 TXT", self.export_chinese_text))
@@ -918,6 +919,8 @@ class ProductionDialog:
             plate.current(next(i for i, image in enumerate(plates) if image.id == shot.plate))
         field(form, 3, "地点", variables[3])
         field(form, 4, "净板机位说明", variables[4])
+        parent_shot = tk.StringVar(panel, shot.fields.get(PARENT_SHOT_FIELD, ""))
+        field(form, 5, "批准父镜 ID（细拆时填写）", parent_shot)
         ttk.Label(panel, text=translate(panel, "对白 · 单填 ID 使用本组已选范围。跨镜续说填写「D001 起始字符位 结束字符位」。")).pack(anchor="w", padx=10)
         dialogue = self.editor(panel, 3, name="production_shot_dialogue")
         dialogue.pack(fill="x", padx=10)
@@ -944,10 +947,16 @@ class ProductionDialog:
                 if not span[0] <= start < end <= span[1]:
                     raise ValueError(f"{identity} 的字符区间超出本组批准范围。")
                 utterances.append((identity, start, end))
+            edited_fields = read_fields(editor, SHOT_FIELDS)
+            parent_id = parent_shot.get().strip()
+            if parent_id:
+                if any(char in parent_id for char in "|\r\n"):
+                    raise ValueError("批准父镜 ID 请使用单行标识，不含竖线。")
+                edited_fields[PARENT_SHOT_FIELD] = parent_id
             updated = replace(shot, source=sources[source.current()].id if source.current() >= 0 else "",
                               anchor=variables[1].get().strip(), plate=plates[plate.current()].id if plate.current() >= 0 else "",
                               scene=variables[3].get().strip(), plate_note=variables[4].get().strip(),
-                              dialogue=utterances, fields=read_fields(editor, SHOT_FIELDS))
+                              dialogue=utterances, fields=edited_fields)
             if insert:
                 self.project.shots.insert(index, updated)
             else:

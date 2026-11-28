@@ -31,8 +31,8 @@ SECTIONS = (
     ("review", ("检查交付 ZIP", "Check a delivery ZIP"), (
         ("点「验收已有 ZIP」，选择原始压缩包。先选与交付包一致的中英文制作规则。",
          "Choose Validate an existing ZIP and select the original archive. Select the production rules used by that delivery."),
-        ("点「开始验收」。英文版内置严格校验，中文版可选择对应的校验脚本。",
-         "Click Validate ZIP. English strict validation is built in. For Chinese deliveries, choose the matching validator script."),
+        ("选择交付包的制作语言，点「开始验收」。程序会使用该语言内置的严格校验器。",
+         "Select the delivery language and click Validate ZIP. The app uses the bundled strict validator for that language."),
         ("点「逐格复核」查看故事板、净板和文字。可到「景别机位与格间衔接」看同组与跨组的前后镜。",
          "Choose Review panels to see the storyboard, clean plates and text. Use Framing & cut continuity for adjacent shots within or across groups."),
     ), ("选择要验收的 ZIP", "Choose a ZIP to validate")),

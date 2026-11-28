@@ -74,3 +74,39 @@ def test_repack_publishes_only_validated_new_zip(tmp_path):
         assert package.testzip() is None and package.read("README.txt") == b"after"
     with pytest.raises(FileExistsError):
         pack_repair(delivery, target, validator, baseline)
+
+
+@pytest.mark.parametrize(("old_eol", "new_eol"), [(b"\r\n", b"\n"), (b"\n", b"\r\n")])
+def test_cross_platform_repair_preserves_unedited_members(tmp_path, old_eol, new_eol):
+    delivery = tmp_path / "delivery"
+    baseline = tmp_path / "original.zip"
+    original = {
+        "README.txt": b"\xef\xbb\xbfnotes\nsecond line\n",
+        "SB02/SB02_shot_details.txt": b"another group\nend",
+        "SB01/SB01_shot_details.txt": b"old shot\n",
+        "SB01/plate.bin": b"original\r\n",
+    }
+    with ZipFile(baseline, "w") as previous:
+        for member, data in original.items():
+            before = data.replace(b"\n", old_eol) if member.endswith(".txt") else data
+            previous.writestr("delivery/" + member, before)
+            staged = delivery / member
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes(data.replace(b"\n", new_eol) if member.endswith(".txt") else data)
+    changed = {"SB01/SB01_shot_details.txt": b"new shot" + new_eol, "SB01/plate.bin": b"original\n"}
+    for name, data in changed.items():
+        (delivery / name).write_bytes(data)
+    staged_files = {name: (delivery / name).read_bytes() for name in original}
+    validator = tmp_path / "validator.py"
+    validator.write_text("print('RESULT: 0 error(s), 0 warning(s)')\n", encoding="utf-8")
+    target = tmp_path / "repaired.zip"
+    result = pack_repair(delivery, target, validator, baseline)
+
+    assert result.exit_code == 0, result.report
+    assert set(result.changed) == set(changed) and not result.added and not result.removed
+    with ZipFile(target) as repaired, ZipFile(baseline) as previous:
+        assert repaired.testzip() is None
+        for name in original:
+            expected = changed.get(name, previous.read("delivery/" + name))
+            assert repaired.read(name) == expected
+            assert (delivery / name).read_bytes() == staged_files[name]
