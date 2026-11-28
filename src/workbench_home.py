@@ -214,6 +214,9 @@ def build_production_page(page, label_text, callbacks, *, action_picker=None, pr
     route_header.pack(fill="x")
     label_text(tk.Label(route_header, bg=BACKGROUND, fg=INK, anchor="w", font=("TkDefaultFont", 10, "bold")),
                "项目入口").pack(side="left")
+    if "jobs" in callbacks:
+        button(route_header, "任务中心", callbacks["jobs"], name="workbench_jobs", style="A.Home.Tool.TButton").pack(
+            side="right")
     routes = tk.Frame(content, bg=BACKGROUND)
     routes.pack(fill="x", pady=(3, 0))
     shortcuts = [button(routes, caption, callbacks[action], style="A.Home.Tool.TButton")

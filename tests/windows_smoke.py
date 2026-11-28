@@ -175,7 +175,8 @@ def run_inside_launcher():
                 self.after(100, self.begin)
                 return
             if mode == "batch-file":
-                panel = next((w for w in walk(self, tk.Toplevel) if w.title() == "批量制作中心"), None)
+                panel = next((w for w in walk(self, ttk.Frame) if w.winfo_name() == "batch_workspace" and
+                              w.winfo_ismapped()), None)
                 combo = next((w for w in walk(panel, ttk.Combobox) if w.winfo_name() == "episode"), None) if panel else None
                 if combo is None or len(self.tk.splitlist(combo.cget("values"))) != 3:
                     self.after(80, self.begin)
@@ -235,6 +236,12 @@ def run_inside_launcher():
                 return
             if mode == "production-workspace":
                 self.inspect_production_workspace()
+                return
+            if mode == "workbench-bridges":
+                self.inspect_workbench_bridges()
+                return
+            if mode == "job-recovery":
+                self.inspect_job_recovery()
                 return
             if mode == "mode-switch":
                 self.inspect_mode_switch(validator)
@@ -379,18 +386,16 @@ def run_inside_launcher():
                     return
                 selector.set("SB01/storyboard_2panel.png")
                 selector.event_generate("<<ComboboxSelected>>")
-
-                def check_vision():
-                    dialog = next(walk(self, tk.Toplevel))
-                    assert not input_field(dialog, "审图重点（可选）").get()
-                    with patch.object(messagebox, "showinfo") as info:
-                        click(dialog, "查看固定审图规则")
-                        title, instructions = info.call_args.args
-                        assert title == "查看固定审图规则" and "英文影片制作 v14.10.4" in instructions
-                    check_panel(self, "模型 ID", "image-review-test", key)
-
-                self.after(60, check_vision)
                 click(self, "AI 辅助看图")
+                dialog = visible_frame(self, "vision_review_editor")
+                assert not input_field(dialog, "审图重点（可选）").get()
+                with patch.object(messagebox, "showinfo") as info:
+                    click(dialog, "查看固定审图规则")
+                    title, instructions = info.call_args.args
+                    assert title == "查看固定审图规则" and "英文影片制作 v14.10.4" in instructions
+                assert input_field(dialog, "模型 ID").get() == "image-review-test"
+                assert input_field(dialog, "API Key").get() == key
+                close_current_task(self)
                 saved = project_path.read_text(encoding="utf-8")
                 assert key not in saved and "synthetic-image-key" not in saved
                 appdata = Path(os.environ["LOCALAPPDATA"]) / APP_FOLDER
@@ -877,6 +882,233 @@ def run_inside_launcher():
 
             self.after(60, inspect_sequence)
 
+        def inspect_workbench_bridges(self):
+            from src import action_sequence_dialog
+            from src.production_project import ProductionProject, Shot
+            from src.production_rules import CHINESE, ENGLISH
+
+            root = project_path.parent
+            origin = root / "发起-SB03.cfproject"
+            sibling = root / "另一组-SB04.cfproject"
+            decoy = root / "同名-SB03.cfproject"
+
+            def make_project(path, episode, group, rules, text):
+                project = ProductionProject("同名制作项", episode, group, rules=rules)
+                source = project.import_source("批准源稿", "R1", text)
+                project.shots = [Shot(source=source.id, anchor=segment) for segment in text.splitlines()]
+                project.save(path)
+                return project
+
+            first = make_project(origin, "EP03", "SB03", ENGLISH, "Mira enters.\nMira checks the door.")
+            make_project(decoy, "EP03", "SB03", ENGLISH, "Decoy group must stay separate.")
+            make_project(sibling, "EP03", "SB04", CHINESE, "演员关上旁边的门。")
+            sibling_bytes, decoy_bytes = sibling.read_bytes(), decoy.read_bytes()
+            navigation = next(walk(self, ttk.Notebook))
+
+            def open_actions(path):
+                click(show_page(self, PRODUCTION_TAB), "人物动作编排")
+                picker = visible_frame(self, "action_project_picker")
+                with patch.object(filedialog, "askopenfilename", return_value=str(path)):
+                    named(picker, ttk.Button, "open_project").invoke()
+                return visible_frame(self, "action_sequence_editor")
+
+            action = open_actions(origin)
+            origin_tab = navigation.select()
+            returns = []
+
+            def start_director(_parent, path, kind, callback, *, language):
+                assert path.samefile(origin) and kind == "action" and language == "zh"
+                returns.append(callback)
+
+            with patch.object(action_sequence_dialog, "open_director", side_effect=start_director):
+                click(action, "打开内置 3D 导演台")
+                alternate = open_actions(sibling)
+                assert len(returns) == 1 and alternate is not action
+                returns[0](root / "director-action" / "project.json")
+                assert alternate.winfo_ismapped() and not next(walk(alternate, ttk.Treeview)).get_children()
+            navigation.select(origin_tab)
+            assert len(next(walk(action, ttk.Treeview)).get_children()) == 1
+            click(action, "保存动作编排")
+            assert ProductionProject.open(origin).action_cards[0]["actor"] == "角色01"
+
+            pick_production_project(self, "分镜拆分", sibling)
+            chinese = visible_frame(self, "production_panel")
+            assert any("中文影片制作" in widget.getvar(variable) for widget in walk(chinese, ttk.Label)
+                       if (variable := widget.cget("textvariable")))
+
+            reviewed = root / "已交付的-SB03.zip"
+            validator_path = root / "返修定位-校验器.py"
+            validator_path.write_text(
+                'print("WARNING: SB03/SB03_shot_details.txt: shot SB03-02: repair fixture")\n'
+                'print("RESULT: 0 error(s), 1 warning(s)")\n', encoding="utf-8",
+            )
+            rows = "\n".join(f"- SB03-{i:02d} | {shot.id} | R1 | line {i}"
+                             for i, shot in enumerate(first.shots, 1))
+            with ZipFile(reviewed, "w") as package:
+                package.writestr("README.txt", f"同名制作项 · EP03\n组号：SB03\n镜头与来源：\n{rows}\n")
+                package.writestr("SB03/SB03_shot_details.txt", "分镜 SB03-01\n动作：开门\n分镜 SB03-02\n动作：核对门。")
+                package.writestr("SB03/SD2_prompt.txt", "分镜编号：SB03-01\n动作：开门\n分镜编号：SB03-02\n动作：核对门。")
+            review = show_page(self, REVIEW_TAB)
+            archive_entry, validator, *_ = walk(review, ttk.Entry)
+            for field, value in ((archive_entry, reviewed), (validator, validator_path)):
+                field.delete(0, "end")
+                field.insert(0, str(value))
+            click(review, "开始验收")
+            issues = next(walk(review, ttk.Treeview))
+            wait_for(self, issues.get_children, "Could not validate the ZIP and select a production issue")
+            issue = next(iid for iid in issues.get_children() if issues.item(iid, "values")[2] == "SB03-02")
+            issues.selection_set(issue)
+            issues.event_generate("<<TreeviewSelect>>")
+            with patch.object(filedialog, "askopenfilename",
+                              side_effect=AssertionError("A known exact shot should not need manual project selection")):
+                named(review, ttk.Button, "return_to_production", mapped=True).invoke()
+                matched = visible_frame(self, "production_panel")
+            table = next(w for w in walk(matched, ttk.Treeview) if w.winfo_ismapped())
+            assert table.selection() == (first.shots[1].id,)
+            assert any("英文影片制作" in widget.getvar(variable) for widget in walk(matched, ttk.Label)
+                       if (variable := widget.cget("textvariable")))
+            assert sibling.read_bytes() == sibling_bytes and decoy.read_bytes() == decoy_bytes
+            print("Verified isolated Chinese/English groups, director returns to SB03 and ZIP repair locates its exact shot",
+                  flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
+
+        def inspect_job_recovery(self):
+            from threading import Event
+
+            from src import image_production_dialog, vision_dialog
+            from src.image_api import ImageReply
+            from src.production_project import ProductionProject
+            from src.production_rules import CHINESE, ENGLISH
+
+            source = project_path.with_name("请求发起-SB03.cfproject")
+            other = project_path.with_name("并行项目-SB04.cfproject")
+            ProductionProject("生图发起组", "EP03", "SB03", rules=ENGLISH).save(source)
+            ProductionProject("另一个组", "EP03", "SB04", rules=CHINESE).save(other)
+            other_bytes = other.read_bytes()
+            asset = BytesIO()
+            Image.new("RGB", (640, 360), "steelblue").save(asset, format="PNG")
+            release, sent = Event(), Event()
+            requests = []
+
+            def submit(_settings, request):
+                requests.append(request)
+                sent.set()
+                assert release.wait(8), "UI blocked while the offline image worker was running"
+                return ImageReply((asset.getvalue(),), request_id="smoke-detached-group-image")
+
+            pick_production_project(self, "资产图生成", source)
+            editor = visible_frame(self, "image_production_editor")
+            navigation = next(walk(self, ttk.Notebook))
+            origin_tab = navigation.select()
+            label = next(w for w in walk(editor, ttk.Label) if w.cget("text") == "API Key")
+            key = label.master.grid_slaves(row=int(label.grid_info()["row"]), column=1)[0]
+            key.insert(0, "synthetic-key-for-local-test")
+            named(visible_frame(self, "production_task_header"), ttk.Button, "open_task_api", mapped=True).invoke()
+            self.update()
+            api = page_at(self, API_TAB)
+            assert api.winfo_ismapped()
+            named(api, ttk.Button, "api_return", mapped=True).invoke()
+            self.update_idletasks()
+            assert navigation.select() == origin_tab and editor.winfo_ismapped()
+            assert key.get() == "synthetic-key-for-local-test"
+
+            def reopen_job(source_name, expected_editor):
+                page = show_page(self, REVIEW_TAB)
+                named(page, ttk.Button, "workbench_jobs", mapped=True).invoke()
+                center = visible_frame(self, "jobs_center")
+                registry = named(center, ttk.Treeview, "registered_jobs")
+                wait_for(self, registry.get_children, "The running job was absent from the workbench registry")
+                row = next(iid for iid in registry.get_children() if source_name in str(registry.item(iid, "values")))
+                registry.selection_set(row)
+                registry.event_generate("<<TreeviewSelect>>")
+                named(center, ttk.Button, "resume_job", mapped=True).invoke()
+                return visible_frame(self, expected_editor)
+
+            with (patch.object(image_production_dialog, "submit_image", side_effect=submit),
+                  patch.object(messagebox, "askyesno", return_value=True)):
+                try:
+                    click(editor, "确认并提交生图")
+                    wait_for(self, sent.is_set, "The offline image job did not start")
+                    pending, = ProductionProject.open(source).image_jobs
+                    assert pending["status"] == "submitting"
+
+                    pick_production_project(self, "资产图生成", other)
+                    alternate = visible_frame(self, "image_production_editor")
+                    assert alternate is not editor and navigation.select() != origin_tab
+                    navigation.select(origin_tab)
+                    close_current_task(self)
+                    assert not editor.winfo_exists() and alternate.winfo_ismapped() and not release.is_set()
+
+                    recovered = reopen_job("SB03", "image_production_editor")
+                    history = next(walk(recovered, ttk.Notebook))
+                    assert recovered is not alternate and history.index(history.select()) == 1
+                    history.select(0)
+                    send = next(button for button in walk(recovered, ttk.Button)
+                                if button.cget("text") == "确认并提交生图")
+                    send.invoke()
+                    history.select(1)
+                    assert len(requests) == 1
+                finally:
+                    release.set()
+
+                def completed():
+                    job, = ProductionProject.open(source).image_jobs
+                    return job if job["status"] == "ready" and any(
+                        job["request_id"] in widget.get("1.0", "end-1c") for widget in walk(recovered, tk.Text)
+                    ) else None
+
+                result = wait_for(self, completed, "The detached job did not persist its image candidate")
+            assert len(requests) == 1 and result["id"] == pending["id"] and len(result["outputs"]) == 1
+            assert result["request_id"] == "smoke-detached-group-image"
+            assert any(result["request_id"] in widget.get("1.0", "end-1c") for widget in walk(recovered, tk.Text))
+            assert other.read_bytes() == other_bytes
+            assert b"synthetic-key-for-local-test" not in source.read_bytes()
+
+            review = show_page(self, REVIEW_TAB)
+            click(review, "开始验收")
+            selector = next(walk(review, ttk.Combobox))
+            wait_for(self, lambda: "SB01/storyboard_2panel.png" in selector["values"], "Fixture image was not indexed")
+            selector.set("SB01/storyboard_2panel.png")
+            selector.event_generate("<<ComboboxSelected>>")
+            click(review, "AI 辅助看图")
+            vision = visible_frame(self, "vision_review_editor")
+            named(vision, ttk.Entry, "vision_key").insert(0, "isolated-vision-key")
+            named(vision, ttk.Entry, "vision_model").insert(0, "offline-test-model")
+            named(vision, ttk.Entry, "vision_focus").insert(0, "只核对窗口和肩膀位置")
+            vision_calls = []
+            sent.clear()
+            release.clear()
+
+            def analyze(_settings, image, *, focus, rules):
+                with Image.open(BytesIO(image)) as picture:
+                    assert picture.size == (640, 360)
+                assert focus == "只核对窗口和肩膀位置" and rules == ENGLISH
+                vision_calls.append(focus)
+                sent.set()
+                assert release.wait(8), "UI blocked while the offline review worker was running"
+                return "离线审图候选：保留原图构图"
+
+            with (patch.object(vision_dialog, "review_image", side_effect=analyze),
+                  patch.object(messagebox, "askyesno", return_value=True)):
+                try:
+                    named(vision, ttk.Button, "vision_send").invoke()
+                    wait_for(self, sent.is_set, "The offline vision request did not start")
+                    close_current_task(self)
+                    assert not vision.winfo_exists()
+                    recovered_vision = reopen_job("storyboard_2panel.png", "vision_review_editor")
+                    named(recovered_vision, ttk.Button, "vision_send").invoke()
+                    assert len(vision_calls) == 1
+                finally:
+                    release.set()
+                output = named(recovered_vision, tk.Text, "vision_output")
+                wait_for(self, lambda: "离线审图候选" in output.get("1.0", "end-1c"),
+                         "The reopened vision workspace did not restore its result")
+            assert len(vision_calls) == 1
+            print("Verified detached image and vision requests, task recovery and one submission for each original input", flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
+
         def inspect_task_navigation(self):
             from src.production_project import ProductionProject
             from src.production_rules import CHINESE, ENGLISH
@@ -1295,10 +1527,6 @@ def run_inside_launcher():
             def named(scope, kind, name):
                 return next(control for control in walk(scope, kind) if control.winfo_name() == name)
 
-            def batch_panel(english):
-                expected = "Batch production center" if english else "批量制作中心"
-                return next((panel for panel in walk(self, tk.Toplevel) if panel.title() == expected), None)
-
             def after_ready(test, done, reason):
                 deadline = time.monotonic() + 5
 
@@ -1325,7 +1553,7 @@ def run_inside_launcher():
                     ancestry.append((current.winfo_name(), current.winfo_manager(), current.winfo_ismapped(),
                                      current.winfo_width(), current.winfo_height()))
                     current = current.master
-                details = (caption, window.geometry(), (x - left, y - top), size, requested, ancestry)
+                details = (caption, window.winfo_geometry(), (x - left, y - top), size, requested, ancestry)
                 assert button.winfo_ismapped(), ("control not visible", details)
                 assert left <= x and x + size[0] <= right, ("horizontal clipping", details)
                 assert top <= y and y + size[1] <= bottom, ("vertical clipping", details)
@@ -1375,8 +1603,8 @@ def run_inside_launcher():
 
             def launch(english, home_delivery, production):
                 home_delivery.invoke()
-                panel = batch_panel(english)
-                assert panel is not None
+                panel = visible_frame(self, "batch_workspace")
+                assert not self.grab_current()
                 tabs = next(walk(panel, ttk.Notebook))
                 assert tabs.index(tabs.select()) == 3, "home delivery route must select the real delivery page"
                 if not english:
@@ -1415,26 +1643,23 @@ def run_inside_launcher():
                     measure(panel, list(walk(footer, ttk.Button)))
                     return [named(panel, ttk.Button, "step_" + name) for name in step_names]
 
-                layout(panel, batch_steps, lambda: open_group_review(english, production, panel))
+                layout(self, batch_steps, lambda: open_group_review(english, production, panel))
 
             def open_group_review(english, production, panel):
                 caption = "Open group for review" if english else "打开本组复核"
 
                 def editor_for_selected_group():
-                    title = f"{APP_NAME_EN} · Group production" if english else f"{APP_NAME_ZH} · 单组制片"
-                    for editor in walk(panel, tk.Toplevel):
-                        if editor.title() == title:
-                            values = {field.get() for field in walk(editor, ttk.Entry)}
-                            if {"EP04", "SB02"} <= values:
-                                return editor
-                    return None
+                    header = next((frame for frame in walk(self, ttk.Frame) if
+                                   frame.winfo_name() == "production_task_header" and frame.winfo_ismapped()), None)
+                    return header and any("EP04" in label.cget("text") and "SB02" in label.cget("text")
+                                          for label in walk(header, ttk.Label))
 
-                def close_editor(editor):
-                    with patch.object(messagebox, "askyesnocancel", return_value=False):
-                        editor.tk.eval(editor.protocol("WM_DELETE_WINDOW"))
+                def close_editor(_editor):
+                    close_current_task(self)
                     close_caption = "Close" if english else "关闭"
-                    after_ready(lambda: any(control.cget("text") == close_caption and control.instate(["!disabled"])
-                                            for control in walk(panel, ttk.Button)),
+                    after_ready(lambda: panel.winfo_ismapped() and any(
+                        control.cget("text") == close_caption and control.instate(["!disabled"])
+                        for control in walk(panel, ttk.Button)),
                                 lambda _ready: finish(english, production, panel),
                                 "Batch review did not resume after closing the group")
 
@@ -1443,14 +1668,14 @@ def run_inside_launcher():
 
             def finish(english, production, panel):
                 click(panel, "Close" if english else "关闭")
+                show_page(self, PRODUCTION_TAB)
                 if not english:
                     click(self, "中文 / English")
                     start_language(True)
                     return
                 resume = named(production, ttk.Button, "a_home_resume")
                 resume.invoke()
-                reopened = batch_panel(True)
-                assert reopened is not None
+                reopened = visible_frame(self, "batch_workspace")
 
                 def resumed():
                     episode = named(reopened, ttk.Combobox, "episode")
@@ -1498,8 +1723,9 @@ def run_inside_launcher():
 
                 self.after(45, poll)
 
-            def titled(label):
-                return next((panel for panel in walk(self, tk.Toplevel) if panel.title() == label), None)
+            def visible(name):
+                return next((panel for panel in walk(self, ttk.Frame)
+                             if panel.winfo_name() == name and panel.winfo_ismapped()), None)
 
             def named(panel, kind, name):
                 return next(widget for widget in walk(panel, kind) if widget.winfo_name() == name)
@@ -1537,7 +1763,8 @@ def run_inside_launcher():
                 for episode, script in zip(workspace.episodes, scripts):
                     assert workspace.source_text(episode.id).encode("utf-8") == script.read_bytes()
                 click(panel, "关闭")
-                wait_for(lambda: titled("批量制作中心"), reopen, "batch center did not reopen")
+                show_page(self, PRODUCTION_TAB)
+                wait_for(lambda: visible("batch_workspace"), reopen, "batch center did not reopen")
                 click(gallery, "批量制作中心")
 
             def reopen(panel):
@@ -1558,24 +1785,31 @@ def run_inside_launcher():
                     trace.selection_set(iid)
                     trace.event_generate("<<TreeviewSelect>>")
                     self.update_idletasks()
-                    wait_for(lambda: titled(f"{APP_NAME_ZH} · 单组制片"), finish, "could not open group from batch")
+                    selector = named(panel, ttk.Combobox, "batch_group")
+                    assert selector.get().startswith("SB01")
+                    wait_for(lambda: visible("production_task_header"), finish, "could not open group from batch")
                     click(panel, "打开单组制片")
 
                 wait_for(locate_line, inspect_group, "could not trace episode 3 dialogue to its group")
 
-            def finish(group_editor):
+            def finish(group_header):
                 def loaded():
-                    entries = {widget.get() for widget in walk(group_editor, ttk.Entry)}
-                    return {"EP03", "SB01"} <= entries
+                    return any("EP03" in label.cget("text") and "SB01" in label.cget("text")
+                               for label in walk(group_header, ttk.Label))
                 def close_editor(_ok):
-                    with patch.object(messagebox, "askyesnocancel", return_value=False):
-                        group_editor.tk.eval(group_editor.protocol("WM_DELETE_WINDOW"))
-                    self.after(100, prepare_queue)
+                    named(group_header, ttk.Button, "return_to_batch").invoke()
+
+                    def inspect_target(panel):
+                        assert named(panel, ttk.Combobox, "episode").get().startswith("EP03")
+                        assert named(panel, ttk.Combobox, "batch_group").get() == "SB01"
+                        self.after(100, prepare_queue)
+
+                    wait_for(lambda: visible("batch_workspace"), inspect_target, "case could not return to the batch locator")
 
                 wait_for(loaded, close_editor, "incorrect group opened from source trace")
 
             def prepare_queue():
-                panel = titled("批量制作中心")
+                panel = visible_frame(self, "batch_workspace")
                 def enabled(label):
                     return any(b.cget("text") == label and b.instate(["!disabled"]) for b in walk(panel, ttk.Button))
 
@@ -1585,11 +1819,29 @@ def run_inside_launcher():
                              enqueue, "episode plan approval was not persisted")
 
                 def enqueue(_ready):
-                    show_page(panel, 2)
-                    click(panel, "本集加入队列")
-                    jobs = named(panel, ttk.Treeview, "jobs")
-                    wait_for(lambda: jobs.get_children(), lambda _rows: preflight(panel),
-                             "approved episode tasks did not enter the queue")
+                    named(panel, ttk.Button, "step_queue").invoke()
+                    self.update_idletasks()
+                    episode = named(panel, ttk.Combobox, "episode").get()
+                    group = named(panel, ttk.Combobox, "batch_group").get()
+                    named(panel, ttk.Button, "open_api").invoke()
+                    self.update()
+                    api = page_at(self, API_TAB)
+                    back = named(api, ttk.Button, "api_return")
+                    assert back.winfo_ismapped()
+                    back.invoke()
+                    self.update_idletasks()
+                    assert panel.winfo_ismapped()
+                    assert named(panel, ttk.Combobox, "episode").get() == episode
+                    assert named(panel, ttk.Combobox, "batch_group").get() == group
+                    assert next(walk(panel, ttk.Notebook)).index("current") == 2
+
+                    def enqueue_loaded(_ready):
+                        click(panel, "本集加入队列")
+                        jobs = named(panel, ttk.Treeview, "jobs")
+                        wait_for(lambda: jobs.get_children(), lambda _rows: preflight(panel),
+                                 "approved episode tasks did not enter the queue")
+
+                    wait_for(lambda: enabled("本集加入队列"), enqueue_loaded, "API return lost the batch queue")
 
                 wait_for(lambda: enabled("确认本集规划"), approve, "batch editor did not resume")
 
@@ -1617,7 +1869,7 @@ def run_inside_launcher():
                 print("COMICFLOW_GUI_OK", flush=True)
                 self.after_idle(self.destroy)
 
-            wait_for(lambda: titled("批量制作中心"), create, "batch center did not open")
+            wait_for(lambda: visible("batch_workspace"), create, "batch center did not open")
             click(gallery, "批量制作中心")
 
         def inspect_ecommerce(self):
@@ -1729,6 +1981,16 @@ def run_inside_launcher():
                     "board:SB02": ("board-02", "#2b4865", (1080, 1920)),
                 }
                 assert set(assets.get_children()) == {"product", *fixtures}
+                assets.selection_set("scene:厨房")
+                selected = assets.selection()
+                click(stages.nametowidget(stages.select()), "API 设置")
+                api = page_at(self, API_TAB)
+                self.update()
+                assert api.winfo_ismapped()
+                named(api, ttk.Button, "api_return", mapped=True).invoke()
+                self.update_idletasks()
+                assert page.winfo_ismapped() and stages.index(stages.select()) == 2 and assets.selection() == selected
+
                 images = {}
                 for key, (name, color, size) in fixtures.items():
                     path = ecommerce_path.with_name(f"{name}.png")
@@ -1743,11 +2005,13 @@ def run_inside_launcher():
                     images[key] = path
 
                 def confirm_image(title, done):
-                    panel = next((window for window in walk(self, tk.Toplevel) if window.title() == title), None)
-                    canvas = next(walk(panel, tk.Canvas), None) if panel else None
-                    if canvas is None or not canvas.winfo_viewable() or not canvas.find_all():
+                    panel = next((frame for frame in walk(page, ttk.Frame)
+                                  if frame.winfo_name() == "ecommerce_detail" and frame.winfo_ismapped()), None)
+                    if panel is None:
                         self.after(50, lambda: confirm_image(title, done))
                         return
+                    assert named(panel, ttk.Label, "ecommerce_detail_title").cget("text") == title
+                    assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
                     click(panel, "确认使用这张图")
                     done()
 
@@ -1794,8 +2058,9 @@ def run_inside_launcher():
                     detail = package.read(f"{first_group}/SB01_shot_details.txt").decode("utf-8-sig")
                     prompt = package.read(f"{first_group}/prompts/SD2_prompt.txt").decode("utf-8-sig")
                     assert "“See this bottle?”" in detail and "“See this bottle?”" in prompt
-                dialog = next(window for window in walk(self, tk.Toplevel) if window.title() == "交付完成")
-                click(dialog, "关闭")
+                detail = visible_frame(page, "ecommerce_detail")
+                assert named(detail, ttk.Label, "ecommerce_detail_title").cget("text") == "交付完成"
+                click(detail, "关闭")
                 click(page, "保存电商项目")
                 print("Verified ecommerce reference import, product gate, local cuts, asset binding and validated ZIP", flush=True)
                 print("COMICFLOW_GUI_OK", flush=True)
@@ -1814,7 +2079,8 @@ def run_inside_launcher():
             Image.new("RGB", (640, 360), "tan").save(reference_png)
 
             def receive_still(_parent, path, mode, callback, *, language):
-                assert (path, mode, language) == (project_path, "pose", "zh")
+                assert path.samefile(project_path)
+                assert (mode, language) == ("pose", "zh")
                 callback(director_png)
 
             show_page(self, PRODUCTION_TAB)
@@ -1839,12 +2105,7 @@ def run_inside_launcher():
 
             ProductionProject("服装动作试用", "EP01", "SB01").save(project_path)
             def open_reference(button):
-                filedialog.askopenfilename = lambda **_kwargs: str(project_path)
-                show_page(self, PRODUCTION_TAB)
-                if button == "角色服装设计":
-                    pick_production_project(self, button, project_path)
-                else:
-                    click(self, button)
+                pick_production_project(self, button, project_path)
                 self.after(150, lambda: use_reference(button))
 
             def use_reference(button):
@@ -1878,44 +2139,27 @@ def run_inside_launcher():
                     close_current_task(self)
                     open_reference("角色动作设计")
                 else:
-                    project = next(walk(self, tk.Toplevel))
-                    chooser = next(walk(project, tk.Toplevel))
-                    assert chooser.title() == button
+                    chooser = visible_frame(self, "pose_reference_editor")
                     with patch.object(reference_tools_dialog, "open_director", side_effect=receive_still):
                         click(chooser, "打开内置 3D 导演台")
-                    self.after(80, lambda: check_image_job(project))
                     click(chooser, "使用参考图进入生图")
-                    project.destroy()
+                    image_job = visible_frame(self, "image_production_editor")
+                    assert not list(walk(self, tk.Toplevel)) and self.grab_current() is None
+                    check_image_configuration(image_job, False)
+                    close_current_task(self)
                     verify_reference_files()
-
-            def check_image_job(project):
-                image_job = next(walk(project, tk.Toplevel))
-                assert image_job.title() == f"{APP_NAME_ZH} · 图像制片"
-                check_image_configuration(image_job, False)
-                image_job.destroy()
 
             def check_image_configuration(image_job, costume):
                 assert any(widget.get() == "参考图生图" for widget in walk(image_job, ttk.Combobox))
                 refs = next(walk(image_job, tk.Listbox))
                 assert len(refs.curselection()) == 1
 
-                if costume:
-                    click(image_job, "预览本次发送")
-                    preview = visible_frame(self, "image_report")
-                    payload = next(walk(preview, tk.Text)).get("1.0", "end-1c")
-                    assert "仅指定服装" in payload
-                    named(preview, ttk.Button, "close_preview").invoke()
-                    assert image_job.winfo_exists()
-                    return
-
-                def preview():
-                    window = next(walk(image_job, tk.Toplevel))
-                    payload = next(walk(window, tk.Text)).get("1.0", "end-1c")
-                    assert "仅指定人物动作" in payload
-                    window.destroy()
-
-                self.after(80, preview)
                 click(image_job, "预览本次发送")
+                preview = visible_frame(self, "image_report")
+                payload = next(walk(preview, tk.Text)).get("1.0", "end-1c")
+                assert ("仅指定服装" if costume else "仅指定人物动作") in payload
+                named(preview, ttk.Button, "close_preview").invoke()
+                assert image_job.winfo_exists()
 
             def verify_reference_files():
                 saved = ProductionProject.open(project_path)
@@ -2829,6 +3073,7 @@ def verify_windows_launcher(root=ROOT):
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("production-workspace", f' "{archive}"'),
+                               ("workbench-bridges", f' "{archive}"'), ("job-recovery", f' "{archive}"'),
                                ("image-entry", ""),
                                ("action-sequence", f' "{archive}"'), ("task-navigation", f' "{archive}"'),
                                ("dialogue-blocking", f' "{archive}"'),
@@ -2838,7 +3083,9 @@ def verify_windows_launcher(root=ROOT):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch", "production-workspace"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
-            if mode.startswith("a-layout-") or mode in {"task-navigation", "dialogue-blocking", "production-workspace"}:
+            if mode.startswith("a-layout-") or mode in {
+                "task-navigation", "dialogue-blocking", "production-workspace", "workbench-bridges", "job-recovery",
+            }:
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(
                 f'cmd.exe /d /c .\\Comic-Sequence-Studio.bat{argument}', cwd=root, env=launch_env,

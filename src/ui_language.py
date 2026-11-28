@@ -80,6 +80,19 @@ ENGLISH = {
     "替换本组已采用的资产分析稿？": "Replace the asset analysis adopted for this group?",
     "在当前补充需求末尾追加已采用的资产清单？": "Append the adopted asset analysis to the current brief?",
     "任务进行中": "Task in progress",
+    "任务中心": "Job center",
+    "正在向所选服务提交或查询…可关闭此页并从后台任务返回。":
+        "Request in progress. You can close this tab and return through the job center.",
+    "此项目已不含该生图任务。": "This project no longer contains that image job.",
+    "审图进行中，可从后台任务返回。": "Image review in progress. Return to it through the job center.",
+    "模型建议 · 待人工确认": "Model suggestions · Awaiting human review",
+    "调用失败": "Request failed",
+    "调用异常，请检查模型与网络设置。": "The request failed. Check the model and network settings.",
+    "最近一次交付验收": "Latest delivery inspection",
+    "返回发起页": "Return to originating page",
+    "回到批量制作": "Return to batch production",
+    "请求仍在运行，可以从任务中心查看。": "A request is still running. Open the job center to find it.",
+    "项目制作规则与当前批量任务不一致。": "This group uses different production rules from the batch.",
     "返回": "Back",
     "载入 API 接入设置": "Load API connection",
     "已载入本次 API 接入设置。": "Loaded this session’s API connection.",
@@ -547,6 +560,18 @@ ENGLISH = {
         "Panels follow the archive’s shot IDs and crop mapping. Review the visuals manually.",
     "该镜暂无唯一净板对应。": "This shot has no unique clean-plate mapping.",
     "资产与返修": "Assets & repairs",
+    "回到制作返修": "Open production task for repair",
+    "请选择 {group} 的单组项目": "Choose the group project for {group}",
+    "请选择可定位到唯一故事板组的验收结果或包内文件。":
+        "Select a review issue or archive file that belongs to one storyboard group.",
+    "所选项目的项目名、集次、组号或制作规则与该交付包不符。":
+        "The selected project’s title, episode, group or production rules do not match this archive.",
+    "所选项目没有与交付包相符的镜头源 ID。请核对项目文件。":
+        "The selected project and archive have no matching source shot IDs. Check the project file.",
+    "请选择本组的 .cfproject 单组项目文件。":
+        "Choose the .cfproject file for this storyboard group.",
+    "该 ZIP 缺少可核对的镜头源 ID。确认打开你选择的项目 {file}，并在项目内自行核对镜头？":
+        "This ZIP has no source shot IDs to verify. Open your selected project {file} and locate the shot manually?",
     "资产登记": "Asset registry",
     "返修打包": "Repair packaging",
     "资产登记库": "Asset registry database",

@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps, ImageTk
 
-from .director_desk import open_director
+from .director_desk import director_uses, open_director
 from .image_api import MAX_IMAGE_BYTES
 from .production_images import FORMATS
 from .production_project import ACTIONS
@@ -178,6 +178,10 @@ def open_reference_tools(parent, project, path, kind, on_confirm, *, mount=None,
             capture_folder.cleanup()
 
     def close():
+        if director_uses(window):
+            messagebox.showinfo(title, tr("请先完成或关闭 3D 导演台。", "Finish or close the 3D Director Desk first."),
+                                parent=window)
+            return
         window.destroy()
         if previous_grab is not None and previous_grab.winfo_exists():
             previous_grab.grab_set()
@@ -315,6 +319,8 @@ def open_reference_tools(parent, project, path, kind, on_confirm, *, mount=None,
             show(source, source.name)
 
     def apply():
+        if director_uses(window):
+            return
         if costume:
             pick_costume()
         if chosen is None:

@@ -20,7 +20,7 @@ from .dialogue_blocking import (
     DIALOGUE_PREVIEW_DIRECTORY, action_dialogue_preview, apply_dialogue_view, dialogue_fields, dialogue_roles,
     dialogue_variant, dialogue_view,
 )
-from .director_desk import open_director
+from .director_desk import director_uses, open_director
 from .production_project import ProductionProject
 from .production_rules import ENGLISH
 from .reference_tools_dialog import import_reference, read_reference
@@ -722,6 +722,9 @@ class ActionSequenceDialog:
     def open_director(self):
         open_director(self.frame, self.owner.path, "action", self.add_director_cards, language=self.t("zh", "en"))
 
+    def allow_close(self):
+        return not director_uses(self.frame)
+
     def add_director_cards(self, path):
         incoming = [
             ActionCard(title=entry["title"], actor=entry["actor"], prop=entry["prop"],
@@ -837,6 +840,9 @@ class ActionSequenceDialog:
         return self.cards != self.saved_cards or self.images != self.saved_images
 
     def close(self):
+        if not self.allow_close():
+            self.set_status("请先完成或关闭 3D 导演台。", "Finish or close the 3D Director Desk first.")
+            return
         if self.dirty():
             answer = messagebox.askyesnocancel(self.t("尚未保存", "Unsaved changes"),
                                                 self.t("离开前保存动作编排？", "Save the sequence before closing?"),

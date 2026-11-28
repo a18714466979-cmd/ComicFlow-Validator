@@ -1,12 +1,14 @@
 from base64 import b64encode
 from io import BytesIO
 import json
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from PIL import Image
 import pytest
 
+from src import director_desk
 from src.director_desk import director_server, session_url
 from src.director_action_import import import_director_cards
 
@@ -55,3 +57,60 @@ def test_action_handoff_waits_for_usable_tracks(tmp_path):
         assert submit(origin, token, {"kind": "action", "project": scene})["ok"]
         assert finished.wait(1)
         assert import_director_cards(tmp_path / "project.json", language="en")[0]["actor"] == "Actor"
+
+
+def test_workbench_director_uses_one_window_and_calls_the_origin(tmp_path, monkeypatch):
+    class Workbench:
+        def __init__(self):
+            self.callbacks = []
+
+        def after(self, _milliseconds, callback):
+            self.callbacks.append(callback)
+
+    class Tab:
+        def __init__(self, workbench):
+            self.workbench = workbench
+
+        def _root(self):
+            return self.workbench
+
+        def bind(self, *_args, **_kwargs):
+            return "director"
+
+        def unbind(self, *_args):
+            pass
+
+        def winfo_exists(self):
+            return True
+
+    class Process:
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+    launches = []
+    process = Process()
+
+    def spawn(args, **_options):
+        launches.append(Path(args[3]))
+        return process
+
+    monkeypatch.setattr(director_desk.subprocess, "Popen", spawn)
+    workbench = Workbench()
+    first, second = Tab(workbench), Tab(workbench)
+    captures = []
+    capture = lambda path: captures.append(path.read_bytes())
+    director_desk.open_director(first, tmp_path / "SB03.cfproject", "pose", capture)
+    director_desk.open_director(first, tmp_path / "SB03.cfproject", "pose", capture)
+    with pytest.raises(RuntimeError, match="already open"):
+        director_desk.open_director(second, tmp_path / "SB04.cfproject", "pose",
+                                   lambda _: pytest.fail("A result went to the other group."), language="en")
+
+    assert len(launches) == 1 and director_desk.director_uses(first)
+    assert not director_desk.director_uses(second)
+    Image.new("RGB", (16, 9), "blue").save(launches[0] / "frame.png")
+    process.returncode = 0
+    workbench.callbacks.pop(0)()
+    assert len(captures) == 1 and captures[0].startswith(b"\x89PNG")
+    assert not director_desk.director_uses(first) and not launches[0].exists()

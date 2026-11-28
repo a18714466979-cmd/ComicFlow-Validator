@@ -209,11 +209,20 @@ def run_window(output, instance, language, mode):
         raise
 
 
+def director_uses(parent):
+    session = getattr(parent._root(), "_director_session", None)
+    return bool(session and session[1] is parent)
+
+
 def open_director(parent, project_path, mode, on_result, *, language="zh"):
-    current = getattr(parent, "_director_process", None)
+    root = parent._root()
+    current = getattr(root, "_director_session", None)
     english = language == "en"
     title = "3D Director Desk" if english else "3D 导演台"
-    if current is not None and current.poll() is None:
+    if current is not None:
+        if current[1] is not parent:
+            raise RuntimeError("3D Director Desk is already open for another group. Finish that session first."
+                               if english else "另一组已打开 3D 导演台，请先完成那一组的取景。")
         return
     instance = "comicflow_" + sha256(os.fsencode(Path(project_path).resolve())).hexdigest()[:24]
     temporary = TemporaryDirectory(prefix="comicflow-director-")
@@ -226,8 +235,7 @@ def open_director(parent, project_path, mode, on_result, *, language="zh"):
     except OSError:
         temporary.cleanup()
         raise
-    parent._director_process = process
-    root = parent._root()
+    root._director_session = (process, parent)
 
     def cancel(event):
         if event.widget == parent and process.poll() is None:
@@ -253,6 +261,7 @@ def open_director(parent, project_path, mode, on_result, *, language="zh"):
         except (OSError, ValueError, RuntimeError) as error:
             messagebox.showerror(title, str(error), parent=parent)
         finally:
+            root._director_session = None
             temporary.cleanup()
 
     binding = parent.bind("<Destroy>", cancel, add="+")

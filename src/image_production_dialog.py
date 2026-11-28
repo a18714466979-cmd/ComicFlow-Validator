@@ -18,21 +18,53 @@ from .production_images import (
     KINDS, STATUS, approve_candidate, candidate_path, image_prompt_sections, job_request_prompt, local_patch,
     locked_image_rules, pinned_assets, prepare_job, shot_input, storyboard_job_page, store_reply,
 )
-from .production_project import atomic_text
+from .production_project import ProductionProject, atomic_text
 from .production_rules import CHINESE, ENGLISH
 from .shot_review import pixel_selection
+from .workbench_jobs import JobOutcome, canonical_location, job_label
 
 
 ACTIVE_IMAGE_PROJECTS = set()
 
 
+def finish_registered_image(path, identity, original, reply):
+    """Write a confirmed response to just its original project job."""
+    latest = ProductionProject.open(path)
+    if (latest.episode, latest.group, latest.rules) != identity:
+        raise ValueError("项目的集次、组号或制作规则已变化。请找回原项目再核对生图结果。")
+    index = next((n for n, job in enumerate(latest.image_jobs) if job.get("id") == original["id"]), None)
+    if index is None or latest.image_jobs[index] != original:
+        raise ValueError("原生图任务记录已变化。请先核对服务商后台。")
+    updated = deepcopy(original)
+    try:
+        if isinstance(reply, Exception):
+            raise reply
+        store_reply(path, updated, reply)
+    except ImageRequestError as error:
+        updated.update(status="unknown" if error.uncertain or updated.get("task_id") else "failed",
+                       message=str(error))
+        if error.request_id:
+            updated.setdefault("request_id", error.request_id)
+            updated["last_request_id"] = error.request_id
+    except OSError:
+        raise
+    except Exception:
+        updated.update(status="unknown", message="服务结果或候选文件无法登记，可按任务号继续查询。")
+    latest.image_jobs[index] = updated
+    latest.save(path)
+    return JobOutcome(updated["status"], updated.get("message", ""))
+
+
 class ImageProductionDialog:
-    def __init__(self, production, session, *, kind="角色", reference_id="", reference_kind="", mount=None):
+    def __init__(self, production, session, *, kind="角色", reference_id="", reference_kind="", mount=None,
+                 job_registry=None, on_recover=None):
         self.production, self.session = production, session
         self.path = production.path
         self.embedded = mount is not None
         self.project = production.latest_project() if self.embedded else production.project
         self.job_path = self.path.resolve()
+        self.job_registry = job_registry if self.embedded else None
+        self.on_recover = on_recover
         self.busy = False
         self.overlay = None
         self.saved_prompt = ""
@@ -63,6 +95,8 @@ class ImageProductionDialog:
             self.setup_history(history)
             if reference_id:
                 self.select_imported_reference()
+            if self.job_registry is not None:
+                self.job_registry.listen(self.window, self.job_registry_changed)
         except Exception:
             self.window.destroy()
             raise
@@ -599,6 +633,8 @@ class ImageProductionDialog:
         if not messagebox.askyesno(translate(self.window, "提交生图"), f"{mode} · {kind}\n{details}\n{usage}",
                                    parent=self.window):
             return
+        if not self.can_start():
+            return
         self.session.pop(settings.provider, None)
         self.session[settings.provider] = settings
         self.project.image_jobs.append(job)
@@ -694,12 +730,17 @@ class ImageProductionDialog:
             self.refresh_jobs(job)
 
     def can_start(self):
-        if self.busy or self.job_path in ACTIVE_IMAGE_PROJECTS:
+        if self.busy or self.job_path in ACTIVE_IMAGE_PROJECTS or (
+            self.job_registry is not None and self.job_registry.image_working(self.job_path)
+        ):
             self.status.set(translate(self.window, "正在提交或查询，请等本次请求返回。"))
             return False
         return True
 
     def start(self, job, call):
+        if self.job_registry is not None:
+            self.start_registered(job, call)
+            return
         self.busy = True
         ACTIVE_IMAGE_PROJECTS.add(self.job_path)
         self.status.set("正在向所选服务提交或查询…")
@@ -752,6 +793,54 @@ class ImageProductionDialog:
 
         Thread(target=worker, daemon=True).start()
         self.window.after(100, receive)
+
+    def job_key(self, identity):
+        return "image", canonical_location(self.job_path), identity
+
+    def show_registered_job(self, identity):
+        self.restore_body()
+        self.sync_project()
+        row = next((job for job in self.project.image_jobs if job.get("id") == identity), None)
+        if row is None:
+            raise ValueError(translate(self.window, "此项目已不含该生图任务。"))
+        self.tabs.select(1)
+        self.refresh_jobs(row)
+        self.job_registry_changed()
+
+    def job_registry_changed(self):
+        if not self.window.winfo_exists() or self.jobs.current() < 0:
+            return
+        job = self.picked_job()
+        record = self.job_registry.get(self.job_key(job.get("id")))
+        if record is not None:
+            try:
+                self.sync_project()
+            except (OSError, ValueError, RuntimeError) as error:
+                self.status.set(str(error))
+                return
+            if record.status == "working":
+                self.status.set(translate(self.window, "正在向所选服务提交或查询…可关闭此页并从后台任务返回。"))
+            else:
+                label = job_label(self.window, record.status)
+                self.status.set(f"{label} · {record.outcome.detail}" if record.outcome.detail else label)
+
+    def start_registered(self, job, call):
+        path = self.job_path
+        original = deepcopy(job)
+        identity = self.project.episode, self.project.group, self.project.rules
+        recover = self.on_recover
+
+        def complete(result):
+            try:
+                return finish_registered_image(path, identity, original, result)
+            finally:
+                ACTIVE_IMAGE_PROJECTS.discard(path)
+
+        if self.job_registry.start(
+            self.job_key(original["id"]), "故事板图生成" if job["kind"] == "故事板" else "资产图生成",
+            f"{identity[0]} · {identity[1]} · {path}", lambda key: recover(key[2]), call, complete,
+        ):
+            ACTIVE_IMAGE_PROJECTS.add(path)
 
     def picked_output(self):
         job = self.picked_job()

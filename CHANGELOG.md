@@ -2,6 +2,22 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.7.0 · 2026-11-28
+
+### 简体中文
+
+- 电商复刻在工作区内编辑分镜、确认资产和预览画面。API 接入提供「返回发起页」，切回当前阶段和选中内容。
+- 批量制作中心可在任务标签中定位具体集次和故事板组，打开相应工序后可回到批次。验收中的「回到制作返修」根据交付记录寻找源项目和镜头，也可选择本地项目复核。
+- 「任务中心」可找回本次软件运行内的交付验收、图像生成及图片审核。关闭编辑标签后，请求可继续返回，打开结果沿用原任务。
+- 3D 导演台以独立窗口显示，一次打开一组。取景或动作结果回到发起任务。
+
+### English
+
+- Edit shots, approve assets and preview images inside the e-commerce workspace. API connections can return to the originating page and selection.
+- Locate the exact episode and group in the batch task. Return to the batch from that group. From an inspection result, reopen the relevant tool after checking the project and shot against the delivery record.
+- The Job Center can reopen delivery inspections, image generation and image reviews from the current session. Requests continue when the originating tab closes, and reopening a result uses its original job.
+- One independent 3D Director Desk window can run at a time. Its snapshots and motion data return to the task that opened it.
+
 ## 2.6.0 · 2026-11-28
 
 ### 简体中文

@@ -20,7 +20,8 @@ CAPTIONS = {
     "group": "单组制片",
     "script": "剧本创作", "shots": "分镜拆分", "inventory": "资产分析", "generate_assets": "资产图生成",
     "generate_board": "故事板图生成", "prompts": "提示词生成", "deliver": "故事板组打包交付",
-    "assets": "批准图像", "layout": "排版与交接", "costume": "角色服装设计", "drafts": "文本制片",
+    "assets": "批准图像", "layout": "排版与交接", "costume": "角色服装设计", "pose": "角色动作设计",
+    "drafts": "文本制片",
 }
 NEXT_STAGE = {
     "shots": "inventory", "inventory": "generate_assets", "generate_assets": "generate_board",
@@ -34,7 +35,8 @@ def _asset_plan_path(path):
 
 class ProductionWorkspace:
     def __init__(self, root, tasks, current_path, selected_rules, validators, registry,
-                 text_session, image_session, remember_project, open_action):
+                 text_session, image_session, remember_project, open_action, *, open_api=None, jobs=None,
+                 on_batch_group=None):
         self.root = root
         self.tasks = tasks
         self.current_path = current_path
@@ -43,6 +45,9 @@ class ProductionWorkspace:
         self.text_session, self.image_session = text_session, image_session
         self.remember_project = remember_project
         self.open_action = open_action
+        self.open_api = open_api
+        self.jobs = jobs
+        self.on_batch_group = on_batch_group
         self.pending = None
 
     def tr(self, caption):
@@ -180,6 +185,7 @@ class ProductionWorkspace:
             options["source"] = source
         key = (os.path.normcase(str(location)) if location else "", stage,
                options.get("start_task") if stage == "drafts" else
+               options.get("adjacent_path") if stage == "layout" else
                options["source"].id if options.get("source") else rules if not location else None)
         existing = key in self.tasks.tasks
         task = self.tasks.open(key, lambda page, changed: ProductionStageTask(
@@ -197,6 +203,13 @@ class ProductionWorkspace:
             task.offer_asset_report(options["asset_report"])
         if options.get("source_id") and stage == "shots":
             task.select_script(options["source_id"], project)
+        if options.get("shot_id") or options.get("asset_filename"):
+            task.focus_repair(options.get("shot_id", ""), options.get("asset_filename", ""))
+        if options.get("job_id"):
+            task.editor.controller.show_registered_job(options["job_id"])
+        if self.on_batch_group and options.get("batch_context"):
+            task.batch_context = options["batch_context"]
+            task.show_batch_return()
         return task
 
     def save(self, path, base, edited):
@@ -320,6 +333,7 @@ class ProductionStageTask:
         self.stage, self.path, self.project, self.rules = stage, path, project, rules
         self.stage_variable = tk.StringVar(page, stage, name=f"{page.winfo_name()}_production_stage")
         self.confirmation = None
+        self.batch_context = None
         bar = ttk.Frame(page, name="production_task_header", padding=(9, 4))
         bar.pack(fill="x")
         self.heading = ttk.Label(bar, style="A.Muted.TLabel")
@@ -335,6 +349,10 @@ class ProductionStageTask:
                                    command=lambda: self.guard(lambda: self.navigate("assets")))
         if stage in {"generate_assets", "generate_board"}:
             self.approved.pack(side="right", padx=(4, 0))
+        self.api_button = ttk.Button(bar, name="open_task_api", command=workspace.open_api)
+        if workspace.open_api and stage in {"script", "inventory", "drafts", "generate_assets", "generate_board"}:
+            self.api_button.pack(side="right", padx=(4, 0))
+        self.batch_button = ttk.Button(bar, name="return_to_batch", command=self.return_to_batch)
         body = ttk.Frame(page, name="production_task")
         body.pack(fill="both", expand=True)
         self.editor = StageEditor(body)
@@ -364,6 +382,8 @@ class ProductionStageTask:
             self.next_button.configure(text=self.tr("下一步 · {tool}").format(tool=self.tr(CAPTIONS[NEXT_STAGE[self.stage]])))
         self.report_button.configure(text=self.tr("带入已采用的资产清单"))
         self.approved.configure(text=self.tr("批准图像"))
+        self.api_button.configure(text=self.tr("API 接入"))
+        self.batch_button.configure(text=self.tr("回到批量制作"))
         language = getattr(self.editor.controller, "refresh_language", None)
         if language:
             language()
@@ -426,6 +446,8 @@ class ProductionStageTask:
                 self.owner, ws.image_session, mount=body,
                 kind="故事板" if self.stage == "generate_board" else "角色",
                 reference_id=options.get("reference_id", ""), reference_kind=options.get("reference_kind", ""),
+                job_registry=ws.jobs,
+                on_recover=lambda job_id, stage=self.stage, path=self.path: ws.open(stage, path, job_id=job_id),
             )
         if self.stage == "drafts":
             from .drafting_dialog import DraftingDialog
@@ -438,22 +460,44 @@ class ProductionStageTask:
             return DraftingDialog(self.owner, ws.text_session, start_task=options.get("start_task", SHOT_TASK), parent=body)
         if self.stage == "layout":
             from .layout_dialog import LayoutDialog
-            return LayoutDialog(self.owner, mount=body)
-        if self.stage == "costume":
+            return LayoutDialog(self.owner, mount=body, adjacent_path=options.get("adjacent_path"))
+        if self.stage in {"costume", "pose"}:
+            from .director_desk import director_uses
             from .reference_tools_dialog import open_reference_tools
-            open_reference_tools(
-                self.workspace.root, self.project, self.path, "costume",
-                lambda reference_id: self.navigate("generate_assets", reference_id=reference_id, reference_kind="costume"),
+            frame = open_reference_tools(
+                self.workspace.root, self.project, self.path, self.stage,
+                lambda reference_id: self.navigate("generate_assets", reference_id=reference_id,
+                                                   reference_kind=self.stage),
                 mount=body, on_close=self.close_tab, latest_project=self.owner.latest_project,
                 save_project=self.owner.save_project,
             )
-            return None
+            frame.allow_close = lambda: not director_uses(frame)
+            return frame
         editor = ProductionDialog(
             body, ws.validators, ws.registry, ws.text_session, ws.image_session, self.rules, lambda _: None,
             embedded=True, destination=self.stage, on_save=self.save_snapshot, on_stage=self.navigate,
         )
         editor.load(deepcopy(self.project), self.path, source_id=options.get("source_id", ""))
         return editor
+
+    def focus_repair(self, shot_id, asset_filename):
+        editor = self.editor.controller
+        table = getattr(editor, "rows" if self.stage == "layout" else "shots", None)
+        if self.stage in {"shots", "layout"} and shot_id and table is not None and table.exists(shot_id):
+            table.selection_set(shot_id)
+            table.see(shot_id)
+        if self.stage == "assets" and asset_filename:
+            matches = [image.id for image in editor.project.images if image.filename == asset_filename]
+            if len(matches) == 1 and editor.images.exists(matches[0]):
+                editor.images.selection_set(matches[0])
+                editor.images.see(matches[0])
+
+    def show_batch_return(self):
+        self.batch_button.pack(side="right", padx=(4, 0))
+
+    def return_to_batch(self):
+        if self.batch_context and self.workspace.on_batch_group:
+            self.workspace.on_batch_group(*self.batch_context)
 
     def close_tab(self):
         for key, task in self.workspace.tasks.tasks.items():
@@ -513,4 +557,4 @@ class ProductionStageTask:
         if self.stage in {"shots", "prompts", "assets"} and self.editor.dirty():
             if self.editor.save() is False:
                 return None
-        return self.workspace.open(stage, self.path, **options)
+        return self.workspace.open(stage, self.path, batch_context=self.batch_context, **options)

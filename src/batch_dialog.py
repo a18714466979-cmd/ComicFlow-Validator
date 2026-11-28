@@ -47,24 +47,40 @@ GROUP_STATES = {
 
 
 class BatchDialog:
-    def __init__(self, parent, rules, text_session, image_session, validators, open_group):
+    def __init__(self, parent, rules, text_session, image_session, validators, open_group, *,
+                 mount=None, on_close=None, on_api=None):
         self.rules = rules
         self.text_session = text_session
         self.image_session = image_session
         self.validators = validators
         self.open_group = open_group
-        self.window = tk.Toplevel(parent)
+        self.embedded = mount is not None
+        self.on_close = on_close
+        self.on_api = on_api
+        self.refresh_on_return = False
+        self.pending_location = None
+        self.pending_open = None
+        self.labels = []
+        self.toolbars = []
+        self.scheduled = set()
+        if self.embedded:
+            self.window = mount.winfo_toplevel()
+            self.frame = ttk.Frame(mount, name="batch_workspace", style="A.TFrame")
+            self.frame.pack(fill="both", expand=True)
+        else:
+            self.window = self.frame = tk.Toplevel(parent)
         self.english = getattr(self.window._root(), "ui_language", "zh") == "en"
-        configure_workbench(self.window)
-        self.window.title(self.t("批量制作中心", "Batch production center"))
-        max_height = max(480, self.window.winfo_screenheight() - 72)
-        scaling = float(self.window.tk.call("tk", "scaling")) / (96 / 72)
-        min_height = min(max_height, max(600, round(595 * scaling)))
-        self.window.geometry(f"1080x{min(max_height, max(760, min_height))}")
-        self.window.minsize(770, min_height)
-        self.window.transient(parent)
-        self.window.protocol("WM_DELETE_WINDOW", self.close)
-        self.window.grab_set()
+        if not self.embedded:
+            configure_workbench(self.window)
+            self.window.title(self.title())
+            max_height = max(480, self.window.winfo_screenheight() - 72)
+            scaling = float(self.window.tk.call("tk", "scaling")) / (96 / 72)
+            min_height = min(max_height, max(600, round(595 * scaling)))
+            self.window.geometry(f"1080x{min(max_height, max(760, min_height))}")
+            self.window.minsize(770, min_height)
+            self.window.transient(parent)
+            self.window.protocol("WM_DELETE_WINDOW", self.close)
+            self.window.grab_set()
         self.workspace = None
         self.view = {}
         self.busy = False
@@ -85,9 +101,87 @@ class BatchDialog:
         self.asset_status = tk.StringVar(self.window)
         self.build()
         self.set_controls()
+        self.frame.bind("<Destroy>", self.cancel_scheduled, add="+")
 
     def t(self, zh, en):
         return en if self.english else zh
+
+    def title(self):
+        return self.t("批量制作中心", "Batch production center")
+
+    def label(self, widget, zh, en, *, heading=None):
+        self.labels.append((widget, zh, en, heading))
+        if heading is None:
+            widget.configure(text=self.t(zh, en))
+        else:
+            widget.heading(heading, text=self.t(zh, en))
+        return widget
+
+    def refresh_language(self):
+        english = getattr(self.window._root(), "ui_language", "zh") == "en"
+        if english == self.english:
+            return
+        self.english = english
+        for widget, zh, en, heading in self.labels:
+            if heading is None:
+                widget.configure(text=self.t(zh, en))
+            else:
+                widget.heading(heading, text=self.t(zh, en))
+        for stage, zh, en in STAGES[1:]:
+            self.tabs.tab(self.pages[stage], text=self.t(zh, en))
+        self.refresh_models()
+        self.update_steps()
+        self.arrange_steps()
+        for toolbar in self.toolbars:
+            self.frame.after_idle(toolbar)
+        if self.workspace is None:
+            self.heading.set(self.t("尚未打开批次", "No batch open"))
+            self.import_hint.set(self.t("先新建批次或打开已有的 .cfbatch。", "Create a batch or open an existing .cfbatch first."))
+            self.show_delivery_selection()
+        elif not self.busy:
+            self.render(self.view)
+
+    def wait_panel(self, panel):
+        previous = self.window.grab_current()
+        panel.grab_set()
+        try:
+            self.window.wait_window(panel)
+        finally:
+            if previous is not None and previous.winfo_exists():
+                previous.grab_set()
+
+    def after(self, delay, action):
+        def run():
+            self.scheduled.discard(token)
+            action()
+
+        token = self.frame.after(delay, run)
+        self.scheduled.add(token)
+
+    def cancel_scheduled(self, event):
+        if event.widget is self.frame:
+            for token in self.scheduled:
+                self.frame.after_cancel(token)
+            self.scheduled.clear()
+
+    def refresh_models(self):
+        for index, session in enumerate((self.text_session, self.image_session)):
+            box, previous = self.model_boxes[index]
+            prior = previous[box.current()] if previous and 0 <= box.current() < len(previous) else None
+            settings = list(session.values())
+            labels = [f"{item.provider} · {item.model}" for item in settings]
+            box.configure(values=labels or [self.t("未配置", "Not configured")])
+            pick = next((i for i, item in enumerate(settings)
+                         if prior is not None and (item.provider, item.model) == (prior.provider, prior.model)),
+                        len(settings) - 1 if settings else 0)
+            box.current(pick)
+            self.model_boxes[index] = box, settings
+
+    def activate(self):
+        self.refresh_models()
+        if self.refresh_on_return and self.workspace is not None and not self.busy:
+            self.refresh_on_return = False
+            self.reload()
 
     def guarded(self, callback):
         if not self.busy:
@@ -97,11 +191,12 @@ class BatchDialog:
                 self.error(error)
 
     def error(self, error):
-        messagebox.showerror(self.window.title(), str(error), parent=self.window)
+        messagebox.showerror(self.title(), str(error), parent=self.window)
 
-    def button(self, bar, zh, en, action, needs="episode", *, primary=False, side="left"):
+    def button(self, bar, zh, en, action, needs="episode", *, primary=False, side="left", name=None):
         style = "Primary.Workbench.TButton" if primary else "Workbench.TButton"
-        button = ttk.Button(bar, text=self.t(zh, en), width=0, style=style, command=lambda: self.guarded(action))
+        button = self.label(ttk.Button(bar, width=0, style=style, command=lambda: self.guarded(action),
+                                       **({"name": name} if name else {})), zh, en)
         button.pack(side=side, padx=(0, 6) if side == "left" else (6, 0), pady=3)
         self.controls.append((button, needs))
         return button
@@ -118,18 +213,20 @@ class BatchDialog:
             options.pop("in")
             horizontal = options["padx"]
             padding = 2 * horizontal if isinstance(horizontal, int) else sum(map(int, horizontal))
-            controls.append((widget, options, widget.winfo_reqwidth() + padding))
+            controls.append((widget, options, padding))
         previous = None
         rows = []
 
-        def arrange(event):
+        def arrange(event=None):
             nonlocal previous
             lines = [[]]
-            remaining = event.width
-            for index, (_, _, width) in enumerate(controls):
+            total = event.width if event is not None else bar.winfo_width()
+            remaining = total
+            for index, (widget, _, padding) in enumerate(controls):
+                width = widget.winfo_reqwidth() + padding
                 if lines[-1] and width > remaining:
                     lines.append([])
-                    remaining = event.width
+                    remaining = total
                 lines[-1].append(index)
                 remaining -= width
             if lines == previous:
@@ -149,6 +246,7 @@ class BatchDialog:
                     widget.pack(in_=row, **options)
 
         bar.bind("<Configure>", arrange, add="+")
+        self.toolbars.append(arrange)
 
     def note(self, parent, zh, en):
         label = ttk.Label(parent, text=self.t(zh, en), style="A.Muted.TLabel", wraplength=740, justify="left")
@@ -164,7 +262,7 @@ class BatchDialog:
         table = ttk.Treeview(area, name=name, style="A.Treeview", columns=[x[0] for x in columns],
                              show="headings", selectmode="browse", height=height)
         for key, zh, en, size in columns:
-            table.heading(key, text=self.t(zh, en))
+            self.label(table, zh, en, heading=key)
             table.column(key, width=size, minwidth=43, stretch=key in {"text", "message", "identity", "state_name", "scene"})
         vertical = ttk.Scrollbar(area, orient="vertical", command=table.yview)
         horizontal = ttk.Scrollbar(area, orient="horizontal", command=table.xview)
@@ -175,12 +273,12 @@ class BatchDialog:
         return table
 
     def build(self):
-        body = ttk.Frame(self.window, padding=(18, 12), style="A.TFrame")
+        self.body = body = ttk.Frame(self.frame, padding=(18, 10) if self.embedded else (18, 12), style="A.TFrame")
         body.pack(fill="both", expand=True)
         header = self.toolbar(body)
         self.button(header, "关闭", "Close", self.close, "always", side="right")
-        ttk.Label(header, text=self.window.title(), style="A.TLabel",
-                  font=("TkDefaultFont", 17, "bold")).pack(anchor="w")
+        self.label(ttk.Label(header, style="A.TLabel", font=("TkDefaultFont", 17, "bold")),
+                   "批量制作中心", "Batch production center").pack(anchor="w")
         heading = ttk.Label(body, textvariable=self.heading, style="A.Muted.TLabel", wraplength=850)
         heading.pack(fill="x", pady=(1, 6))
         body.bind("<Configure>", lambda event: heading.configure(wraplength=max(200, event.width - 40)), add="+")
@@ -203,12 +301,14 @@ class BatchDialog:
         self.wrap_toolbar(bar)
 
         line = self.toolbar(body)
-        ttk.Label(line, text=self.t("当前集", "Episode"), style="A.TLabel").pack(side="left", padx=(0, 5))
+        self.button(line, "打开目标组", "Open target group", self.open_target_group, "target_group",
+                    side="right", name="open_target_group")
+        self.label(ttk.Label(line, style="A.TLabel"), "当前集", "Episode").pack(side="left", padx=(0, 5))
         self.episode_box = ttk.Combobox(line, name="episode", state="readonly", width=25)
         self.episode_box.pack(side="left", padx=(0, 10))
         self.episode_box.bind("<<ComboboxSelected>>", self.switch_episode)
-        ttk.Label(line, text=self.t("目标组", "Group"), style="A.TLabel").pack(side="left", padx=(0, 4))
-        self.group_box = ttk.Combobox(line, state="readonly", width=7)
+        self.label(ttk.Label(line, style="A.TLabel"), "目标组", "Group").pack(side="left", padx=(0, 4))
+        self.group_box = ttk.Combobox(line, name="batch_group", state="readonly", width=7)
         self.group_box.pack(side="left", padx=(0, 10))
         self.group_box.bind("<<ComboboxSelected>>", self.select_group)
         ttk.Label(line, textvariable=self.summary, style="A.Muted.TLabel").pack(side="left")
@@ -216,8 +316,9 @@ class BatchDialog:
         content = ttk.Frame(body, style="A.TFrame")
         content.pack(fill="both", expand=True, pady=(5, 6))
         self.import_page = ttk.Frame(content, padding=16, style="A.Card.TFrame")
-        ttk.Label(self.import_page, text=self.t("导入一集或多集定稿", "Add one or more final scripts"),
-                  style="A.TLabel", font=("TkDefaultFont", 14, "bold"), background=SURFACE).pack(anchor="w")
+        self.label(ttk.Label(self.import_page, style="A.TLabel", font=("TkDefaultFont", 14, "bold"),
+                             background=SURFACE),
+                   "导入一集或多集定稿", "Add one or more final scripts").pack(anchor="w")
         details = tk.StringVar(self.window)
         self.import_hint = details
         self.import_hint.set(self.t("先新建批次或打开已有的 .cfbatch。", "Create a batch or open an existing .cfbatch first."))
@@ -320,7 +421,7 @@ class BatchDialog:
 
     def build_plan(self, page):
         bar = self.toolbar(page)
-        ttk.Label(bar, text=self.t("查找原文或镜号", "Find passage or shot")).pack(side="left", padx=(0, 5))
+        self.label(ttk.Label(bar), "查找原文或镜号", "Find passage or shot").pack(side="left", padx=(0, 5))
         ttk.Entry(bar, name="search", textvariable=self.search, width=17).pack(side="left", padx=(0, 8))
         self.button(bar, "查看整集原文", "Read script", self.show_script)
         self.button(bar, "确认本集规划", "Approve episode plan", self.approve_plan, primary=True)
@@ -368,29 +469,31 @@ class BatchDialog:
     def build_queue(self, page):
         model_bar = self.toolbar(page)
         self.model_boxes = []
-        for session, zh, en in ((self.text_session, "文本模型", "Text model"), (self.image_session, "生图模型", "Image model")):
-            ttk.Label(model_bar, text=self.t(zh, en)).pack(side="left", padx=(0, 4))
-            labels = [self.t("未配置", "Not configured")] if not session else [f"{s.provider} · {s.model}" for s in session.values()]
-            box = ttk.Combobox(model_bar, values=labels, state="readonly", width=24)
-            box.current(len(labels) - 1)
+        for zh, en in (("文本模型", "Text model"), ("生图模型", "Image model")):
+            self.label(ttk.Label(model_bar), zh, en).pack(side="left", padx=(0, 4))
+            box = ttk.Combobox(model_bar, state="readonly", width=24)
             box.pack(side="left", padx=(0, 10))
-            self.model_boxes.append((box, list(session.values())))
+            self.model_boxes.append((box, []))
+        if self.on_api is not None:
+            self.button(model_bar, "配置 API", "Configure API", self.on_api, "always", side="right", name="open_api")
+        self.refresh_models()
         self.wrap_toolbar(model_bar)
         bar = self.toolbar(page)
         self.kinds = {}
         for key, (zh, en) in TASK_KINDS.items():
             var = tk.BooleanVar(self.window, True)
             self.kinds[key] = var
-            ttk.Checkbutton(bar, text=self.t(zh, en), variable=var).pack(side="left", padx=(0, 6))
+            self.label(ttk.Checkbutton(bar, variable=var), zh, en).pack(side="left", padx=(0, 6))
         self.button(bar, "本集加入队列", "Queue episode", lambda: self.enqueue(False))
         self.button(bar, "多集加入队列", "Queue all episodes", lambda: self.enqueue(True))
         self.wrap_toolbar(bar)
         bar = self.toolbar(page)
-        ttk.Label(bar, text=self.t("本批 API 请求上限", "Batch request limit")).pack(side="left")
+        self.label(ttk.Label(bar), "本批 API 请求上限", "Batch request limit").pack(side="left")
         self.limit_box = ttk.Entry(bar, width=5, textvariable=self.budget)
         self.limit_box.pack(side="left", padx=(5, 8))
         self.button(bar, "运行／继续", "Run / resume", self.run_queue, primary=True)
-        self.pause = ttk.Button(bar, text=self.t("本次请求后暂停", "Pause after request"), width=0, command=self.pause_queue)
+        self.pause = self.label(ttk.Button(bar, width=0, command=self.pause_queue),
+                                "本次请求后暂停", "Pause after request")
         self.pause.pack(side="left", padx=(0, 5))
         self.wrap_toolbar(bar)
         ttk.Label(page, textvariable=self.queue_status, wraplength=740).pack(anchor="w", pady=(0, 4))
@@ -574,6 +677,7 @@ class BatchDialog:
         record = self.delivery_record()
         policy = {
             "always": True, "batch": bool(self.workspace), "episode": bool(self.episode_id),
+            "target_group": self.group_box.get() in self.view.get("paths", {}),
             "review_group": record.get("group") in self.view.get("paths", {}),
             "review_previous": self.can_open_handoff(record),
             "release_episode": self.episode_can_publish(),
@@ -613,7 +717,7 @@ class BatchDialog:
             try:
                 success, result = results.get_nowait()
             except Empty:
-                self.window.after(90, poll)
+                self.after(90, poll)
                 return
             self.busy = False
             self.stop = None
@@ -622,11 +726,19 @@ class BatchDialog:
             if success:
                 self.guarded(lambda: done(result))
             else:
+                self.pending_location = None
                 self.status.set(self.t("操作未完成。", "Action did not finish."))
                 self.error(result)
+            if self.pending_open is not None and not self.busy:
+                path, episode, group, stage = self.pending_open
+                self.pending_open = None
+                self.pending_location = None
+                self.open_path(path, episode_id=episode, group_id=group, stage=stage)
+            elif self.pending_open is None:
+                self.apply_pending_location()
 
         Thread(target=run, daemon=True).start()
-        self.window.after(60, poll)
+        self.after(60, poll)
 
     @staticmethod
     def shot_note(project, final):
@@ -734,9 +846,46 @@ class BatchDialog:
         if path:
             self.open_path(path)
 
-    def open_path(self, path, *, episode_id=None):
-        self.task(lambda: self.snapshot(BatchWorkspace.open(Path(path)), episode_id or ""), self.render,
+    def open_path(self, path, *, episode_id=None, group_id=None, stage=None):
+        path = Path(path).resolve()
+        if self.busy:
+            self.pending_open = path, episode_id, group_id, stage
+            self.status.set(self.t(f"当前操作完成后打开批次 {path.name}。",
+                                   f"Opening batch {path.name} after the current operation."))
+            return
+        if self.workspace is not None and self.workspace.path == path:
+            self.locate(episode_id, group_id, stage)
+            return
+        self.pending_location = (episode_id, group_id, stage) if (episode_id or group_id or stage) else None
+        if stage is not None:
+            self.select_stage(stage)
+        self.task(lambda: self.snapshot(BatchWorkspace.open(path), episode_id or ""), self.render,
                   self.t("正在打开批次…", "Opening batch…"))
+
+    def locate(self, episode_id=None, group_id=None, stage=None):
+        self.pending_location = episode_id, group_id, stage
+        self.apply_pending_location()
+
+    def apply_pending_location(self):
+        if self.busy or self.pending_location is None:
+            return
+        episode, group, stage = self.pending_location
+        self.pending_location = None
+        if episode and episode != self.episode_id:
+            if episode in self.episode_ids:
+                self.pending_location = episode, group, stage
+                self.update(episode=episode)
+            else:
+                self.status.set(self.t(f"这个批次中没有 {episode}。", f"Episode {episode} is not in this batch."))
+            return
+        if stage:
+            self.select_stage(stage)
+        if group:
+            if group not in self.view.get("paths", {}):
+                self.status.set(self.t(f"本集找不到可打开的 {group}。", f"No readable {group} in this episode."))
+                return
+            self.group_box.set(group)
+            self.select_group()
 
     def import_scripts(self):
         paths = filedialog.askopenfilenames(parent=self.window, title=self.t("按集导入定稿，每个文件一集", "Import one script file per episode"), filetypes=SCRIPT_FILES)
@@ -752,6 +901,9 @@ class BatchDialog:
     def render(self, view):
         same_batch = self.workspace is not None and self.workspace.path == view["workspace"].path
         same_episode = same_batch and self.episode_id == view["episode"]
+        if not same_episode:
+            self.display_rows = {}
+            self.trace.selection_remove(*self.trace.selection())
         if not same_batch:
             self.budget.set(str(view["limit"]))
         self.view = view
@@ -793,7 +945,8 @@ class BatchDialog:
 
     def fill_trace(self):
         query = self.search.get().strip().casefold()
-        old = self.trace.selection()
+        selection = self.trace.selection()
+        old = self.display_rows.get(selection[0], {}) if selection and hasattr(self, "display_rows") else {}
         self.trace.delete(*self.trace.get_children())
         self.display_rows = {}
         for n, row in enumerate(self.view.get("trace", [])):
@@ -804,7 +957,9 @@ class BatchDialog:
             self.display_rows[key] = row
             self.trace.insert("", "end", iid=key, values=(slot, row['line_no'], row.get('speaker', ''), row['text']))
         if self.display_rows:
-            self.trace.selection_set(old[0] if old and old[0] in self.display_rows else next(iter(self.display_rows)))
+            previous = next((key for key, row in self.display_rows.items()
+                             if old and row["shot_id"] == old["shot_id"] and row["passage_id"] == old["passage_id"]), None)
+            self.trace.selection_set(previous if previous is not None else next(iter(self.display_rows)))
         self.trace_detail()
 
     def selected_row(self):
@@ -818,6 +973,7 @@ class BatchDialog:
             self.write_text(self.detail, "")
             self.group_box.set("")
             self.show_requirements()
+            self.set_controls()
             return
         row = self.selected_row()
         self.group_box.set(row['group'])
@@ -826,22 +982,33 @@ class BatchDialog:
         group = next((item for item in self.view['plan']['groups'] if item['group'] == row['group']), {})
         annotation = group.get('planning_note', '')
         self.write_text(self.detail, f"{row['passage_id']} · {row['shot_id']}\n{original}" + (f"\n{annotation}" if annotation else ""))
+        self.set_controls()
 
-    def select_group(self, _event):
+    def select_group(self, _event=None):
         group = self.group_box.get()
-        self.search.set("")
+        if self.search.get():
+            self.search.set("")
         key = next((index for index, row in self.display_rows.items() if row['group'] == group), None)
         if key is not None:
             self.trace.selection_set(key)
             self.trace.see(key)
             self.trace_detail()
+        if self.delivery_groups.exists(group):
+            self.delivery_groups.selection_set(group)
+            self.delivery_groups.focus(group)
+            self.delivery_groups.see(group)
+            self.show_delivery_selection()
+
+    def open_target_group(self):
+        destination = {"assets": "assets", "delivery": "review"}.get(self.stage, "shots")
+        self.edit_group(self.group_box.get(), destination=destination)
 
     def revise(self):
         from .batch_revision import revise_episode
         path = filedialog.askopenfilename(parent=self.window, title=self.t("选择本集修订稿", "Select the revised episode script"), filetypes=SCRIPT_FILES)
         if not path:
             return
-        if not messagebox.askyesno(self.window.title(), self.t("更新本集原稿并重新规划？受影响的旧组将保留在批次数据中，更新后的规划需确认。",
+        if not messagebox.askyesno(self.title(), self.t("更新本集原稿并重新规划？受影响的旧组将保留在批次数据中，更新后的规划需确认。",
                 "Revise this episode? Affected prior groups are kept in the batch data. Review the updated plan before continuing."), parent=self.window):
             return
         self.update(lambda: revise_episode(self.workspace, self.episode_id, Path(path)),
@@ -863,9 +1030,7 @@ class BatchDialog:
                 self.guarded(accept)
             ttk.Button(bar, text=self.t("采纳候选", "Adopt candidate"), command=use).pack(side="left", padx=8)
         ttk.Button(bar, text=self.t("关闭", "Close"), command=panel.destroy).pack(side="right", padx=8)
-        panel.grab_set()
-        self.window.wait_window(panel)
-        self.window.grab_set()
+        self.wait_panel(panel)
 
     def show_script(self):
         plan = self.view['plan']
@@ -905,9 +1070,7 @@ class BatchDialog:
         ttk.Button(bar, text=self.t("保存拆镜", "Save cuts"), command=accept).pack(side="right", padx=6)
         ttk.Button(bar, text=self.t("取消", "Cancel"), command=panel.destroy).pack(side="right")
         editor.focus_set()
-        panel.grab_set()
-        self.window.wait_window(panel)
-        self.window.grab_set()
+        self.wait_panel(panel)
         if result:
             self.update(lambda: self.workspace.split_passage(self.episode_id, passage['id'], result[0]))
 
@@ -930,14 +1093,28 @@ class BatchDialog:
         self.update(lambda: self.workspace.regroup(self.episode_id, groups))
 
     def edit_group(self, group_id=None, episode_id=None, image_job_id=None, *, destination=None, adjacent_path=None):
+        row = self.selected_row() if group_id is None else None
         episode_id = episode_id or self.episode_id
-        group_id = group_id or self.selected_row()['group']
-        path = self.view['paths'].get(group_id) if episode_id == self.episode_id else self.workspace.group_path(episode_id, group_id)
-        if path is None:
-            raise ValueError(self.t("此源段尚未绑定有效镜头。", "This passage has no linked group."))
+        group_id = group_id or row['group']
+        if episode_id == self.episode_id:
+            path = self.view['paths'].get(group_id)
+            if path is None:
+                raise ValueError(self.t("此源段尚未绑定有效镜头。", "This passage has no linked group."))
+            if self.workspace.group_path(episode_id, group_id) != path:
+                raise ValueError(self.t("当前分组有更新，请刷新批次后重新定位。", "The groups changed. Refresh the batch and locate the group again."))
+        else:
+            path = self.workspace.group_path(episode_id, group_id)
         options = {"destination": destination} if destination else {}
         if adjacent_path is not None:
             options["adjacent_path"] = adjacent_path
+        if self.embedded:
+            if row is not None and row.get("shot_id"):
+                options["shot_id"] = row["shot_id"]
+            if image_job_id:
+                options["image_job_id"] = image_job_id
+            self.open_group(path, self.workspace.rules, self.window, **options)
+            self.refresh_on_return = True
+            return
         dialog = self.open_group(path, self.workspace.rules, self.window, **options)
         if dialog is not None:
             if image_job_id:
@@ -1007,9 +1184,7 @@ class BatchDialog:
         bar = self.toolbar(form)
         ttk.Button(bar, text=self.t("确认", "Confirm"), command=submit).pack(side="right")
         ttk.Button(bar, text=self.t("取消", "Cancel"), command=panel.destroy).pack(side="right", padx=5)
-        panel.grab_set()
-        self.window.wait_window(panel)
-        self.window.grab_set()
+        self.wait_panel(panel)
         return result
 
     def approve_asset(self):
@@ -1057,10 +1232,20 @@ class BatchDialog:
                                    caption, name=asset.filename, expected_digest=asset.digest))
         picks = self.assets.selection()
         selected = (assets[int(picks[0])].id,) if picks else ()
-        return open_media_gallery(self.window, items, catalog=MediaCatalog(root / "media-catalog.json"),
-                                  selected=selected, allow_import=True,
-                                  title=self.t("批次素材库", "Batch media library"),
-                                  open_selected=open_selected)
+        options = dict(catalog=MediaCatalog(root / "media-catalog.json"), selected=selected, allow_import=True,
+                       title=self.t("批次素材库", "Batch media library"), open_selected=open_selected)
+        if self.embedded:
+            self.body.pack_forget()
+
+            def restore():
+                self.body.pack(fill="both", expand=True)
+
+            try:
+                return open_media_gallery(self.window, items, mount=self.frame, on_close=restore, **options)
+            except Exception:
+                restore()
+                raise
+        return open_media_gallery(self.window, items, **options)
 
     def reuse_asset(self):
         picks = self.assets.selection()
@@ -1169,7 +1354,8 @@ class BatchDialog:
             raise ValueError(self.t("请先选择任务并将本集加入队列。", "Select task types and queue the episode first."))
         text, image = [settings[box.current()] if settings else None for box, settings in self.model_boxes]
         if max_requests > 0 and text is None and image is None:
-            raise ValueError(self.t("请先到主界面「API 接入」保存本次文本或生图设置，然后回来运行。", "Save text or image settings in API connections, then reopen the batch to run it."))
+            raise ValueError(self.t("请先到「API 接入」保存文本或生图设置，再回到执行队列。",
+                                    "Save text or image settings in API connections, then return to the queue."))
         stop = Event()
         workspace = self.workspace
         eid = self.episode_id
@@ -1201,18 +1387,18 @@ class BatchDialog:
             try:
                 record = messages.get_nowait()
             except Empty:
-                self.window.after(250, poll)
+                self.after(250, poll)
                 return
             if record:
                 self.fill_jobs(*record)
-            self.window.after(1500, start_read)
+            self.after(1500, start_read)
 
         def start_read():
             if self.stop is stop:
                 Thread(target=read_status, daemon=True).start()
-                self.window.after(250, poll)
+                self.after(250, poll)
 
-        self.window.after(500, start_read)
+        self.after(500, start_read)
 
     def pause_queue(self):
         if self.stop:
@@ -1254,7 +1440,7 @@ class BatchDialog:
         job = self.selected_job()
         confirmed = False
         if job['status'] in ('uncertain', 'review'):
-            confirmed = messagebox.askyesno(self.window.title(), self.t("请先到服务商核对这次提交。已核实并允许重新提交（可能再次计费）？",
+            confirmed = messagebox.askyesno(self.title(), self.t("请先到服务商核对这次提交。已核实并允许重新提交（可能再次计费）？",
                 "Check the previous submission with your provider. Have you verified it and authorized another potentially billable request?"), parent=self.window)
             if not confirmed:
                 return
@@ -1275,7 +1461,7 @@ class BatchDialog:
         if output:
             destination = Path(output)
             replace = destination.is_file()
-            if replace and not messagebox.askyesno(self.window.title(), self.t(
+            if replace and not messagebox.askyesno(self.title(), self.t(
                 "此交付包已存在。新版本验收通过后替换它？", "This delivery already exists. Replace it after the new version passes validation?"), parent=self.window):
                 return
             def build():
@@ -1285,10 +1471,22 @@ class BatchDialog:
             self.update(build, label=self.t("正在复核并打包…", "Validating and packaging…"),
                         result_message=lambda p: self.t(f"已导出 {p}", f"Exported {p}"))
 
+    def dirty(self):
+        return False
+
+    def save(self):
+        return True
+
+    def allow_close(self):
+        return not self.busy
+
     def close(self):
         if self.busy:
             if self.stop:
                 self.pause_queue()
             self.status.set(self.t("正在完成当前操作。完成后可关闭，进度保存在批次中。", "Finishing the current action. You can close after progress is saved."))
             return
-        self.window.destroy()
+        if self.on_close is not None:
+            self.on_close()
+        else:
+            self.frame.destroy()

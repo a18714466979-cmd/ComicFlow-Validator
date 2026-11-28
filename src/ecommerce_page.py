@@ -33,7 +33,7 @@ from .media_gallery import open_media_gallery
 from .media_preview import load_preview
 from .production_project import atomic_text
 from .reference_tools_dialog import read_reference
-from .workbench_style import SUBTLE
+from .workbench_style import BACKGROUND, SUBTLE
 
 
 PHASES = (
@@ -63,9 +63,12 @@ STATUSES = {
 
 
 class EcommercePage:
-    def __init__(self, page, vision_session, image_session, open_api):
+    def __init__(self, page, vision_session, image_session, open_api, *, inline=False):
         self.page = page
         self.window = page.winfo_toplevel()
+        self.inline = inline
+        self.detail = None
+        self.detail_draft = None
         self.vision_session, self.image_session = vision_session, image_session
         self.open_api = open_api
         self.project = EcommerceProject("")
@@ -131,7 +134,10 @@ class EcommercePage:
         return view
 
     def build(self):
-        top = ttk.Frame(self.page, padding=(12, 9, 12, 3))
+        self.main = ttk.Frame(self.page, name="ecommerce_workflow") if self.inline else self.page
+        if self.inline:
+            self.main.pack(fill="both", expand=True)
+        top = ttk.Frame(self.main, padding=(12, 9, 12, 3))
         top.pack(fill="x")
         self.label(top, "电商信息流视频复刻", "E-commerce video recreation",
                    font=("TkDefaultFont", 16, "bold")).pack(side="left")
@@ -141,7 +147,7 @@ class EcommercePage:
         self.button(actions, "打开电商项目", "Open project", self.open)
         self.button(actions, "保存电商项目", "Save project", self.save, primary=True)
 
-        self.steps = ttk.Notebook(self.page)
+        self.steps = ttk.Notebook(self.main, name="ecommerce_steps")
         self.steps.pack(fill="both", expand=True, padx=12, pady=6)
         pages = [ttk.Frame(self.steps, padding=10) for _ in PHASES]
         for phase in pages:
@@ -150,7 +156,7 @@ class EcommercePage:
         self.build_shots(pages[1])
         self.build_assets(pages[2])
         self.build_delivery(pages[3])
-        ttk.Label(self.page, textvariable=self.status, wraplength=850, padding=(12, 0, 12, 10)).pack(anchor="w")
+        ttk.Label(self.main, textvariable=self.status, wraplength=850, padding=(12, 0, 12, 10)).pack(anchor="w")
 
     def build_source(self, page):
         row = ttk.Frame(page)
@@ -232,6 +238,8 @@ class EcommercePage:
                    wraplength=800).pack(anchor="w", pady=(8, 2))
         row = ttk.Frame(page)
         row.pack(fill="x")
+        if self.inline:
+            self.button(row, "上一步：导入与产品", "Back: Source & product", lambda: self.steps.select(0))
         self.button(row, "确认分镜并分析资产", "Approve shots & audit assets", self.approve_shots, primary=True)
         ttk.Label(row, textvariable=self.group_status).pack(side="left", padx=7)
 
@@ -258,6 +266,8 @@ class EcommercePage:
                    wraplength=810).pack(anchor="w", pady=(8, 3))
         row = ttk.Frame(page)
         row.pack(fill="x")
+        if self.inline:
+            self.button(row, "上一步：分镜分析", "Back: Shot analysis", lambda: self.steps.select(1))
         self.button(row, "下一步：提示词与交付", "Next: Prompts & delivery", self.enter_delivery, primary=True)
 
     def build_delivery(self, page):
@@ -276,6 +286,8 @@ class EcommercePage:
                    self.final_review).pack(anchor="w", pady=(8, 4))
         row = ttk.Frame(page)
         row.pack(fill="x")
+        if self.inline:
+            self.button(row, "上一步：资产与故事板", "Back: Assets & boards", lambda: self.steps.select(2))
         self.button(row, "验收并导出 ZIP", "Validate & export ZIP", self.export_delivery, primary=True)
 
     def refresh_language(self):
@@ -355,6 +367,8 @@ class EcommercePage:
     def allow_close(self):
         if self.busy:
             self.status.set(self.t("正在处理，请稍候。", "Processing. Please wait."))
+            return False
+        if not self.allow_leave_detail():
             return False
         self.form()
         if self.project != self.saved or self.media_unsaved:
@@ -510,9 +524,15 @@ class EcommercePage:
         items.extend(product_photo(Path(path), purpose) for path in self.project.product_refs)
         purpose = self.t("已绑定的制作图像", "Linked production image")
         items.extend(linked_image(slot, Path(path), purpose) for slot, path in self.project.assets.items())
-        open_media_gallery(self.window, items, catalog=self.media_catalog, selected=selected,
-                           allow_import=True, open_selected=bool(selected),
-                           on_change=self.media_changed)
+        panel = self.inline_panel(self.t("电商素材库", "Ecommerce media library")) if self.inline else None
+        try:
+            open_media_gallery(self.window, items, catalog=self.media_catalog, selected=selected,
+                               allow_import=True, open_selected=bool(selected), on_change=self.media_changed,
+                               mount=panel, on_close=panel.destroy if panel is not None else None)
+        except Exception:
+            if panel is not None:
+                panel.destroy()
+            raise
 
     def open_video_preview(self):
         if not self.project.video_path:
@@ -697,14 +717,16 @@ class EcommercePage:
 
     def edit_continuity(self):
         self.require_source()
-        panel = self.modal(self.t("公共连续性", "Shared continuity"))
-        panel.geometry("720x425")
+        panel = self.panel(self.t("公共连续性", "Shared continuity"), "720x425")
         ttk.Label(panel, text=self.t("记录入口、轴线、照明、人物服装和持续道具的状态。",
                                      "Record entrances, axis, lights, costumes and persistent props."),
                   padding=9).pack(anchor="w")
         editor = scrolledtext.ScrolledText(panel, height=12, wrap="word")
         editor.insert("1.0", self.project.continuity)
         editor.pack(fill="both", expand=True, padx=9)
+        if self.inline:
+            approved = self.project.continuity
+            self.detail_draft = lambda: editor.get("1.0", "end-1c") != approved
 
         def commit():
             self.project.continuity = editor.get("1.0", "end-1c").strip()
@@ -717,8 +739,7 @@ class EcommercePage:
     def edit_shot(self, existing):
         self.require_source()
         shot = existing or EcommerceShot(self.next_shot_id())
-        editor = self.modal(self.t("编辑电商分镜", "Edit ecommerce shot"))
-        editor.geometry("950x655")
+        editor = self.panel(self.t("编辑电商分镜", "Edit ecommerce shot"), "950x655")
         top = ttk.Frame(editor, padding=10)
         top.pack(fill="x")
         id_value, start, end = (tk.StringVar(editor, value) for value in (
@@ -733,8 +754,23 @@ class EcommercePage:
         cut = tk.BooleanVar(editor, shot.scene_cut)
         ttk.Checkbutton(top, text=self.t("本镜有产品", "Product shown"), variable=product).pack(side="left", padx=3)
         ttk.Checkbutton(top, text=self.t("新场景起点", "Start a new scene"), variable=cut).pack(side="left")
-        form = ttk.Frame(editor, padding=(10, 2))
-        form.pack(fill="both", expand=True)
+        footer = ttk.Frame(editor, padding=(10, 4))
+        footer.pack(side="bottom", fill="x")
+        if self.inline:
+            viewport = ttk.Frame(editor)
+            viewport.pack(fill="both", expand=True)
+            canvas = tk.Canvas(viewport, background=BACKGROUND, borderwidth=0, highlightthickness=0)
+            scroll = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scroll.set)
+            scroll.pack(side="right", fill="y")
+            canvas.pack(side="left", fill="both", expand=True)
+            form = ttk.Frame(canvas, padding=(10, 2))
+            interior = canvas.create_window(0, 0, window=form, anchor="nw")
+            canvas.bind("<Configure>", lambda event: canvas.itemconfigure(interior, width=event.width))
+            form.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        else:
+            form = ttk.Frame(editor, padding=(10, 2))
+            form.pack(fill="both", expand=True)
         form.columnconfigure((1, 3), weight=1)
         fields = {}
         for index, (key, zh, en) in enumerate(SHOT_FIELDS):
@@ -745,8 +781,8 @@ class EcommercePage:
             box.insert("1.0", "\n".join(value) if isinstance(value, tuple) else value)
             box.grid(row=row, column=column + 1, sticky="ew", padx=(0, 10), pady=4)
             fields[key] = box
-        ttk.Label(editor, text=self.t("时间来自原片。无法核准时留空，TXT 将标记「待剪辑」。",
-                                     "Use verified source times. Leave unknown times empty.")).pack(anchor="w", padx=10)
+        ttk.Label(footer, text=self.t("时间来自原片。无法核准时留空，TXT 将标记「待剪辑」。",
+                                     "Use verified source times. Leave unknown times empty."), wraplength=500).pack(side="left")
 
         def commit():
             values = {key: box.get("1.0", "end-1c") for key, box in fields.items()}
@@ -763,34 +799,46 @@ class EcommercePage:
             self.shot_table.selection_set(revised.id)
             editor.destroy()
 
-        ttk.Button(editor, text=self.t("保存本镜", "Save shot"), command=lambda: self.guard(commit)).pack(anchor="e", padx=12, pady=8)
+        if self.inline:
+            initial = (id_value.get(), start.get(), end.get(), product.get(), cut.get(),
+                       *(field.get("1.0", "end-1c") for field in fields.values()))
+            self.detail_draft = lambda: initial != (
+                id_value.get(), start.get(), end.get(), product.get(), cut.get(),
+                *(field.get("1.0", "end-1c") for field in fields.values()),
+            )
+        ttk.Button(footer, text=self.t("保存本镜", "Save shot"), command=lambda: self.guard(commit)).pack(side="right", padx=6)
 
     def next_shot_id(self):
         used = {shot.id for shot in self.project.shots}
         return next(f"{index:02d}A" for index in range(1, 1001) if f"{index:02d}A" not in used)
 
-    def choose_provider(self, session, task):
+    def choose_provider(self, session, task, on_chosen):
         providers = tuple(session)
         if not providers:
             raise ValueError(self.t(f"请在 API 接入保存可用的{task}模型。",
                                     "Save a compatible model in API connections first."))
         if len(providers) == 1:
-            return session[providers[0]]
-        panel = self.modal(self.t("选择 API 服务商", "Choose an API provider"))
+            on_chosen(session[providers[0]])
+            return
+        title = self.t("选择 API 服务商", "Choose an API provider")
+        panel = self.panel(title)
         form = ttk.Frame(panel, padding=14)
         form.pack()
         choice = ttk.Combobox(form, state="readonly", values=providers, width=36)
         choice.current(0)
         choice.pack(fill="x", pady=(0, 8))
-        chosen = []
 
         def use():
-            chosen.append(session[choice.get()])
+            settings = session.get(choice.get())
+            if settings is None:
+                panel.destroy()
+                self.error(ValueError(self.t("所选 API 配置已变化，请重新选择模型。",
+                                             "The API configuration changed. Choose the model again.")))
+                return
             panel.destroy()
+            self.guard(lambda: on_chosen(settings))
 
         ttk.Button(form, command=use, text=self.t("使用此模型", "Use model")).pack(anchor="e")
-        self.window.wait_window(panel)
-        return chosen[0] if chosen else None
 
     def ai_shots(self):
         from .ecommerce_video import VideoShot
@@ -798,9 +846,6 @@ class EcommercePage:
         path = self.require_source()
         if not self.project.shots:
             raise ValueError(self.t("先检测切点或录入带时间的镜头。", "Detect cuts or enter timed shots first."))
-        settings = self.choose_provider(self.vision_session, "审图")
-        if settings is None:
-            return
         selected = self.shot_table.selection()
         index = next((i for i, shot in enumerate(self.project.shots) if selected and shot.id == selected[0]), 0)
         batch = self.project.shots[index:index + 12]
@@ -808,7 +853,10 @@ class EcommercePage:
             raise ValueError(self.t("AI 看图需要本批镜头的实际起止时间。", "AI needs actual times for every shot in the batch."))
         windows = [VideoShot(shot.start_ms, shot.end_ms) for shot in batch]
         kwargs = {"product_name": self.project.product_name}
+        self.choose_provider(self.vision_session, "审图",
+                             lambda settings: self.preview_ai_shots(path, windows, batch, kwargs, settings))
 
+    def preview_ai_shots(self, path, windows, batch, kwargs, settings):
         def show(sheet):
             summary = preview_ecommerce_analysis(settings, sheet, batch, **kwargs)
 
@@ -878,6 +926,8 @@ class EcommercePage:
         for row in self.assets.values():
             raw = self.project.assets.get(row.key, row.source)
             state = ("已合成预览", "Preview composed") if row.kind == "product" and raw else STATUSES[row.status]
+            if row.key in self.jobs:
+                state = ("待查询生图任务", "Image job pending")
             self.asset_table.insert("", "end", iid=row.key, values=(self.t(*KINDS[row.kind]), row.name, self.t(*state),
                                     Path(raw).name if raw else ""))
         if active and self.asset_table.exists(active[0]):
@@ -1009,10 +1059,11 @@ class EcommercePage:
             return
         if row.key in self.jobs:
             raise ValueError(self.t("此资产已有提交的任务，请先查询。", "This asset has a pending job. Check its status first."))
-        context, references, include_product, panel_ids = self.image_context(row, groups)
-        settings = self.choose_provider(self.image_session, "生图")
-        if settings is None:
-            return
+        inputs = self.image_context(row, groups)
+        self.choose_provider(self.image_session, "生图", lambda settings: self.prepare_asset_request(row, settings, inputs))
+
+    def prepare_asset_request(self, row, settings, inputs):
+        context, references, include_product, panel_ids = inputs
         folder = self.output_folder()
         if folder is None:
             return
@@ -1060,14 +1111,17 @@ class EcommercePage:
     def receive_image(self, row, settings, reply, folder, panel_ids, approval, *, previous_id=""):
         if reply.status == "failed":
             self.jobs.pop(row.key, None)
+            self.refresh_assets()
             raise ValueError(self.t("服务商报告生图任务失败。", "The provider reported an image job failure."))
         if not reply.results and (reply.task_id or previous_id):
             task_id = reply.task_id or previous_id
             self.jobs[row.key] = settings, task_id, folder, panel_ids, approval
+            self.refresh_assets()
             self.status.set(self.t(f"图像暂未完成，请稍后查询任务 {task_id}。",
                                    f"The image is pending. Check job {task_id} again later."))
             return
         self.jobs.pop(row.key, None)
+        self.refresh_assets()
         if not reply.results:
             raise ValueError(self.t("服务没有返回可用图像。", "The provider returned no usable image."))
         if approval != self.project.shot_approval or approval != self.project.shot_key():
@@ -1182,9 +1236,52 @@ class EcommercePage:
         panel.grab_set()
         return panel
 
-    def inspect_text(self, title, body):
+    def inline_panel(self, title):
+        if self.detail is not None:
+            raise ValueError(self.t("请先返回当前工序，再打开其他内容。", "Return to the current stage before opening another view."))
+        focus = self.window.focus_get()
+        panel = ttk.Frame(self.page, name="ecommerce_detail", padding=(10, 5))
+        header = ttk.Frame(panel)
+        header.pack(fill="x", pady=(0, 5))
+        stage = self.steps.index(self.steps.select())
+        ttk.Button(header, name="ecommerce_detail_back", text=self.t(f"返回{PHASES[stage][0]}", f"Back to {PHASES[stage][1]}"),
+                   command=lambda: panel.destroy() if self.allow_leave_detail() else None).pack(side="right")
+        ttk.Label(header, name="ecommerce_detail_title", text=title, font=("TkDefaultFont", 12, "bold")).pack(
+            side="left", padx=(2, 8))
+
+        def restore(event):
+            if event.widget is panel:
+                self.detail = self.detail_draft = None
+                if self.main.winfo_exists():
+                    self.main.pack(fill="both", expand=True)
+                    if focus is not None and focus.winfo_exists():
+                        focus.focus_set()
+
+        panel.bind("<Destroy>", restore, add="+")
+        self.detail = panel
+        self.main.pack_forget()
+        panel.pack(fill="both", expand=True)
+        return panel
+
+    def allow_leave_detail(self):
+        return (self.detail_draft is None or not self.detail_draft() or messagebox.askyesno(
+            self.t("放弃未保存的编辑？", "Discard unsaved edits?"),
+            self.t("当前编辑还没有应用到电商项目。", "These edits have not been applied to the ecommerce project."),
+            parent=self.window,
+        ))
+
+    def panel(self, title, geometry=None, *, minimum=None):
+        if self.inline:
+            return self.inline_panel(title)
         panel = self.modal(title)
-        panel.geometry("800x640")
+        if geometry:
+            panel.geometry(geometry)
+        if minimum:
+            panel.minsize(*minimum)
+        return panel
+
+    def inspect_text(self, title, body):
+        panel = self.panel(title, "800x640")
         self.text_widget(panel, body)
         ttk.Button(panel, text=self.t("关闭", "Close"), command=panel.destroy).pack(anchor="e", padx=10, pady=8)
 
@@ -1196,18 +1293,17 @@ class EcommercePage:
         return box
 
     def confirm_api(self, body, submit, *, image=None):
-        panel = self.modal(self.t("预览 API 请求", "Preview API request"))
-        panel.geometry("900x685")
+        panel = self.panel(self.t("预览 API 请求", "Preview API request"), "900x685")
+        row = ttk.Frame(panel, padding=8)
+        row.pack(side="bottom", anchor="e")
         if image is not None:
             preview = image.copy()
-            preview.thumbnail((550, 345))
+            preview.thumbnail((550, 240 if self.inline else 345))
             picture = ttk.Label(panel)
             picture.image = ImageTk.PhotoImage(preview, master=panel)
             picture.configure(image=picture.image)
             picture.pack(pady=5)
         self.text_widget(panel, body)
-        row = ttk.Frame(panel, padding=8)
-        row.pack(anchor="e")
         ttk.Button(row, text=self.t("取消", "Cancel"), command=panel.destroy).pack(side="left", padx=6)
 
         def proceed():
@@ -1222,9 +1318,7 @@ class EcommercePage:
                         "正在打开图像…", "Opening image…")
 
     def show_image(self, title, image, *, confirm=None, instruction=""):
-        panel = self.modal(title)
-        panel.geometry("850x710")
-        panel.minsize(540, 400)
+        panel = self.panel(title, "850x710", minimum=(540, 400))
         if instruction:
             ttk.Label(panel, text=instruction, wraplength=770, padding=8).pack(anchor="w")
         row = ttk.Frame(panel, padding=8)

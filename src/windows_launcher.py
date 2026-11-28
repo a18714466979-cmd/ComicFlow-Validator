@@ -3,13 +3,11 @@
 from io import BytesIO
 import json
 import os
-from queue import Empty, Queue
 import re
 import sys
 import tkinter as tk
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Thread
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image, ImageTk
@@ -24,19 +22,51 @@ from .bundled_validators import bundled_validator
 from .ecommerce_page import EcommercePage
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
-from .production_workspace import ProductionWorkspace
+from .production_workspace import ProductionWorkspace, StageEditor
 from .image_api import ImageSettings
 from .release_notes import open_release_notes
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
 from .vision import VisionSettings
 from .ui_language import load_language, save_language, translate
-from .vision_dialog import open_vision_dialog
+from .vision_dialog import open_vision_dialog, vision_job_key
+from .workbench_jobs import JobOutcome, WorkbenchJobs, build_job_center
 from .workbench_home import build_navigation, build_production_page
 from .workbench_tutorial import build_tutorial
 
 
 BATCH_STAGES = ("import", "plan", "assets", "queue", "delivery")
+
+
+class WorkbenchPanelTask:
+    """A tab for a whole workbench panel or a file review."""
+
+    project = None
+    path = None
+    confirmation = None
+
+    def __init__(self, page, caption, build):
+        self.page, self.title = page, caption
+        frame = ttk.Frame(page)
+        frame.pack(fill="both", expand=True)
+        self.editor = StageEditor(frame)
+        self.editor.controller = build(frame)
+
+    def caption(self, *, distinguish=False):
+        return translate(self.page, self.title)
+
+    def full_caption(self):
+        return self.caption()
+
+    def activate(self):
+        activate = getattr(self.editor.controller, "activate", None)
+        if activate:
+            activate()
+
+    def refresh_language(self):
+        refresh = getattr(self.editor.controller, "refresh_language", None)
+        if refresh:
+            refresh()
 
 
 VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
@@ -100,12 +130,16 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             release_window.focus_set()
 
     selected_rules = tk.StringVar(window, ENGLISH)
-    tasks, rule_buttons, help_menu = build_navigation(
+    tasks, _, help_menu = build_navigation(
         window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
         switch_rules=lambda rules: switch_rules(rules), show_release_notes=show_release_notes,
     )
     navigation = tasks.notebook
     production_page, ecommerce_page, review_page, api_page, tutorial_page = tasks.pages
+    jobs = WorkbenchJobs(window)
+    api_origin = ""
+    api_explicit = False
+    known_projects = set()
     if initial_zip and initial_project is None:
         navigation.select(review_page)
 
@@ -141,7 +175,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     exit_code = 0
     selected_issue: ReviewIssue | None = None
     strict_review = False
-    results: Queue = Queue()
+    review_rules = ENGLISH
+    review_source = None
     image_preview = None
     vision_session: dict[str, VisionSettings] = {}
     text_session: dict[str, VisionSettings] = {}
@@ -185,6 +220,18 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     preview_text.pack(fill="both", expand=True)
     preview_image = ttk.Label(preview_frame, anchor="center")
 
+    def show_vision(raw, origin):
+        archive, member, rules = origin
+        key = vision_job_key(origin, raw)
+
+        def build(body):
+            return open_vision_dialog(
+                window, member, raw, vision_session, rules=rules, job_registry=jobs, origin=origin,
+                mount=body, on_recover=lambda _key: show_vision(raw, origin), on_open_api=go_to_api,
+            )
+
+        return tasks.open(("vision", key), lambda page, _: WorkbenchPanelTask(page, "AI 辅助看图", build))
+
     def analyze_selected_image() -> None:
         path = file_selector.get()
         if result is None or path not in result.members or path.lower().endswith(".txt"):
@@ -194,7 +241,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         except (OSError, ValueError) as exc:
             messagebox.showerror(tr("图片无法分析"), tr(str(exc)), parent=window)
             return
-        open_vision_dialog(window, path, image, vision_session, rules=active_rules)
+        show_vision(image, (review_source or result.archive, path, review_rules))
 
     analyze = label_text(ttk.Button(file_row, command=analyze_selected_image, state="disabled"), "AI 辅助看图")
     analyze.pack(side="right", padx=(8, 0))
@@ -207,6 +254,20 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
 
     inspect = label_text(ttk.Button(file_row, command=inspect_shots, state="disabled"), "逐格复核")
     inspect.pack(side="right", padx=(8, 0))
+
+    def return_to_production():
+        from .review_repair_bridge import open_review_repair
+
+        if result is not None:
+            open_review_repair(
+                window, result, selected_issue, source_archive=review_source,
+                selected_member=file_selector.get(), project_paths=tuple(review_project_paths()),
+                open_production=production_workspace.open,
+            )
+
+    repair = label_text(ttk.Button(file_row, name="return_to_production", command=return_to_production,
+                                  state="disabled"), "回到制作返修")
+    repair.pack(side="right", padx=(8, 0))
 
     def set_text(widget: scrolledtext.ScrolledText, value: str) -> None:
         widget.configure(state="normal")
@@ -277,13 +338,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     table.bind("<<TreeviewSelect>>", select_issue)
     file_selector.bind("<<ComboboxSelected>>", lambda _event: show_preview())
 
-    def receive() -> None:
+    def receive(completed):
         nonlocal busy, result, exit_code
-        try:
-            completed = results.get_nowait()
-        except Empty:
-            window.after(100, receive)
-            return
         busy = False
         set_running(False)
         if isinstance(completed, Exception):
@@ -291,16 +347,17 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             set_status("验收未完成")
             set_text(report_text, str(completed))
             tabs.select(report_tab)
-            return
+            return JobOutcome("failed", str(completed))
         result = completed
         inspect.configure(state="normal" if result.members else "disabled")
+        repair.configure(state="normal" if result.members else "disabled")
         exit_code = result.exit_code
         verdicts = {0: "自动检查通过", 1: "验收失败", 2: "配置错误", 3: "复用未验证"}
         verdict = verdicts.get(result.exit_code, "验收未完成")
         if not strict_review and result.exit_code == 0:
             verdict = "文件完整性检查通过 · 工作流未验"
         set_status("{rules} · {verdict} · {count} 条结果",
-                   rules=RULE_LABELS[active_rules], verdict=verdict, count=len(result.issues))
+                   rules=RULE_LABELS[review_rules], verdict=verdict, count=len(result.issues))
         set_text(report_text, result.report)
         for number, issue in enumerate(result.issues):
             table.insert("", "end", iid=str(number), values=(
@@ -315,6 +372,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             file_selector.configure(values=sorted(path for path in result.members
                                                   if Path(path).suffix.lower() in PREVIEW_LIMIT))
             tabs.select(issues_tab)
+        return JobOutcome("ready", tr(verdict))
 
     def browse(value: tk.StringVar, kind: tuple[str, str]) -> None:
         selected = filedialog.askopenfilename(parent=window, filetypes=((tr(kind[0]), kind[1]), (tr("所有文件"), "*")))
@@ -347,6 +405,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
 
     def remember_project(project, path):
         nonlocal current_work
+        path = Path(path).resolve()
+        known_projects.add(path)
         current_work = {
             "kind": "group", "path": path, "title": project.name or path.stem,
             "episode": project.episode, "group": project.group, "rules": project.rules,
@@ -379,21 +439,34 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         dialog.window.bind("<Destroy>", remember_group, add="+")
         return dialog
 
-    def batch_center(path=None, *, stage=None, episode=None):
+    def review_project_paths():
+        yield from known_projects
+        if active_batch is not None and active_batch.frame.winfo_exists() and active_batch.workspace is not None:
+            for episode in active_batch.workspace.episodes:
+                yield from active_batch.workspace.group_paths(episode.id)
+
+    def batch_center(path=None, *, stage=None, episode=None, group=None):
         nonlocal active_batch
         from .batch_dialog import BatchDialog
 
-        if active_batch is not None and active_batch.window.winfo_exists():
-            if stage is not None:
-                active_batch.select_stage(stage)
-            active_batch.window.lift()
-            return
+        key = ("batch_center",)
         save_validator_choice()
 
-        def open_group(group_path, rules, parent, *, destination="shots", adjacent_path=None):
-            return open_production_dialog(
-                parent, validators, registry_path, text_session, image_session, rules, switch_rules,
-                initial_project=group_path, destination=destination, adjacent_path=adjacent_path,
+        def open_group(group_path, rules, parent, *, destination="shots", adjacent_path=None,
+                       image_job_id=None, shot_id=None):
+            from .production_project import ProductionProject
+
+            group_project = ProductionProject.open(group_path)
+            if group_project.rules != rules:
+                raise ValueError(tr("项目制作规则与当前批量任务不一致。"))
+            if image_job_id:
+                image_job = next((job for job in group_project.image_jobs if job["id"] == image_job_id), None)
+                destination = "generate_board" if image_job and image_job["kind"] == "故事板" else "generate_assets"
+            else:
+                destination = {"review": "deliver", "handoff": "layout"}.get(destination, destination)
+            return production_workspace.open(
+                destination, group_path, project=group_project, adjacent_path=adjacent_path, job_id=image_job_id,
+                shot_id=shot_id, batch_context=(active_batch.workspace.path, group_project.episode, group_project.group),
             )
 
         def remember_batch(center):
@@ -409,14 +482,21 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
             }
             refresh_current_work()
 
-        center = BatchDialog(window, active_rules, text_session, image_session, validators, open_group)
-        active_batch = center
-        center.on_workbench_update = remember_batch
-        if stage is not None:
-            center.select_stage(stage)
-        center.window.grab_set()
-        if path is not None:
-            center.open_path(path, episode_id=episode)
+        def build(body):
+            center = BatchDialog(window, active_rules, text_session, image_session, validators, open_group,
+                                 mount=body, on_close=lambda: tasks.request_close(key), on_api=go_to_api)
+            center.on_workbench_update = remember_batch
+            return center
+
+        panel = tasks.open(key, lambda page, _: WorkbenchPanelTask(page, "批量制作中心", build))
+        active_batch = center = panel.editor.controller
+        if path is not None and (center.workspace is None or Path(path).resolve() != center.workspace.path.resolve()):
+            center.open_path(Path(path), episode_id=episode, group_id=group, stage=stage)
+        else:
+            center.locate(episode_id=episode, group_id=group, stage=stage)
+
+    def locate_batch(path, episode, group):
+        batch_center(path, episode=episode, group=group)
 
     def batch_stage(index):
         recent = current_work if current_work and current_work["kind"] == "batch" else None
@@ -435,6 +515,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         nonlocal result, selected_issue
         result = selected_issue = None
         inspect.configure(state="disabled")
+        repair.configure(state="disabled")
         table.delete(*table.get_children())
         file_selector.configure(values=())
         file_selector.set("")
@@ -453,16 +534,17 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         rule_fields()
         for widget in exception_widgets:
             widget.state(["!disabled"] if rules == ENGLISH else ["disabled"])
-        clear_review()
-        exit_code = 0
-        set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rule_revision(rules))
+        if not busy and result is None:
+            exit_code = 0
+            set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rule_revision(rules))
 
     def set_running(running: bool) -> None:
-        for widget in (start_button, *workflow_buttons, *tutorial_buttons, *rule_buttons, *checks.winfo_children()):
-            widget.state(["disabled"] if running else ["!disabled"])
+        start_button.state(["disabled"] if running else ["!disabled"])
 
     def start() -> None:
-        nonlocal busy, workspace, strict_review
+        nonlocal busy, workspace, strict_review, review_source, review_rules
+        if busy:
+            return
         archive, validator, exception = (Path(value.get().strip()).expanduser() for _, value, _ in entries)
         if active_rules == CHINESE:
             exception = Path()
@@ -496,32 +578,22 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         workspace = TemporaryDirectory(prefix="comicflow-review-")
         directory = Path(workspace.name)
         busy = True
+        review_source, review_rules = archive.resolve(), active_rules
         clear_review()
         set_running(True)
         set_status("正在验收 {archive}…", archive=archive.name)
 
-        def worker() -> None:
-            try:
-                results.put(run_review(arguments, directory))
-            except Exception as exc:
-                results.put(exc)
-
-        Thread(target=worker, daemon=True).start()
-        window.after(100, receive)
+        jobs.start(("archive_review",), "最近一次交付验收", str(review_source),
+                   lambda _key: tasks.select(review_page), lambda: run_review(arguments, directory), receive)
 
     def close() -> None:
         modal = window.grab_current()
-        if modal is not None and modal.winfo_toplevel() != window and (
-            active_batch is None or modal != active_batch.window
-        ):
+        if modal is not None and modal.winfo_toplevel() != window:
             modal.winfo_toplevel().lift()
             return
-        if active_batch is not None and active_batch.window.winfo_exists():
-            if active_batch.busy:
-                active_batch.close()
-                active_batch.window.lift()
-                return
-            active_batch.close()
+        if jobs.active:
+            messagebox.showinfo(tr("任务进行中"), tr("请求仍在运行，可以从任务中心查看。"), parent=window)
+            return
         if busy:
             messagebox.showinfo(tr("验收进行中"), tr("当前正在读取交付包，请等待验收完成。"), parent=window)
             return
@@ -566,7 +638,30 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     def inspect_cuts():
         from .review_tools_dialog import open_cut_review
 
-        open_cut_review(window, result, active_rules)
+        open_cut_review(window, result, review_rules if result is not None else active_rules)
+
+    def go_to_api():
+        nonlocal api_origin, api_explicit
+        selected = navigation.select()
+        if selected and selected != str(api_page):
+            api_origin, api_explicit = selected, True
+        tasks.select(api_page)
+
+    def return_from_api():
+        if api_origin in navigation.tabs() and api_origin != str(api_page):
+            tasks.select(api_origin)
+        else:
+            tasks.select(production_page)
+
+    def open_jobs():
+        def build(body):
+            panel = build_job_center(body, jobs)
+            panel.pack(fill="both", expand=True)
+            return panel
+
+        tasks.open(("jobs",), lambda page, _: WorkbenchPanelTask(
+            page, "任务中心", build,
+        ))
 
     def choose_delivery_zip():
         navigation.select(review_page)
@@ -581,7 +676,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         window, tasks,
         lambda: current_work["path"] if current_work and current_work["kind"] == "group" else None,
         lambda: active_rules, validators, registry_path, text_session, image_session, remember_project,
-        action_workspace.open,
+        action_workspace.open, jobs=jobs, open_api=go_to_api, on_batch_group=locate_batch,
     )
 
     def open_stage(stage):
@@ -608,18 +703,21 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         "script": open_script,
         "inventory": lambda: open_stage("inventory"),
         "action_sequence": open_actions,
+        "jobs": open_jobs,
         "preflight": lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules),
     }
     for destination in ("shots", "assets", "generate_assets", "generate_board", "layout", "prompts",
-                        "costume", "deliver"):
+                        "costume", "pose", "deliver"):
         callbacks[destination] = lambda view=destination: open_stage(view)
-    callbacks["pose"] = lambda: produce(action="open", destination="pose")
-    workflow_buttons, refresh_production = build_production_page(
+    _, refresh_production = build_production_page(
         production_page, label_text, callbacks, action_picker=action_workspace,
         production_picker=production_workspace,
     )
+    api_tools = ttk.Frame(api_page, padding=(10, 6))
+    api_tools.pack(fill="x")
+    label_text(ttk.Button(api_tools, name="api_return", command=return_from_api), "返回发起页").pack(anchor="w")
     refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
-    ecommerce = EcommercePage(ecommerce_page, vision_session, image_session, lambda: navigation.select(api_page))
+    ecommerce = EcommercePage(ecommerce_page, vision_session, image_session, go_to_api, inline=True)
     examples = Path(__file__).resolve().parents[1] / "Examples"
     sample_available = (examples / "SB01.cfproject").is_file()
 
@@ -630,18 +728,25 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         else:
             callbacks["open"]()
 
-    refresh_tutorial, tutorial_buttons = build_tutorial(
+    refresh_tutorial, _ = build_tutorial(
         tutorial_page,
         {"start": callbacks["new"], "production": callbacks["script"],
-         "review": choose_delivery_zip, "api": lambda: navigation.select(api_page)},
+         "review": choose_delivery_zip, "api": go_to_api},
         sample_action=open_tutorial_sample if sample_available else None,
     )
 
     def sync_selected_page(event):
-        if event.widget is navigation and navigation.select() == str(api_page):
-            sync_api()
+        nonlocal api_origin, api_explicit
+        if event.widget is not navigation:
+            return
+        if navigation.select() != str(api_page):
+            api_explicit = False
+            return
+        if not api_explicit:
+            api_origin = next((page for page in reversed(tasks.recent) if page != str(api_page)), "")
+        sync_api()
 
-    navigation.bind("<<NotebookTabChanged>>", sync_selected_page)
+    navigation.bind("<<NotebookTabChanged>>", sync_selected_page, add="+")
     checks = ttk.Frame(review_page, padding=(12, 7, 12, 2))
     checks.pack(fill="x")
     for caption, action in (
@@ -651,6 +756,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     ):
         label_text(ttk.Button(checks, command=action, style="Workbench.TButton"), caption).pack(
             side="left", padx=(0, 7))
+    label_text(ttk.Button(checks, name="workbench_jobs", command=open_jobs, style="Workbench.TButton"),
+               "任务中心").pack(side="left", padx=(0, 7))
     options.pack(fill="x", padx=16, pady=(1, 4))
     for row, (label, value, kind) in enumerate(entries):
         caption = ttk.Label(options, textvariable=validator_label) if row == 1 else label_text(ttk.Label(options), label)
