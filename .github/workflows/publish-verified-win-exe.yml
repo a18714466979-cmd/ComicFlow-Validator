@@ -1,0 +1,27 @@
+name: Publish the verified Windows 2.9.1 installer
+on:
+  push:
+    branches: [codex/publish-verified-win-exe]
+    paths: [.github/workflows/publish-verified-win-exe.yml]
+jobs:
+  upload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Recheck installer provenance and add it to v2.9.1 Assets
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == a18714466979-cmd/Comic-Sequence-Studio ]]
+          api="/repos/$GITHUB_REPOSITORY"
+          [[ "$(gh api "$api/git/ref/tags/v2.9.1" --jq .object.sha)" == 6d6c7e0fb5163d6274472142a35bf5664a25a475 ]]
+          [[ "$(gh api "$api/actions/jobs/140966872648" --jq .conclusion)" == success ]]
+          name=Comic-Sequence-Studio-2.9.1-Windows-x64-Setup.exe
+          gh run download 46141045977 -n studio-win-x64 -R "$GITHUB_REPOSITORY"
+          echo '778b94537b2d995f199eb052a13e45a66e4209339de25256e2edf6374f22e9c7  ' "$name" | sed 's/   /  /' | sha256sum -c
+          gh release upload v2.9.1 "$name" -R "$GITHUB_REPOSITORY"
+          [[ "$(gh api "$api/releases/tags/v2.9.1" --jq ".assets[] | select(.name == \"$name\") | .digest")" == sha256:778b94537b2d995f199eb052a13e45a66e4209339de25256e2edf6374f22e9c7 ]]
