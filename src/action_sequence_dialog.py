@@ -24,6 +24,7 @@ from .ui_language import translate
 class ActionSequenceDialog:
     def __init__(self, owner):
         self.owner = owner
+        self.cards = cards_from_records(owner.project.action_cards)
         self.window = tk.Toplevel(owner.window)
         self.window.title(translate(self.window, "人物动作编排"))
         self.window.geometry("1080x745")
@@ -31,7 +32,6 @@ class ActionSequenceDialog:
         self.window.transient(owner.window)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.language = int(getattr(self.window._root(), "ui_language", "zh") == "en")
-        self.cards = cards_from_records(owner.project.action_cards)
         self.images = list(owner.project.images)
         self.saved_cards, self.saved_images = list(self.cards), list(self.images)
         self.drag = None

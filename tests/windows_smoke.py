@@ -521,7 +521,8 @@ def run_inside_launcher():
                 assert "路线点" in saved.shots[0].fields["动作起止"]
                 print("Verified action card presets, director JSON, reordering, panel counts and formal shot handoff", flush=True)
                 print("COMICFLOW_GUI_OK", flush=True)
-                self.destroy()
+                workbench.tk.eval(workbench.protocol("WM_DELETE_WINDOW"))
+                self.after_idle(self.destroy)
 
             self.after(60, inspect_sequence)
 
