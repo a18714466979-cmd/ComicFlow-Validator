@@ -4,7 +4,7 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46087817639/artifacts/15239728194) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
+[下载当前 Windows 试用 ZIP](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46091014084/artifacts/15241162296) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [English](#english)
 
 ## 工作台有什么
 
@@ -26,10 +26,11 @@
 
 | 规则 | 当前执行方式 |
 | --- | --- |
-| **英文影片制作 v14.10.3** | 按批准的完整发声句预排，每组最多 60 个实际发声英文词。分镜中不得连续用同一中景或大全景表达同一目的。打斗禁止连续三镜既同景别又同角度。确有动作匹配的相邻镜头须看实图核对。 |
+| **英文影片制作 v14.10.4** | 旧英文项目打开后直接应用新版。内置离线严格校验与整句对白预排。生成正式故事板前检查分组格数、关键分镜字段、批准对白和九图预算。已登记的相邻中景或大全景重复同一叙事目的，以及打斗组三镜同景别同角度，会被拦截。 |
 | **中文影片制作 v14.8.8** | 每组最多 100 个实际发声字符，超出按批准的自然停顿顺延。相邻独立镜头，包括组间边界，应拉开景别。真正的单机位连续动作按一镜处理，机位变换须保留轴线和固定背景。 |
 | **生图前与交付复核** | 分镜和故事板生成提示会写入对应规则。「镜头清单 → 景别与角度预检」会按已登记字段定位重复，预警进入生图确认和画面确认。跨组可并排核对前组末镜和后组首镜。实际构图、真实机位、身份和动作承接由人看图确认。 |
-| **正式验收** | 至多九张交付图，核对图件命名、比例、编号、批准对白和两份 TXT 的对应关系。完整规则检查需选对应版本的故事板校验脚本。文件检查和视觉验收分别记录。 |
+| **英文 SD2 提示词** | 自动按组号、故事板硬切指令、实际 PNG 的 `@图` 上传清单、组级约束和固定逐镜字段导出。逐镜绑定到具体的净板文件与局部号，保留批准的英文对白。默认无配乐、无字幕。 |
+| **正式验收** | 至多九张交付图，核对图件命名、比例、编号、批准对白和两份 TXT 的对应关系。英文可用内置严格校验，中文使用对应脚本。实际构图、身份和动作承接仍须逐格复核。 |
 
 ## 第一次打开选哪个入口
 
@@ -43,7 +44,7 @@
 
 1. 下载并解压 Windows 试用 ZIP。安装带 Tcl/Tk 的 Python 3.13，再双击 `ComicFlow-Setup.bat`。
 2. 双击 `ComicFlow-Windows.bat`。可以打开新项目，也可以把已有 `.cfproject` 或 ZIP 拖到启动器。
-3. 用 `Examples` 里的中英文示例体验排版、逐格复核、单组和相邻组交付。
+3. 用 `Examples` 里的中英文示例体验排版、逐格复核、单组和相邻组交付。进入「资产图生成」选已有项目时会显示加载状态，打开项目本身不改写项目文件。
 
 当前 Windows 工作台代码在 [开发分支](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)。试用 ZIP 是 GitHub Actions 构建产物。当前链接到期后，可到上方构建列表打开通过的运行并下载试用包。
 
@@ -57,4 +58,4 @@ ComicFlow is designed to reduce avoidable regenerations by checking approved dia
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that ComicFlow creates when you choose **New project**.
 
-[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46087817639/artifacts/15239728194) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows trial](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46091014084/artifacts/15241162296) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
