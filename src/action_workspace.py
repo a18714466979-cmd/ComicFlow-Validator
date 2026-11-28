@@ -15,13 +15,12 @@ from .ui_language import translate
 
 
 class ActionWorkspace:
-    def __init__(self, window, navigation, selected_rules, current_path, on_project, open_project):
+    def __init__(self, window, navigation, selected_rules, current_path, on_project):
         self.window = window
         self.navigation = navigation
         self.selected_rules = selected_rules
         self.current_path = current_path
         self.on_project = on_project
-        self.open_project = open_project
         self.reading = None
 
     def mount(self, parent, label_text):
@@ -118,7 +117,7 @@ class ActionWorkspace:
                 key = (os.path.normcase(str(location)), "action_sequence")
                 task = self.navigation.open(
                     key, lambda page, changed: ActionWorkspaceTask(
-                        self.window, page, location, project, changed, self.on_project, self.open_project,
+                        self.window, page, location, project, changed, self.on_project,
                     ),
                 )
                 self.on_project(task.project, task.path)
@@ -135,14 +134,13 @@ class ActionWorkspace:
 
 
 class ActionWorkspaceTask:
-    def __init__(self, window, page, path, project, changed, on_project, open_project):
+    def __init__(self, window, page, path, project, changed, on_project):
         self.window = window
         self.page = page
         self.path = path
         self.project = project
         self._changed = changed
         self._on_project = on_project
-        self._open_project = open_project
         self.confirmation = None
         self.breadcrumb = ttk.Label(page, style="A.Muted.TLabel", padding=(12, 5))
         self.breadcrumb.pack(fill="x")
@@ -171,12 +169,6 @@ class ActionWorkspaceTask:
 
     def changed(self):
         self._changed()
-
-    def update_group(self):
-        pass
-
-    def open_project(self):
-        return self._open_project(self.path)
 
     def latest_project(self):
         project = ProductionProject.open(self.path)

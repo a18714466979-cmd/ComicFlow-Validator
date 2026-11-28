@@ -626,7 +626,8 @@ def run_inside_launcher():
             director_path = project_path.parent / "director-action" / "project.json"
 
             def receive_tracks(_parent, path, mode, callback, *, language):
-                assert (path, mode, language) == (project_path, "action", "zh")
+                assert path.samefile(project_path), (path, project_path)
+                assert (mode, language) == ("action", "zh")
                 callback(director_path)
             gallery = show_page(self, PRODUCTION_TAB)
             click(gallery, "人物动作编排")

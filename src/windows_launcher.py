@@ -591,7 +591,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
     action_workspace = ActionWorkspace(
         window, tasks, lambda: active_rules,
         lambda: current_work["path"] if current_work and current_work["kind"] == "group" else None,
-        remember_project, lambda path: produce(path, destination="shots"),
+        remember_project,
     )
 
     callbacks = {
