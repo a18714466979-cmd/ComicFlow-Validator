@@ -23,16 +23,22 @@ case "$target" in
     macos)
         [[ "$(uname -s)" == Darwin ]]
         export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
+        if [[ "$(uname -m)" == x86_64 ]]; then
+            platform_flags+=(--disable-asm)
+        fi
         ;;
     windows-x64)
         command -v x86_64-w64-mingw32-gcc >/dev/null
         executable=ffmpeg.exe
         linker_flags=" -static-libgcc"
         platform_flags+=(--enable-cross-compile --target-os=mingw32 --arch=x86_64
-                         --cross-prefix=x86_64-w64-mingw32- --disable-pthreads)
+                         --cross-prefix=x86_64-w64-mingw32- --disable-pthreads --disable-asm)
         ;;
     linux)
         [[ "$(uname -s)" == Linux ]]
+        if [[ "$(uname -m)" == x86_64 ]]; then
+            platform_flags+=(--disable-asm)
+        fi
         ;;
     *)
         printf 'Unknown FFmpeg target: %s\n' "$target" >&2
@@ -45,7 +51,7 @@ zlib_version=1.3.2
 ffmpeg_archive="ffmpeg-$ffmpeg_version.tar.xz"
 zlib_archive="zlib-$zlib_version.tar.gz"
 ffmpeg_url="https://ffmpeg.org/releases/$ffmpeg_archive"
-zlib_url="https://zlib.net/fossils/$zlib_archive"
+zlib_url="https://github.com/madler/zlib/releases/download/v$zlib_version/$zlib_archive"
 jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu)"
 build="$(mktemp -d)"
 trap 'rm -rf -- "$build"' EXIT
@@ -87,7 +93,7 @@ zlib="$build/zlib-$zlib_version"
     ./configure \
         --disable-autodetect --disable-network --disable-gpl --disable-version3 --disable-nonfree \
         --disable-debug --disable-doc --disable-ffplay --disable-ffprobe --disable-avdevice \
-        --disable-x86asm --enable-zlib \
+        --enable-zlib \
         --disable-demuxers --enable-demuxer=mov,matroska,avi,asf,mpegts,mpegps,mpegvideo,flv,m4v \
         --disable-protocols --enable-protocol=file,pipe \
         --disable-encoders --enable-encoder=png,rawvideo,wrapped_avframe \
