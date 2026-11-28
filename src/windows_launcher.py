@@ -28,6 +28,7 @@ from .vision import VisionSettings
 from .ui_language import load_language, save_language, translate
 from .vision_dialog import open_vision_dialog
 from .workbench_home import PAGE_CAPTIONS, build_navigation, build_production_page
+from .workbench_tutorial import build_tutorial
 
 
 VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
@@ -79,10 +80,11 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         return widget
 
     selected_rules = tk.StringVar(window, ENGLISH)
-    navigation, (production_page, review_page, api_page), rule_buttons = build_navigation(
+    navigation, pages, rule_buttons = build_navigation(
         window, label_text, change_language=lambda: change_language(), selected_rules=selected_rules,
         switch_rules=lambda rules: switch_rules(rules),
     )
+    production_page, review_page, api_page, tutorial_page = pages
     if initial_zip and initial_project is None:
         navigation.select(review_page)
 
@@ -343,7 +345,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rule_revision(rules))
 
     def set_running(running: bool) -> None:
-        for widget in (start_button, *workflow_buttons, *rule_buttons, *checks.winfo_children()):
+        for widget in (start_button, *workflow_buttons, *tutorial_buttons, *rule_buttons, *checks.winfo_children()):
             widget.state(["disabled"] if running else ["!disabled"])
 
     def start() -> None:
@@ -412,9 +414,10 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         window.title(tr("ComicFlow 漫剧制片工作台"))
         for widget, caption in labels:
             widget.configure(text=tr(caption))
-        for page, caption in zip((production_page, review_page, api_page), PAGE_CAPTIONS):
+        for page, caption in zip(pages, PAGE_CAPTIONS):
             navigation.tab(page, text=tr(caption))
         refresh_api_language()
+        refresh_tutorial()
         for column, caption in zip(columns, headings):
             table.heading(column, text=tr(caption))
         tabs.tab(issues_tab, text=tr("验收结果"))
@@ -470,6 +473,22 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         callbacks[destination] = lambda view=destination: produce(action="open", destination=view)
     workflow_buttons = build_production_page(production_page, label_text, callbacks)
     refresh_api_language, sync_api = build_api_settings(api_page, text_session, vision_session, image_session, label_text)
+    examples = Path(__file__).resolve().parents[1] / "Examples"
+    sample_available = (examples / "SB01.cfproject").is_file()
+
+    def open_tutorial_sample():
+        path = (examples / "中文制作" if active_rules == CHINESE else examples) / "SB01.cfproject"
+        if path.is_file():
+            produce(path, destination="shots")
+        else:
+            callbacks["open"]()
+
+    refresh_tutorial, tutorial_buttons = build_tutorial(
+        tutorial_page,
+        {"start": callbacks["new"], "production": callbacks["script"],
+         "review": choose_delivery_zip, "api": lambda: navigation.select(api_page)},
+        sample_action=open_tutorial_sample if sample_available else None,
+    )
 
     def sync_selected_page(event):
         if event.widget is navigation and navigation.select() == str(api_page):

@@ -46,6 +46,7 @@ ENGLISH = {
     "界面语言": "Interface",
     "制作规则": "Production rules",
     "英文影片制作": "English film production",
+    "使用教程": "Tutorial",
     "软件锁定规则": "Locked workbench rules",
     "用户资料": "User material",
     "本次补充需求": "Additional request",

@@ -188,7 +188,9 @@ def run_inside_launcher():
 
             assert any("Seedance 2.0" in widget.cget("text") for widget in walk(self, tk.Label))
             navigation = next(walk(self, ttk.Notebook))
-            assert [navigation.tab(i, "text") for i in range(3)] == ["故事板制作", "检查验收", "API 接入"]
+            assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
+                "故事板制作", "检查验收", "API 接入", "使用教程",
+            ]
             tabs = next(walk(show_page(self, 2), ttk.Notebook))
             assert [tabs.tab(i, "text") for i in range(3)] == ["文本创作", "AI 审图", "图像生成"]
             text, vision, image = (tabs.nametowidget(tab) for tab in tabs.tabs())
@@ -227,16 +229,17 @@ def run_inside_launcher():
             click(image, "保存本次设置")
 
             click(self, "中文 / English")
-            assert [navigation.tab(i, "text") for i in range(3)] == [
-                "Storyboard production", "Inspection & validation", "API connections",
+            assert [navigation.tab(tab, "text") for tab in navigation.tabs()] == [
+                "Storyboard production", "Inspection & validation", "API connections", "Tutorial",
             ]
             assert [tabs.tab(i, "text") for i in range(3)] == ["Text drafting", "AI image review", "Image generation"]
             assert input_field(image, "Model ID").get() == "image-generation-test"
+            self.inspect_tutorial(navigation)
+            assert input_field(image, "模型 ID").get() == "image-generation-test"
             production = show_page(self, 0)
             guidance = [label.cget("text") for label in walk(production, tk.Label)]
-            assert any("try Examples/SB01.cfproject" in text for text in guidance)
-            assert any("then click Validate ZIP" in text for text in guidance)
-            click(self, "中文 / English")
+            assert any("Examples/SB01.cfproject" in text for text in guidance)
+            assert any("开始验收" in text for text in guidance)
 
             ProductionProject("API smoke test", "EP01", "SB01").save(project_path)
             original_picker = filedialog.askopenfilename
@@ -297,6 +300,42 @@ def run_inside_launcher():
                 self.destroy()
 
             self.after(120, check_project_tools)
+
+        def inspect_tutorial(self, navigation):
+            self.geometry("900x700")
+            tutorial = show_page(self, 3)
+            for topic in ("Quick start", "Script to delivery", "Check a delivery ZIP", "Connect an API"):
+                click(tutorial, topic)
+                images = [widget for widget in walk(tutorial, tk.Label) if widget.cget("image")]
+                assert images and images[0].winfo_viewable(), topic
+            click(tutorial, "Open API connections")
+            self.update_idletasks()
+            assert navigation.index(navigation.select()) == 2
+            show_page(self, 3)
+            click(self, "中文 / English")
+            for topic in ("快速开始", "从剧本到交付", "检查交付 ZIP", "配置 API"):
+                click(tutorial, topic)
+                assert any(widget.cget("image") for widget in walk(tutorial, tk.Label)), topic
+            original_picker = filedialog.askopenfilename
+            try:
+                filedialog.askopenfilename = lambda **options: archive if options["filetypes"][0][1] == "*.zip" else ""
+                click(tutorial, "检查交付 ZIP")
+                click(tutorial, "选择要验收的 ZIP")
+                assert navigation.index(navigation.select()) == 1
+                assert next(walk(self, ttk.Entry)).get() == archive
+            finally:
+                filedialog.askopenfilename = original_picker
+            show_page(self, 3)
+            click(tutorial, "快速开始")
+            examples = Path(sys.modules["src.windows_launcher"].__file__).resolve().parents[1] / "Examples"
+            if (examples / "SB01.cfproject").is_file():
+                click(tutorial, "打开示例项目")
+                self.update()
+                dialog = next(walk(self, tk.Toplevel))
+                project_tabs = next(walk(dialog, ttk.Notebook))
+                assert project_tabs.tab(project_tabs.select(), "text") == "镜头清单"
+                dialog.destroy()
+            print("Verified all four illustrated tutorial topics, language switch and linked actions", flush=True)
 
         def inspect_production_handoff(self):
             from src import drafting_dialog
@@ -643,7 +682,7 @@ def run_inside_launcher():
                 filedialog.askopenfilename = original_picker
                 click(self, "中文 / English")
                 assert chinese.cget("text") == "中文影片制作" and chinese.instate(["selected"])
-                print("Verified seven production routes and the bilingual three-page workbench", flush=True)
+                print("Verified seven production routes and the bilingual four-page workbench", flush=True)
                 click(self, "开始验收")
                 self.after(100, self.inspect_chinese_report)
 

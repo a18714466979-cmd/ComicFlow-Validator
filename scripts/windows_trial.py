@@ -17,6 +17,7 @@ from src.production_layout import apply_layout, bind_window, render_layout, wind
 from src.production_project import ProductionProject, Shot
 from src.production_rules import CHINESE, ENGLISH
 from src.repair_package import write_delivery_zip
+from src.workbench_tutorial import SECTIONS, TUTORIAL_IMAGES, TUTORIAL_LOCALES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -170,6 +171,7 @@ def build(output, revision):
         for path in sorted((ROOT / "src").glob("*.py")):
             copy2(path, folder / "src" / path.name)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
+        copytree(ROOT / TUTORIAL_IMAGES, folder / TUTORIAL_IMAGES)
         (folder / ENGLISH_VALIDATOR_DIRECTORY).mkdir(parents=True)
         for filename in ENGLISH_VALIDATOR_FILES:
             relative = ENGLISH_VALIDATOR_DIRECTORY / filename
@@ -185,7 +187,9 @@ def build(output, revision):
                    "Examples/中文制作/SB01.cfproject", "Examples/中文制作/SB02.cfproject", "Examples/中文制作/预览_相邻两组.zip")
         references = tuple(path.relative_to(ROOT).as_posix() for path in (ROOT / COSTUME_REFERENCES).iterdir())
         validators = tuple((ENGLISH_VALIDATOR_DIRECTORY / name).as_posix() for name in ENGLISH_VALIDATOR_FILES)
-        for name in (*INSTALL_FILES, *samples, *references, *validators):
+        tutorial = tuple((TUTORIAL_IMAGES / f"{section[0]}_{language}.png").as_posix()
+                         for section in SECTIONS for language in TUTORIAL_LOCALES)
+        for name in (*INSTALL_FILES, *samples, *references, *validators, *tutorial):
             archive.getinfo(f"ComicFlow-Windows/{name}")
         if any(".sqlite3" in name for name in archive.namelist()):
             raise ValueError("The portable archive must rebuild machine-local asset paths.")
