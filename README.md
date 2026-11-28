@@ -4,13 +4,15 @@
 
 把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
 
-[下载 Windows v2.1.1](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46111175088/artifacts/15249299988) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [更新日志](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [English](#english)
+[下载 Windows v2.2.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46113270217/artifacts/15250087606) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [更新日志](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [English](#english)
 
 首页点版本号，或打开「帮助 → 更新日志」，即可离线查看各版改动和已知问题。
 
 新版素材库支持图片与视频方卡、全画幅放大、类别筛选和视频换封面。进入单组「批准图像」、批量「公共资产」或电商「导入与产品」即可使用。生图参考图也可按画面挑选。
 
 2.1.1 修复内置 3D 导演台人偶的关节接合问题，适用于摆姿势、动作预览和取图。
+
+2.2.0 更新了人物动作编排。点「浏览动作卡」可按类别看 53 张内置动作卡的封面和三帧预览。
 
 ## 工作台有什么
 
@@ -70,6 +72,8 @@ A 版工作台在首页提供五步入口和当前项目进度，可沿着流程
 
 ## English
 
+Version 2.2.0 adds illustrated covers and three-beat previews for all 53 built-in action cards.
+
 Version 2.1.1 fixes joint separation in the built-in 3D mannequin during posing, playback and frame capture.
 
 The media library uses full-frame square cards for images and videos. Browse from approved group images, batch shared assets, or e-commerce source materials. Image production includes a visual picker for approved reference stills.
@@ -84,4 +88,4 @@ Comic Sequence Studio is designed to reduce avoidable regenerations by checking 
 
 To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that the app creates when you choose **New project**.
 
-[Windows v2.1.1](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46111175088/artifacts/15249299988) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Changelog](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[Windows v2.2.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46113270217/artifacts/15250087606) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Changelog](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
