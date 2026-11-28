@@ -94,6 +94,7 @@ def verify(archive_path, validator=None, install=False, chinese_validator=None):
 def exercise(folder, validator, chinese_validator):
     from src.bundled_validators import bundled_validator
 
+    folder = folder.resolve()
     base = folder.parent
     local = bundled_validator(ENGLISH)
     assert local is not None and local.is_relative_to(folder)
