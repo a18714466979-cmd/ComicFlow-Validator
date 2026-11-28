@@ -185,6 +185,7 @@ class ProductionDialog:
         flow = ttk.Frame(page)
         flow.pack(fill="x", pady=(0, 8))
         self.buttons(flow, ("AI 拆分镜", lambda: self.open_drafting(task=SHOT_TASK)),
+                     ("人物动作编排", self.open_action_sequence),
                      ("景别与角度预检", self.show_camera_review),
                      ("下一步：分析资产", self.open_assets_for_shots))
         self.shot_source = tk.StringVar(page)
@@ -310,7 +311,7 @@ class ProductionDialog:
             path = Path(value)
             self.load(ProductionProject.open(path), path)
 
-    def open_image_project(self, path, destination):
+    def open_tool_project(self, path, destination):
         """Keep Tk responsive while reading a selected, possibly synced project."""
         result = Queue()
         root = self.window._root()
@@ -388,6 +389,9 @@ class ProductionDialog:
         elif destination in {"costume", "pose"}:
             self.tabs.select(2)
             self.open_reference_design(destination)
+        elif destination == "action_sequence":
+            self.tabs.select(1)
+            self.open_action_sequence()
         elif destination == "deliver":
             self.tabs.select(3)
             script = self.validators[self.rules]
@@ -573,6 +577,13 @@ class ProductionDialog:
 
         self.save()
         open_reference_tools(self.window, self.project, self.path, kind, use_reference)
+
+    def open_action_sequence(self):
+        from .action_sequence_dialog import ActionSequenceDialog
+
+        if self.project is None:
+            raise ValueError("请先新建或打开项目。")
+        self.wait(ActionSequenceDialog(self).window)
 
     def open_layout(self):
         from .layout_dialog import LayoutDialog
@@ -903,7 +914,7 @@ class ProductionDialog:
 def open_production_dialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed,
                            initial_project=None, *, initial_action=None, destination="group",
                            loaded_project=None, source_id=""):
-    if initial_action == "open" and destination in {"generate_assets", "generate_board"} and initial_project is None:
+    if initial_action == "open" and destination in {"generate_assets", "generate_board", "action_sequence"} and initial_project is None:
         try:
             selected = choose_project_file(parent)
         except tk.TclError as exc:
@@ -912,7 +923,7 @@ def open_production_dialog(parent, validators, registry, text_session, image_ses
         if not selected:
             return None
         dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)
-        dialog.open_image_project(Path(selected), destination)
+        dialog.open_tool_project(Path(selected), destination)
         return dialog
 
     dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)

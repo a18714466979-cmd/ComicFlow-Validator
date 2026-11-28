@@ -138,6 +138,7 @@ class ProductionProject:
     layout: dict = field(default_factory=dict)
     pending_shots: list[Shot] = field(default_factory=list)
     handoffs: dict[str, dict] = field(default_factory=dict)
+    action_cards: list[dict] = field(default_factory=list)
 
     @classmethod
     def open(cls, path: Path):
@@ -179,7 +180,10 @@ class ProductionProject:
 
     def save(self, path: Path) -> None:
         self.check_identity()
-        atomic_text(path, json.dumps(asdict(self), ensure_ascii=False, indent=2) + "\n")
+        payload = asdict(self)
+        if not self.action_cards:
+            del payload["action_cards"]
+        atomic_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
     def import_source(self, name: str, version: str, text: str) -> ApprovedSource:
         if not version.strip() or not text.strip() or any(char in name + version for char in "|\r\n"):
@@ -306,6 +310,7 @@ class ProductionProject:
         del payload["structure_review"]
         del payload["text_drafts"]
         del payload["handoffs"]
+        del payload["action_cards"]
         for key in ("layout", "pending_shots"):
             if not payload[key]:
                 del payload[key]

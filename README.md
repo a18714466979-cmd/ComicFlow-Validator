@@ -36,6 +36,10 @@ English Film Production and Chinese Film Production are designed for delivery to
 - Shot drafting and board image prompts include the workflow's camera guidance by default. English preflight blocks a new full storyboard request and formal SD2 delivery if the shot records declare the same purpose in consecutive medium or extreme-wide shots of the same size, or three consecutive shots with the same size and angle in a group marked as a fight. Other framing findings support visual review.
 - Compare the actual panels and clean plates for camera geometry, composition, identity and action continuity. Approve the reviewed version before delivery. Review the final Seedance 2.0 video separately.
 
+### Action sequencing
+
+Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. ComicFlow action-card JSON can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
+
 ### Run from Source
 
 Requirements: Python 3.13 (tested).
@@ -147,14 +151,16 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 
 | 一级页面 | 功能 |
 | --- | --- |
-| 故事板制作 | 剧本创作、分镜拆分、资产分析、资产及故事板生图、提示词、服装与动作参考、排版与交接、单组 ZIP 交付。 |
+| 故事板制作 | 剧本创作、分镜拆分、人物动作编排、资产分析、资产及故事板生图、提示词、服装与姿势参考、排版与交接、单组 ZIP 交付。 |
 | 检查验收 | 图片像素、比例和文件大小、ZIP 完整性与规则验收、逐格核图、跨页和跨组镜头对照、资产返修。 |
 | API 接入 | 分用途配置文本、审图和生图。 |
 | 使用教程 | 用界面截图和步骤介绍快速开始、剧本到交付、检查交付 ZIP 和配置 API，支持直接打开示例或对应工具。 |
 
 同一项目可接续「剧本创作 → 分镜拆分 → 资产分析」。剧本编辑器可把选定的原稿写入新项目或作为已有项目中的剧本版本。镜头清单与已采纳的 AI 分镜都可进入下一步，资产分析带入该版本的原文与已保存镜头。从各页入口仍可打开已有项目或从本地导入稿件。
 
-服装设计内置 23 套 CC0 服装参考，可按现代日常、通勤与职业、婚礼与宴会、古装与民国、动作与幻想筛选，也可导入有权使用的图。动作设计通过在线 3D 导演台摆姿和机位，将取景图导入 ComicFlow。两种入口都会把选定的本地参考带入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
+服装设计内置 23 套 CC0 服装参考，可按现代日常、通勤与职业、婚礼与宴会、古装与民国、动作与幻想筛选，也可导入有权使用的图。「角色动作设计」提供 3D 姿势参考入口，可用在线导演台摆姿势和机位。服装图与姿势取景图都可导入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
+
+「人物动作编排」可从新建或已有项目开始。用动作卡库、自建动作卡或 3D 导演台 v1 动作演示／关键帧 JSON 建立序列，逐卡添加本地姿势参考图。手动调整顺序后，用 12 格或 15 格审查视图对照前后动作、持物手和道具交接。动作卡可另存为本地 JSON，也能在其他项目导入。复核后主动选择要带入的卡，关联已有正式分镜，或按批准剧本与实际源段位置新建分镜。
 
 ### Seedance 2.0 单组制片
 

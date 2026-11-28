@@ -97,7 +97,7 @@ def build_production_page(page, label_text, callbacks):
         ("故事板图生成", "按镜头清单生成板页，选择参考图后提交。", "generate_board"),
         ("提示词生成", "按镜头起草 Seedance 2.0 的成片动作和声音。", "prompts"),
         ("角色服装设计", "选取服装参考，进入角色生图并带入参考图。", "costume"),
-        ("角色动作设计", "用 3D 导演台摆姿势和机位，导入取景图辅助生图。", "pose"),
+        ("人物动作编排", "选动作卡、制作 12／15 格预演，再把选定动作带入分镜。", "action_sequence"),
         ("故事板组打包交付", "核对板格、净板和文字后，保存正式交付 ZIP。", "deliver"),
     )
     for index, (caption, description, action) in enumerate(steps):
@@ -115,7 +115,8 @@ def build_production_page(page, label_text, callbacks):
     tools = tk.Frame(flow, bg=BACKGROUND)
     tools.grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 1))
     for caption, action in (("单组制片", "group"), ("批准图像", "assets"),
-                            ("排版与交接", "layout"), ("对白与九图预算", "preflight")):
+                            ("排版与交接", "layout"), ("对白与九图预算", "preflight"),
+                            ("角色动作设计", "pose")):
         control = button(tools, caption, action)
         control.pack(side="left", padx=(4, 2))
         controls.append(control)

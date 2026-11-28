@@ -459,6 +459,21 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         navigation.select(review_page)
         browse(entries[0][1], entries[0][2])
 
+    def choose_action_project():
+        entry = tk.Toplevel(window)
+        entry.title(tr("人物动作编排"))
+        entry.transient(window)
+        row = ttk.Frame(entry, padding=18)
+        row.pack()
+
+        def launch(action):
+            entry.destroy()
+            produce(action=action, destination="action_sequence")
+
+        for caption, action in (("新建单组项目", "new"), ("打开单组项目", "open")):
+            ttk.Button(row, text=tr(caption), command=lambda mode=action: launch(mode)).pack(side="left", padx=4)
+        entry.grab_set()
+
     callbacks = {
         "new": lambda: produce(action="new"),
         "open": lambda: produce(action="open"),
@@ -466,6 +481,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         "group": produce,
         "script": lambda: plan_script("script"),
         "inventory": lambda: plan_script("assets"),
+        "action_sequence": choose_action_project,
         "preflight": lambda: open_preflight_dialog(window, entries[1][1].get().strip(), active_rules),
     }
     for destination in ("shots", "assets", "generate_assets", "generate_board", "layout", "prompts",

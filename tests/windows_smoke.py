@@ -135,6 +135,9 @@ def run_inside_launcher():
             if mode == "new-tools":
                 self.inspect_new_tools()
                 return
+            if mode == "action-sequence":
+                self.inspect_action_sequence()
+                return
             if mode == "production-handoff":
                 self.inspect_production_handoff()
                 return
@@ -451,6 +454,76 @@ def run_inside_launcher():
             print("Verified script-to-shots-to-assets with the exact approved revision, shot evidence and cancellation", flush=True)
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
+
+        def inspect_action_sequence(self):
+            from src.production_project import ProductionProject
+
+            project = ProductionProject("动作编排试用", "EP01", "SB01")
+            source = project.import_source("场景一", "R1", "演员从门口走到桌边。")
+            project.save(project_path)
+            original = project_path.read_bytes()
+            director_path = project_path.with_suffix(".json")
+
+            def point(position, time):
+                return {"time": time, "transform": {"position": position, "rotation": [0, 0, 0]}}
+
+            director_path.write_text(json.dumps({
+                "format": "3d-director-desk-project", "schemaVersion": 1, "project": {
+                    "version": 1, "scene": {"backgroundColor": "#ffffff"}, "assets": [], "cameras": [],
+                    "objects": [{
+                        "kind": "character", "name": "试用演员", "visible": True,
+                        "motionPath": {"keyframes": [point([0, 0, 0], 0), point([2, 0, 0], 1)]},
+                    }],
+                },
+            }), encoding="utf-8")
+            gallery = show_page(self, 0)
+            click(gallery, "人物动作编排")
+            picker = next(w for w in walk(self, tk.Toplevel) if w.title() == "人物动作编排")
+            with patch.object(filedialog, "askopenfilename", return_value=str(project_path)):
+                click(picker, "打开单组项目")
+
+            def inspect_sequence():
+                workbench = next((w for w in walk(self, tk.Toplevel) if w.title() == "人物动作编排"), None)
+                if workbench is None:
+                    self.after(60, inspect_sequence)
+                    return
+                assert project_path.read_bytes() == original
+                click(workbench, "加入选中预设")
+                with patch.object(filedialog, "askopenfilename", return_value=str(director_path)):
+                    click(workbench, "导入 3D 导演台工程")
+                cards = next(walk(workbench, ttk.Treeview))
+                first, second = cards.get_children()
+                assert cards.set(second, "actor") == "试用演员"
+                click(workbench, "上移")
+                assert cards.get_children() == (second, first)
+                tabs = next(walk(workbench, ttk.Notebook))
+                tabs.select(1)
+                self.update()
+                board_page = tabs.nametowidget(tabs.select())
+                for size in (12, 15):
+                    radio = next(w for w in walk(board_page, ttk.Radiobutton) if w.cget("text") == f"{size} 格")
+                    radio.invoke()
+                    assert len(list(walk(board_page, tk.Frame))) == size
+                tabs.select(0)
+                cards.selection_set(second)
+
+                def confirm():
+                    handoff = next(walk(workbench, tk.Toplevel))
+                    entry = next(w for w in walk(handoff, ttk.Entry) if not isinstance(w, ttk.Combobox))
+                    entry.insert(0, "场景一 · 进门")
+                    click(handoff, "确认带入")
+
+                self.after(60, confirm)
+                click(workbench, "带入正式分镜")
+                saved = ProductionProject.open(project_path)
+                assert len(saved.shots) == 1 and saved.shots[0].source == source.id
+                assert saved.action_cards[0]["shot_id"] == saved.shots[0].id
+                assert "路线点" in saved.shots[0].fields["动作起止"]
+                print("Verified action card presets, director JSON, reordering, panel counts and formal shot handoff", flush=True)
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.destroy()
+
+            self.after(60, inspect_sequence)
 
         def inspect_new_tools(self):
             from src.production_project import ProductionProject
@@ -1232,7 +1305,8 @@ def verify_windows_launcher(root=ROOT):
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
-                               ("production-handoff", f' "{archive}"'), ("image-entry", "")):
+                               ("production-handoff", f' "{archive}"'), ("image-entry", ""),
+                               ("action-sequence", f' "{archive}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
