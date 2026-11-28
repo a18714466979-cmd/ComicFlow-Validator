@@ -685,7 +685,8 @@ def run_inside_launcher():
             scripts = []
             for index, line in enumerate(("The lantern is lit.", "I see the bridge.", "We can go."), 1):
                 path = project_path.with_name(f"EP{index:02d}-script.txt")
-                path.write_text(f'INT. STATION - DAY\nMira opens the door.\nMira: "{line}"', encoding="utf-8")
+                newline = "\r\n" if index % 2 else "\n"
+                path.write_bytes(newline.join(("INT. STATION - DAY", "Mira opens the door.", f'Mira: "{line}"', "")).encode("utf-8"))
                 scripts.append(path)
             gallery = show_page(self, PRODUCTION_TAB)
 
@@ -740,7 +741,7 @@ def run_inside_launcher():
                 workspace = BatchWorkspace.open(workspace_path)
                 assert len(workspace.episodes) == 3
                 for episode, script in zip(workspace.episodes, scripts):
-                    assert workspace.source_text(episode.id).strip() == script.read_text(encoding="utf-8").strip()
+                    assert workspace.source_text(episode.id).encode("utf-8") == script.read_bytes()
                 click(panel, "关闭")
                 wait_for(lambda: titled("批量制作中心"), reopen, "batch center did not reopen")
                 click(gallery, "批量制作中心")
