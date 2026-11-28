@@ -1,0 +1,64 @@
+name: Publish the verified Studio v2.9.1 package
+on:
+  push:
+    branches: [codex/publish-v2.9.1]
+    paths: [.github/workflows/publish-studio-2-9-1.yml]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ZIP_SHA: 00f4a956feef4796d3c2f9371e973a1bef2cf7a1ca72dccbcce422578ed24a70
+      RELEASE_SHA: 6d6c7e0fb5163d6274472142a35bf5664a25a475
+    steps:
+      - name: Verify and publish the original Windows package
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "a18714466979-cmd/Comic-Sequence-Studio"
+          run_path="/repos/$GITHUB_REPOSITORY/actions/runs/46137217538"
+          artifact="/repos/$GITHUB_REPOSITORY/actions/artifacts/15260660522"
+          [[ "$(gh api "$run_path" --jq '.head_sha + " " + .conclusion')" == "$RELEASE_SHA success" ]]
+          [[ "$(gh api "$artifact" --jq .digest)" == "sha256:$ZIP_SHA" ]]
+          work="$(mktemp -d)"
+          cd "$work"
+          zip_name=Comic-Sequence-Studio-Windows.zip
+          curl --silent --show-error --fail --location --proto '=https' --proto-redir '=https' \
+            --header "Authorization: Bearer $GH_TOKEN" --output "$zip_name" "$GITHUB_API_URL$artifact/zip"
+          [[ "$(wc -c < "$zip_name")" -eq 7929724 ]]
+          printf '%s  %s\n' "$ZIP_SHA" "$zip_name" | sha256sum --check --strict
+          unzip -tq "$zip_name"
+          [[ "$(unzip -p "$zip_name" Comic-Sequence-Studio/REVISION.txt | tr -d '\r\n')" == "$RELEASE_SHA" ]]
+          cat > release-notes.md <<'NOTES'
+          ## 简体中文
+          
+          漫剧镜序制片台的 **Windows v2.9.1** 长期下载版。请下载下方的 `Comic-Sequence-Studio-Windows.zip`，解压后首次运行 `Comic-Sequence-Studio-Setup.bat`，之后双击 `Comic-Sequence-Studio.bat` 启动。使用 Windows 版 Python 3.13，安装时保留 Tcl/Tk 和 pip。完整说明见压缩包内的 `WINDOWS-TRYOUT.md`。
+          
+          - 面向 Seedance 2.0，内置英文影片制作规则 v14.10.5、中文影片制作规则 v14.8.9，以及各自的正式校验脚本。
+          - Windows 原生 353 项测试通过，并复验了中英文单组、连续双组和局部返修 ZIP。
+          - Seedance 2.5 和 MAGI 2 的独立制作流程列入后续更新。
+          
+          ## English
+          
+          Download `Comic-Sequence-Studio-Windows.zip` from **Assets** and extract it. Install Python 3.13 for Windows with Tcl/Tk and pip, run `Comic-Sequence-Studio-Setup.bat` once, and then start `Comic-Sequence-Studio.bat`. The archive includes `WINDOWS-TRYOUT.md`.
+          
+          - This release targets Seedance 2.0 and bundles English rules v14.10.5, Chinese rules v14.8.9, and their respective validators.
+          - All 353 Windows tests passed. English and Chinese single-group, adjacent-group, and repair ZIPs were reopened and verified.
+          - Separate Seedance 2.5 and MAGI 2 workflows are planned.
+          
+          [Windows validation log](https://github.com/a18714466979-cmd/Comic-Sequence-Studio/actions/runs/46137217538/job/140955258699)
+          
+          SHA-256 `00f4a956feef4796d3c2f9371e973a1bef2cf7a1ca72dccbcce422578ed24a70`
+          NOTES
+          gh release create v2.9.1 "$zip_name" --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" \
+            --draft --title '漫剧镜序制片台 · Comic Sequence Studio v2.9.1' --notes-file release-notes.md
+          release_id="$(gh api "/repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.tag_name == "v2.9.1" and .draft) | .id')"
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          [[ "$(gh api "/repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[] | select(.name == "Comic-Sequence-Studio-Windows.zip") | .digest')" == "sha256:$ZIP_SHA" ]]
+          gh release edit v2.9.1 --repo "$GITHUB_REPOSITORY" --draft=false --latest --target "$RELEASE_SHA"
+          [[ "$(gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/v2.9.1" --jq .object.sha)" == "$RELEASE_SHA" ]]
