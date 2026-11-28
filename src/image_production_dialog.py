@@ -101,6 +101,11 @@ class ImageProductionDialog:
         inputs.pack(fill="both", expand=True)
         reference = ttk.LabelFrame(inputs, text=translate(inputs, "批准参考图"), padding=6)
         reference.pack(side="left", fill="both", padx=(0, 8))
+        gallery = ttk.Frame(reference)
+        gallery.pack(fill="x", pady=(0, 5))
+        ttk.Button(gallery, text=translate(gallery, "按图选择参考"), style="Primary.Workbench.TButton",
+                   command=lambda: self.run(self.pick_visual_refs)).pack(side="left", padx=(0, 6))
+        self.buttons(gallery, ("查看项目素材", self.open_project_media))
         self.refs = tk.Listbox(reference, selectmode="extended", exportselection=False, width=42, height=9)
         self.refs.pack(fill="both", expand=True)
         self.refs.bind("<<ListboxSelect>>", self.update_base_choice)
@@ -209,6 +214,45 @@ class ImageProductionDialog:
             self.refs.insert("end", f"{item.filename} · {item.version}")
         self.update_scope()
 
+    def open_project_media(self, *, pick=False, preview_selected=False):
+        from .media_gallery import open_media_gallery
+        from .production_media import project_media_catalog, project_media_items
+
+        english = getattr(self.window._root(), "ui_language", "zh") == "en"
+        selected = tuple(self.ref_images[index].id for index in self.refs.curselection())
+        open_media_gallery(
+            self.window, project_media_items(self.project, self.path, english=english),
+            catalog=project_media_catalog(self.path), selected=selected, native_only=pick or preview_selected,
+            on_select=self.apply_visual_refs if pick else None, open_selected=preview_selected,
+            title=translate(self.window, "按图选择参考" if pick else "项目素材库"),
+        )
+
+    def pick_visual_refs(self):
+        if REFERENCE in self.modes:
+            self.open_project_media(pick=True)
+        else:
+            raise ValueError("请选择支持参考图的图像服务商。")
+
+    def apply_visual_refs(self, selected):
+        selected_ids = {item.key for item in selected}
+        limit = IMAGE_PROVIDERS[self.provider.get()].references
+        if len(selected_ids) > limit:
+            raise ValueError(translate(self.window, "本接口最多允许选择 {count} 张批准参考图。").format(count=limit))
+        if selected_ids and self.mode() == TEXT:
+            self.mode_picker.current(self.modes.index(REFERENCE))
+            self.update_scope()
+
+        self.refs.selection_clear(0, "end")
+        first = None
+        for index, item in enumerate(self.ref_images):
+            if item.id in selected_ids:
+                self.refs.selection_set(index)
+                if first is None:
+                    first = index
+        if first is not None:
+            self.refs.see(first)
+        self.update_base_choice()
+
     def update_base_choice(self, _event=None):
         selected = self.refs.curselection()
         choices = tuple(self.refs.get(index) for index in selected)
@@ -256,11 +300,9 @@ class ImageProductionDialog:
         self.show_report("软件锁定规则", rules)
 
     def view_reference(self):
-        indices = self.refs.curselection()
-        if not indices:
+        if not self.refs.curselection():
             raise ValueError("请选择批准参考图。")
-        selected = self.ref_images[indices[0]]
-        self.show_pictures(((selected.filename, self.project.checked_image(self.path, selected)),))
+        self.open_project_media(preview_selected=True)
 
     def pick_box(self):
         selected = self.chosen_refs()

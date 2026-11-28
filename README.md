@@ -86,6 +86,8 @@ When reviewing a package from another workspace, add `--review-missing-sources` 
 
 On Windows, install the requirements for Python 3 with Tcl/Tk. The launcher prefers the project's `.venv`, then tries `python` and `py -3` for an interpreter with its desktop dependencies. Double-click `Comic-Sequence-Studio.bat`. Choose **New project** to create a `.cfproject`, **Resume saved project** to open one (try `Examples/SB01.cfproject`), or **Validate an existing ZIP** to check a delivery archive. You can also drop a ZIP on the `.bat` file in Explorer. English mode defaults to its bundled validator. Select a trusted workflow validator for Chinese mode or to override the English default. Set `COMICFLOW_STORYBOARD_VALIDATOR` to prefill the English override. The result table shows groups, shot IDs and filenames when the validator identifies them. Select a row to preview its text or image in the window, or switch to the full report tab.
 
+Open the **media library** from Approved images, the batch center's Shared assets, or the e-commerce workspace. Resize the square cards, filter by category and media type, or open an item for a full-frame preview. Videos can be scrubbed and played locally, and the current frame can become the card's poster. Image production has a visual picker for approved stills.
+
 For an approved extra-panel exception to the six-panel dialogue rule, pass `--panel-exception file.json` when validating a ZIP directly, or select the JSON in the launcher. The entry is tied to one ZIP SHA-256, one group such as `SB05`, its approved `panels` count (7–12), and a one-line `reason`. Only the matching six-panel-rule diagnostic is treated as an approved exception.
 
 Open the 「API 接入」 page in the workbench. Configure a provider, HTTPS base URL, model ID and credentials for each task. Settings apply to the current session. A provider key may cover more than one model if your account grants those permissions. The workbench can copy a key between text and vision when the provider and base URL match. Keep the model ID for each use case. A text model can also handle image review only if it accepts image inputs. Image generation requires an image-output model and its supported API. [OpenAI images and vision guide](https://developers.openai.com/api/docs/guides/images-vision?api-mode=chat) · [Ark API key permissions](https://console.volcengine.com/ark/region%3Acn-beijing/docs/manage-api-keys)
@@ -103,6 +105,8 @@ In 「返修打包」, enter a shot ID to see related files in the most recently
 ---
 
 ## 简体中文
+
+在单组「批准图像」、批量「公共资产」或电商资料页进入素材库。按场景、人物、道具筛选并批量改类。方形预览卡保留画幅，双击图片可放大，双击视频可播放、拖动进度或选择封面。生图参考图可按画面选择。
 
 ### 项目介绍
 

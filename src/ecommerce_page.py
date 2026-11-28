@@ -24,11 +24,16 @@ from .ecommerce_delivery import (
     asset_audit, board_layout, compose_product_sheet, label_board_sheet, publish_ecommerce_delivery,
     render_group_prompt, stage_ecommerce_delivery,
 )
+from .ecommerce_media import catalog_path, linked_image, product_photo, source_clip
 from .ecommerce_project import EcommerceProject, EcommerceShot, parse_shots, render_shots, time_range
 from .ecommerce_video import VIDEO_FILTER, analyze_video, format_timestamp, inspect_video, preview_frame, preview_sheet
 from .image_api import query_image
+from .media_catalog import MediaCatalog, MediaCatalogError
+from .media_gallery import open_media_gallery
+from .media_preview import load_preview
 from .production_project import atomic_text
 from .reference_tools_dialog import read_reference
+from .workbench_style import SUBTLE
 
 
 PHASES = (
@@ -36,6 +41,7 @@ PHASES = (
     ("资产与故事板", "Assets & boards"), ("提示词与交付", "Prompts & delivery"),
 )
 IMAGE_FILTER = ("PNG / JPEG / WebP", "*.png *.jpg *.jpeg *.webp")
+SOURCE_POSTER_SIZE = 108
 SHOT_FIELDS = (
     ("scene", "场景", "Scene"), ("size", "景别", "Shot size"), ("angle", "机位/角度", "Camera angle"),
     ("camera", "运镜", "Camera movement"), ("action", "画面/事件", "On-screen action"),
@@ -65,6 +71,9 @@ class EcommercePage:
         self.project = EcommerceProject("")
         self.path = None
         self.saved = deepcopy(self.project)
+        self.media_catalog = MediaCatalog(None)
+        self.media_unsaved = False
+        self.poster_request = None
         self.info = None
         self.labels = []
         self.tables = []
@@ -148,10 +157,22 @@ class EcommercePage:
         row.pack(fill="x")
         self.button(row, "导入参考视频", "Import reference video", self.import_video, primary=True)
         self.button(row, "播放参考视频", "Play reference video", self.play_video)
-        self.button(row, "预览参考帧", "Preview reference frame", self.preview_video)
-        ttk.Label(page, textvariable=self.video_status, wraplength=800).pack(anchor="w", pady=(4, 10))
+        self.button(row, "打开素材库", "Open media library", self.open_media)
 
-        form = ttk.Frame(page)
+        overview = ttk.Frame(page)
+        overview.pack(fill="x")
+        info = ttk.Frame(overview)
+        info.pack(side="left", fill="x", expand=True)
+        status = ttk.Label(info, textvariable=self.video_status, wraplength=660)
+        status.pack(anchor="w", pady=(4, 10))
+        info.bind("<Configure>", lambda event: status.configure(wraplength=max(150, event.width - 8)), add="+")
+
+        self.poster = ttk.Button(overview, compound="top", command=lambda: self.guard(self.open_video_preview),
+                                 style="Workbench.TButton")
+        self.labels.append((self.poster, "查看视频封面", "View video cover"))
+        self.buttons.append(self.poster)
+
+        form = ttk.Frame(info)
         form.pack(fill="x")
         form.columnconfigure(1, weight=1)
         for index, (zh, en, variable) in enumerate((
@@ -226,6 +247,7 @@ class EcommercePage:
         self.button(row, "用 API 制作选中资产", "Generate selected asset with API", self.generate_asset, primary=True)
         self.button(row, "查询生图任务", "Check image job", self.poll_asset)
         self.button(row, "API 设置", "API settings", self.open_api)
+        self.button(row, "打开素材库", "Open media library", self.open_media)
         self.asset_table = self.table(page, (
             ("kind", "类别", "Category", 106), ("name", "用途", "Asset", 247),
             ("state", "状态", "State", 182), ("path", "文件", "File", 252),
@@ -335,7 +357,7 @@ class EcommercePage:
             self.status.set(self.t("正在处理，请稍候。", "Processing. Please wait."))
             return False
         self.form()
-        if self.project != self.saved:
+        if self.project != self.saved or self.media_unsaved:
             response = messagebox.askyesnocancel(
                 self.t("电商项目尚未保存", "Unsaved ecommerce project"),
                 self.t("保存当前电商项目？", "Save the current ecommerce project?"), parent=self.window)
@@ -343,7 +365,7 @@ class EcommercePage:
                 return False
             if response:
                 self.guard(self.save)
-                if self.project != self.saved:
+                if self.project != self.saved or self.media_unsaved:
                     return False
         self.clear_preview()
         return True
@@ -353,6 +375,8 @@ class EcommercePage:
             return
         self.project = EcommerceProject("")
         self.saved, self.path, self.info = deepcopy(self.project), None, None
+        self.media_catalog = MediaCatalog(None)
+        self.media_unsaved = False
         self.jobs.clear()
         self.load_form()
         self.steps.select(0)
@@ -366,7 +390,10 @@ class EcommercePage:
         if not source or not self.allow_close():
             return
         path = Path(source)
-        self.project = EcommerceProject.open(path)
+        project = EcommerceProject.open(path)
+        catalog = MediaCatalog(catalog_path(path, project.project_id))
+        self.project, self.media_catalog = project, catalog
+        self.media_unsaved = False
         self.path, self.saved, self.info = path, deepcopy(self.project), None
         self.jobs.clear()
         self.load_form()
@@ -388,6 +415,13 @@ class EcommercePage:
                 return
             destination = Path(filename)
         self.project.save(destination)
+        if self.path is None:
+            storage = catalog_path(destination, self.project.project_id)
+            if self.media_unsaved:
+                self.media_catalog.attach(storage)
+            else:
+                self.media_catalog = MediaCatalog(storage)
+            self.media_unsaved = False
         self.path, self.saved = destination, deepcopy(self.project)
         self.status.set(self.t(f"已保存 {destination.name}", f"Saved {destination.name}"))
 
@@ -406,12 +440,84 @@ class EcommercePage:
         if not self.project.video_path:
             self.video_status.set(self.t("导入本地参考视频，软件会在本机读取时长、视频尺寸和音轨信息。",
                                          "Import a local video to read duration, dimensions and audio-track information."))
+            self.refresh_poster(None)
             return
         width, height = self.project.video_width, self.project.video_height
         timeline = format_timestamp(self.project.duration_ms) if self.project.duration_ms is not None else "—"
         audio = self.t("有音轨", "Audio present") if self.project.video_has_audio else self.t("无音轨", "No audio track")
         dimensions = f"{width} × {height}" if width and height else "—"
         self.video_status.set(f"{Path(self.project.video_path).name}  ·  {timeline}  ·  {dimensions}  ·  {audio}")
+        self.refresh_poster(self.video_item())
+
+    def video_item(self):
+        return source_clip(Path(self.project.video_path), self.t("电商参考视频", "Source ad video"))
+
+    def refresh_poster(self, item):
+        if item is None:
+            self.poster_request = None
+            self.poster.pack_forget()
+            return
+        try:
+            time_ms = self.media_catalog.poster_time(item.key)
+        except MediaCatalogError:
+            time_ms = None
+        request = (item.path, time_ms)
+        if self.poster_request == request:
+            return
+        self.poster_request = request
+        self.poster.configure(image="")
+        self.poster.image = None
+        self.poster.pack(side="right", anchor="n", padx=(10, 0))
+        result = Queue(1)
+
+        def decode():
+            try:
+                preview = load_preview(item, SOURCE_POSTER_SIZE, time_ms=time_ms)
+                square = Image.new("RGB", (SOURCE_POSTER_SIZE, SOURCE_POSTER_SIZE), SUBTLE)
+                frame = preview.image.convert("RGB")
+                square.paste(frame, ((square.width - frame.width) // 2, (square.height - frame.height) // 2))
+                result.put(square)
+            except (OSError, ValueError, RuntimeError):
+                result.put(None)
+
+        def receive():
+            if self.poster_request is not request:
+                return
+            try:
+                square = result.get_nowait()
+            except Empty:
+                self.window.after(85, receive)
+                return
+            if square is not None:
+                self.poster.image = ImageTk.PhotoImage(square, master=self.poster)
+                self.poster.configure(image=self.poster.image)
+
+        Thread(target=decode, daemon=True).start()
+        self.window.after(85, receive)
+
+    def media_changed(self):
+        if self.path is None:
+            self.media_unsaved = True
+            self.status.set(self.t("保存电商项目以保留素材分类和封面。",
+                                   "Save the ecommerce project to keep media categories and covers."))
+        self.refresh_video()
+
+    def open_media(self, selected=()):
+        items = []
+        if self.project.video_path:
+            items.append(self.video_item())
+        purpose = self.t("自有产品参考照片", "Product reference photo")
+        items.extend(product_photo(Path(path), purpose) for path in self.project.product_refs)
+        purpose = self.t("已绑定的制作图像", "Linked production image")
+        items.extend(linked_image(slot, Path(path), purpose) for slot, path in self.project.assets.items())
+        open_media_gallery(self.window, items, catalog=self.media_catalog, selected=selected,
+                           allow_import=True, open_selected=bool(selected),
+                           on_change=self.media_changed)
+
+    def open_video_preview(self):
+        if not self.project.video_path:
+            self.video()
+        self.open_media((self.video_item().key,))
 
     def import_video(self):
         selected = filedialog.askopenfilename(
@@ -500,7 +606,8 @@ class EcommercePage:
         return choice[0]
 
     def preview_product(self):
-        self.show_file(Path(self.project.product_refs[self.product_index()]))
+        item = product_photo(Path(self.project.product_refs[self.product_index()]), "")
+        self.open_media((item.key,))
 
     def remove_product(self):
         self.project.product_refs.pop(self.product_index())
@@ -787,7 +894,7 @@ class EcommercePage:
         path = self.project.assets.get(row.key, "")
         if not path:
             raise ValueError(self.t("这项资产还没有图片。", "No image is linked to this asset yet."))
-        self.show_file(Path(path))
+        self.open_media((linked_image(row.key, Path(path), "").key,))
 
     def bind_asset(self, key, path):
         self.project.assets[key] = str(path)

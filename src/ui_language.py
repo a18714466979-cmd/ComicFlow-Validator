@@ -253,6 +253,14 @@ ENGLISH = {
         "Saved for this session. The provider determines account and model access when you submit a request.",
     "已保存接口和模型。提交任务前请填写密钥。": "Endpoint and model saved. Enter a key before submitting a job.",
     # Project navigation, editing and delivery
+    "打开素材库": "Open media library",
+    "项目素材库": "Project media library",
+    "按图选择参考": "Choose references visually",
+    "查看项目素材": "Browse project media",
+    "在素材库预览、分类图片和视频。用「导入批准 PNG」登记制片与交付所需的批准图片。":
+        "Preview and sort pictures and videos in the media library. Use Import approved PNG to register approved images.",
+    "请选择支持参考图的图像服务商。": "Choose an image provider that accepts reference images.",
+    "本接口最多允许选择 {count} 张批准参考图。": "This provider supports up to {count} approved reference images.",
     "单组制作项目": "Storyboard group project",
     "单组制片": "Group production",
     "新建单组项目": "Create group project",

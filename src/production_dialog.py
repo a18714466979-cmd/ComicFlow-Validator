@@ -199,10 +199,27 @@ class ProductionDialog:
     def setup_images(self, page):
         bar = ttk.Frame(page)
         bar.pack(fill="x", pady=(0, 8))
-        self.buttons(bar, ("导入批准 PNG", self.import_image), ("从资产登记库导入", self.pick_registered),
-                     ("打开图片", self.view_image), ("移除图片绑定", self.remove_image))
+        library_button, *_ = self.buttons(
+            bar, ("打开素材库", self.open_media_library), ("导入批准 PNG", self.import_image),
+            ("从资产登记库导入", self.pick_registered), ("打开图片", self.view_image),
+            ("移除图片绑定", self.remove_image),
+        )
+        library_button.configure(style="Primary.Workbench.TButton")
+        tip = "在素材库预览、分类图片和视频。用「导入批准 PNG」登记制片与交付所需的批准图片。"
+        ttk.Label(page, text=translate(page, tip), wraplength=690).pack(anchor="w", pady=(0, 7))
         self.images = self.table(page, ("文件名", "范围", "版本", "处理方式", "尺寸"), (335, 100, 65, 135, 100))
         self.images.bind("<Double-1>", lambda _event: self.guarded(self.view_image))
+
+    def open_media_library(self):
+        from .media_gallery import open_media_gallery
+        from .production_media import project_media_catalog, project_media_items
+
+        english = getattr(self.window._root(), "ui_language", "zh") == "en"
+        open_media_gallery(
+            self.window, project_media_items(self.project, self.path, english=english),
+            catalog=project_media_catalog(self.path), selected=self.images.selection(), allow_import=True,
+            title=translate(self.window, "项目素材库"),
+        )
 
     def setup_delivery(self, page):
         forms = ttk.Frame(page)
@@ -761,10 +778,14 @@ class ProductionDialog:
             requested = [name.strip() for name in originals.get().split("|") if name.strip()]
             if any(name not in names for name in requested):
                 raise ValueError("批准原图文件名有误，请使用已导入图片的文件名。")
-            self.project.import_image(self.path, path, name.get(), action=action.get(), version=version.get(),
-                                      reason=reason.get(), inspection=inspection.get(), approved=approved,
-                                      originals=tuple(names[name] for name in requested), reference_only=reference.get())
+            item = self.project.import_image(
+                self.path, path, name.get(), action=action.get(), version=version.get(),
+                reason=reason.get(), inspection=inspection.get(), approved=approved,
+                originals=tuple(names[name] for name in requested), reference_only=reference.get(),
+            )
             self.refresh()
+            self.images.selection_set(item.id)
+            self.images.see(item.id)
             panel.destroy()
 
         bar = ttk.Frame(panel, padding=10)

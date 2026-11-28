@@ -1,6 +1,7 @@
 """Desktop batch center for script planning, resumable production and reviewed delivery."""
 
 import json
+import re
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Thread
@@ -341,12 +342,16 @@ class BatchDialog:
         self.wrap_toolbar(bars)
 
     def build_assets(self, page):
+        library_bar = self.toolbar(page)
+        self.button(library_bar, "打开素材库", "Open media library", self.open_media_library, "batch", primary=True)
         ttk.Label(page, textvariable=self.asset_status, wraplength=790).pack(anchor="w", pady=(0, 5))
         self.assets = self.table(page, "assets", (("identity", "身份／资产", "Identity / asset", 180),
             ("state_name", "状态／造型", "State / look", 180), ("version", "版本", "Version", 90),
             ("file", "批准文件", "Approved file", 200)), 2)
+        self.assets.bind("<Double-1>", self.open_clicked_asset)
+        self.assets.bind("<Return>", lambda _event: self.guarded(lambda: self.open_media_library(open_selected=True)))
         bar = self.toolbar(page)
-        self.button(bar, "批准本地资产", "Approve local asset", self.approve_asset, "batch", primary=True)
+        self.button(bar, "批准本地资产", "Approve local asset", self.approve_asset, "batch")
         self.button(bar, "复用到所选组", "Reuse in selected group", self.reuse_asset)
         self.button(bar, "安排资产生图", "Queue asset image", self.queue_asset)
         self.wrap_toolbar(bar)
@@ -1028,6 +1033,34 @@ class BatchDialog:
                 self.update(lambda: self.workspace.approve_asset(image_path=path, **data))
 
         self.task(preview, inspect, self.t("正在读取原图…", "Loading the original image…"))
+
+    def open_clicked_asset(self, event):
+        row = self.assets.identify_row(event.y)
+        if row and self.assets.identify_region(event.x, event.y) == "cell":
+            self.assets.selection_set(row)
+            self.guarded(lambda: self.open_media_library(open_selected=True))
+
+    def open_media_library(self, *, open_selected=False):
+        from .media_catalog import MediaCatalog, MediaItem, category_for_filename
+        from .media_gallery import open_media_gallery
+
+        if self.workspace is None:
+            return
+        root = self.workspace.root
+        approved = self.t("批准公共资产", "Approved shared asset")
+        assets = self.view["assets"]
+        items = []
+        for asset in assets:
+            stored = asset.digest + ".png" if re.fullmatch(r"[0-9a-f]{64}", asset.digest) else "unavailable"
+            caption = f"{approved} · {asset.identity} · {asset.state} · {asset.version}"
+            items.append(MediaItem(asset.id, root / "images" / stored, category_for_filename(asset.filename),
+                                   caption, name=asset.filename, expected_digest=asset.digest))
+        picks = self.assets.selection()
+        selected = (assets[int(picks[0])].id,) if picks else ()
+        return open_media_gallery(self.window, items, catalog=MediaCatalog(root / "media-catalog.json"),
+                                  selected=selected, allow_import=True,
+                                  title=self.t("批次素材库", "Batch media library"),
+                                  open_selected=open_selected)
 
     def reuse_asset(self):
         picks = self.assets.selection()

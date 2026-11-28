@@ -2,6 +2,22 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.1.0 · 2026-11-28
+
+### 简体中文
+
+- 新增图片与视频素材库。可在单组批准图像、批量公共资产、生图参考图及电商资料中按画面找素材。用可调大小的方形卡片查看完整画幅，双击看细节。
+- 场景、人物、道具、待分类可筛选与批量编辑。支持横图、竖图、故事板和视频的预览。视频可查看时长、拖动进度、播放及选择封面帧。
+- 分类和封面保存到各项目自己的素材索引。图片和视频保留原文件及比例。正式交付仍使用已批准和已绑定的资产。
+- 安装和界面验证以包内 `REVISION.txt` 对应的运行记录为准。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
+### English
+
+- Browse images and videos from approved group images, batch shared assets, image-generation references, and e-commerce source materials. Square cards preserve the full frame and can be resized. Open a card for a larger preview.
+- Filter or bulk-edit scenes, characters, props, and unclassified media. Preview landscape and portrait images, storyboards, and videos. Video previews show duration and support seeking, playback and choosing a poster frame.
+- Categories and poster frames are saved in each project's media index. Source files and their aspect ratios are preserved. Formal delivery still uses the approved and linked production assets.
+- Match the package revision in `REVISION.txt` to the installation and desktop verification run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
 ## 2.0.0 · 2026-11-28
 
 ### 简体中文
@@ -11,7 +27,7 @@
 - 调整批量制作中心的验收交付按钮布局，让窄窗口里仍可查看覆盖情况和导出选项。
 - 解压 Windows 包后，先运行 `Comic-Sequence-Studio-Setup.bat` 安装依赖，再运行 `Comic-Sequence-Studio.bat` 启动。项目仍使用 `.cfproject`、`.cfbatch` 和 `.cfecom`。
 - 已报告的 3D 导演台部分姿势的人偶接合问题仍待复现定位。当前版本使用既有素材预览和动作卡。
-- 验证本版时，可按安装包里的 `REVISION.txt` 核对提交号，再查看对应运行的 Windows 安装与桌面验证结果。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+- 2.0.0 的 Windows 安装、两个日志入口、双语高缩放和交付样例已复验。[2.0.0 Windows 验证](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46108317565)
 
 ### English
 
@@ -20,7 +36,7 @@
 - The batch review footer keeps coverage and export controls in view at narrow window widths.
 - Extract the Windows package, run `Comic-Sequence-Studio-Setup.bat` to install dependencies, and run `Comic-Sequence-Studio.bat` to launch. Projects use `.cfproject`, `.cfbatch`, and `.cfecom`.
 - A reported issue with visible gaps at the mannequin's joints in the 3D Director Desk is awaiting reproduction and diagnosis. This release uses the existing media preview and action cards.
-- To check this release's validation, match the commit in the package's `REVISION.txt` to the corresponding Windows installation and desktop validation run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+- The 2.0.0 Windows install, both changelog entry points, bilingual high-scaling layouts and sample deliveries passed verification. [2.0.0 Windows verification](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46108317565)
 
 ## A 版基线 / A layout baseline · 2026-11-28
 
