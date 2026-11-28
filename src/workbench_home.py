@@ -97,7 +97,7 @@ def build_production_page(page, label_text, callbacks):
         ("故事板图生成", "按镜头清单生成板页，选择参考图后提交。", "generate_board"),
         ("提示词生成", "按镜头起草 Seedance 2.0 的成片动作和声音。", "prompts"),
         ("角色服装设计", "选取服装参考，进入角色生图并带入参考图。", "costume"),
-        ("人物动作编排", "选动作卡、制作 12／15 格预演，再把选定动作带入分镜。", "action_sequence"),
+        ("人物动作编排", "从动作参考库记下镜头想法，用动作卡做 12／15 格预演。", "action_sequence"),
         ("故事板组打包交付", "核对板格、净板和文字后，保存正式交付 ZIP。", "deliver"),
     )
     for index, (caption, description, action) in enumerate(steps):

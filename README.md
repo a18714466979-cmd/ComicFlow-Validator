@@ -40,6 +40,8 @@ English Film Production and Chinese Film Production are designed for delivery to
 
 Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. ComicFlow action-card JSON can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
 
+In **Action reference library**, pick a starter link or paste a YouTube, Youku or Tencent Video playback link from the rights holder. Open it in your browser, mark the start and end of a passage, and write what you want to try in your own scene. For example, a wide shot might establish both characters before a close-up reveals one character’s reaction. Save the reference with the project. Choose **Create card from notes** to start a sequence, or append your note to a selected card. Playback stays on the platform, and the delivery ZIP leaves out the reference library.
+
 ### E-commerce video recreation
 
 Open the second top-level tab, **E-commerce video recreation**. Import a local reference video and enter your product name. Add your product photos and check that they show every side and state needed in the shots, such as packaging or the product held in a hand. ComicFlow uses the supplied images to assemble one separate 16:9 product sheet.
@@ -170,6 +172,8 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 服装设计内置 23 套 CC0 服装参考，可按现代日常、通勤与职业、婚礼与宴会、古装与民国、动作与幻想筛选，也可导入有权使用的图。「角色动作设计」提供 3D 姿势参考入口，可用在线导演台摆姿势和机位。服装图与姿势取景图都可导入生图预览。 [PoseWear](https://posewear.pages.dev/#costume) · [Shisei](https://github.com/wquguru/shisei) · [3D 导演台](https://github.com/xiaozangao/3d-director-desk)
 
 「人物动作编排」可从新建或已有项目开始。内置 53 张中英双语动作卡，覆盖日常表演、双人互动、救援、走位和刀、长枪、剑、戟等影视道具。可自建卡片、添加本地姿势参考图，或从 3D 导演台工程 JSON 导入人物和道具轨迹作为预演参考。调整顺序后，用 12 格或 15 格视图对照前后动作、持物手和道具交接。动作卡可另存为本地 JSON。确认成片动作后，选择要接入的正式分镜，或按批准剧本与实际源段位置新建分镜。
+
+在「人物动作编排 → 动作参考库」可以选内置示例，也可以粘贴版权方在 YouTube、优酷或腾讯视频发布的播放链接。用浏览器观看，记下起止时间和自己的镜头笔记，例如「先用全景交代两人站位，再切近景看其中一人的反应」。参考条目随 `.cfproject` 保存。点「用笔记新建动作卡」即可开始编排，也可以把笔记追加到选中的动作卡。视频在原平台播放，参考库留在项目里。
 
 ### 电商信息流视频复刻
 

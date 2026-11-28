@@ -23,8 +23,8 @@ SECTIONS = (
     ("production", ("从剧本到交付", "Script to delivery"), (
         ("在「剧本创作」写或导入稿件，点「用左侧稿件拆分镜」。核对镜头后，点「下一步：分析资产」。",
          "Write or import a script, then choose Plan shots with left draft. Review the shots and choose Next: Analyze assets."),
-        ("用「资产图生成」准备人物、场景和道具，再到「故事板图生成」。已有批准的图片可直接导入。",
-         "Prepare characters, locations and props in Asset image generation, then open Storyboard generation. Approved images can be imported."),
+        ("在「人物动作编排 → 动作参考库」记下片段时间和镜头笔记，用笔记新建动作卡或追加到选中的卡。预演后可生成资产图和故事板图，也可导入批准图。",
+         "Log clip times and notes in Action sequencing → Action reference library. Create a card from your notes or add them to a selected card. After previewing, generate asset and storyboard images or import approved ones."),
         ("在英文项目的「复核与交付」或中文项目的「文本与排版」逐格核对，确认当前版后导出 ZIP。",
          "In Review & delivery (English projects) or Text, layout & delivery (Chinese projects), review each panel and export the ZIP."),
     ), ("打开剧本创作", "Open script writing")),

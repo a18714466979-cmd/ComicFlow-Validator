@@ -182,8 +182,8 @@ ENGLISH = {
     "选取服装参考，进入角色生图并带入参考图。": "Choose a wardrobe reference and carry it into image generation.",
     "角色动作设计": "Character pose design",
     "人物动作编排": "Action sequencing",
-    "选动作卡、制作 12／15 格预演，再把选定动作带入分镜。":
-        "Arrange action cards in 12- or 15-panel previews and send selected actions to shots.",
+    "从动作参考库记下镜头想法，用动作卡做 12／15 格预演。":
+        "Save shot ideas in the action reference library and preview your cards in 12 or 15 panels.",
     "用 3D 导演台摆姿势和机位，导入取景图辅助生图。":
         "Stage poses and cameras in a 3D director desk and import a frame as a reference.",
     "故事板组打包交付": "Package storyboard group",

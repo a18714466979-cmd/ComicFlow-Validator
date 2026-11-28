@@ -52,10 +52,13 @@ class ActionSequenceDialog:
                     lambda: self.import_cards(director=True)).pack(side="left", padx=3)
         self.button(top, "打开 3D 导演台", "Open 3D Director Desk",
                     lambda: webbrowser.open(DIRECTOR_DESK)).pack(side="left", padx=3)
-        ttk.Label(self.window, text=self.t(
+        resources = ttk.Frame(self.window, padding=(12, 0, 12, 6))
+        resources.pack(fill="x")
+        self.button(resources, "动作参考库", "Action reference library", self.open_reference_library).pack(side="right")
+        ttk.Label(resources, text=self.t(
             "选卡或新建 → 核对格间动作 → 带入分镜。预演可用文字或参考图。",
             "Add cards → review adjacent beats → send to shots. Preview with text or reference images.",
-        ), padding=(12, 0, 12, 6)).pack(anchor="w")
+        ), wraplength=565, justify="left").pack(side="left")
 
         self.tabs = ttk.Notebook(self.window)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=(0, 6))
@@ -187,6 +190,22 @@ class ActionSequenceDialog:
         title, movement, prop = self.categories[self.category_box.current()][self.preset_box.current()]
         cards = [ActionCard(title=title[self.language], movement=movement[self.language], prop=prop[self.language])]
         self.add(cards)
+
+    def open_reference_library(self):
+        from .action_reference_dialog import ActionReferenceDialog
+
+        self.wait(ActionReferenceDialog(self).window)
+
+    def append_reference_notes(self, identity, notes):
+        card = next(item for item in self.cards if item.id == identity)
+        movement = "\n".join(part for part in (card.movement, notes) if part)
+        if len(movement) > 1500:
+            raise ValueError(self.t("动作与反应最多 1500 字。请缩短笔记或已有动作后再加入。",
+                                    "Movement & reaction allows 1,500 characters. Shorten the notes or existing movement."))
+        self.cards = [replace(item, movement=movement) if item.id == identity else item for item in self.cards]
+        self.refresh((identity,))
+        self.status.set(self.t(f"笔记已加入「{card.title}」。可打开预演格查看，或保存动作编排。",
+                               f"Notes added to “{card.title}”. Open Preview panels or save the sequence."))
 
     def add(self, incoming):
         ids = {card.id for card in self.cards}

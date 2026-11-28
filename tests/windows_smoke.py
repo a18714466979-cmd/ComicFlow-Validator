@@ -483,6 +483,93 @@ def run_inside_launcher():
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
 
+        def exercise_action_references(self, workbench):
+            import webbrowser
+            from urllib.parse import parse_qs, urlsplit
+            from src.action_sequence import load_action_cards
+            from src.production_project import ProductionProject
+
+            title = "烟雨站台 · 摄影观察"
+            url = "https://www.youtube.com/watch?v=CFtest12345"
+            note = "等演员停住，再从全景切到反应近景。"
+
+            def named(scope, kind, name):
+                return next(widget for widget in walk(scope, kind) if widget.winfo_name() == name)
+
+            def enter(field, value):
+                field.delete(0, "end")
+                field.insert(0, value)
+
+            def fill_reference(library):
+                form = named(library, tk.Toplevel, "reference_editor")
+                for name, value in (("title", title), ("url", "https://example.com/clip"),
+                                    ("start", "00:42"), ("end", "00:53")):
+                    enter(named(form, ttk.Entry, name), value)
+                named(form, tk.Text, "notes").insert("1.0", note)
+                with patch.object(messagebox, "showerror") as error:
+                    click(form, "保存参考")
+                assert error.called and form.winfo_exists()
+                enter(named(form, ttk.Entry, "url"), url)
+                click(form, "保存参考")
+
+            def inspect_library():
+                library = next(w for w in walk(workbench, tk.Toplevel) if w.title() == "动作参考库")
+                listing = named(library, ttk.Treeview, "references")
+                self.after(60, lambda: fill_reference(library))
+                click(library, "新增参考")
+                assert not ProductionProject.open(project_path).action_cards
+                keyword = named(library, ttk.Entry, "filter")
+                for value, count in (("不会匹配的关键词", 0), ("反应近景", 1)):
+                    enter(keyword, value)
+                    self.update()
+                    assert len(listing.get_children()) == count
+                listing.selection_set(listing.get_children()[0])
+                self.update()
+                with patch.object(webbrowser, "open", return_value=True) as open_url:
+                    click(library, "打开播放页")
+                parts = urlsplit(open_url.call_args.args[0])
+                query = parse_qs(parts.query)
+                assert parts.hostname in ("www.youtube.com", "youtube.com")
+                assert query.get("v") == ["CFtest12345"] and query.get("t") == ["42s"]
+                click(library, "用笔记新建动作卡")
+
+            self.after(60, inspect_library)
+            click(workbench, "动作参考库")
+            cards_path = project_path.with_suffix(".cards.json")
+            with patch.object(filedialog, "asksaveasfilename", return_value=str(cards_path)):
+                click(workbench, "导出动作卡")
+            new_card, = load_action_cards(cards_path)
+            assert new_card.title == "原创动作" and new_card.movement == note
+            assert not any((new_card.reference, new_card.shot_id, new_card.route_notes))
+            wire = cards_path.read_text(encoding="utf-8")
+            assert all(value not in wire for value in (title, url, "00:42", "00:53"))
+            assert not ProductionProject.open(project_path).action_cards
+            with patch.object(messagebox, "askyesno", return_value=True):
+                click(workbench, "删除")
+            return title, url, note
+
+        def add_notes_to_selected_action(self, workbench):
+            from src.production_project import ProductionProject
+
+            def inspect_library():
+                library = next(w for w in walk(workbench, tk.Toplevel) if w.title() == "动作参考库")
+
+                def edit_range():
+                    form = next(walk(library, tk.Toplevel))
+                    end = next(w for w in walk(form, ttk.Entry) if w.winfo_name() == "end")
+                    end.delete(0, "end")
+                    end.insert(0, "00:55")
+                    click(form, "保存参考")
+
+                self.after(60, edit_range)
+                click(library, "编辑参考")
+                reopened = ProductionProject.open(project_path)
+                assert reopened.action_references[0]["end"] == "00:55" and not reopened.action_cards
+                click(library, "把笔记加入动作卡")
+
+            self.after(60, inspect_library)
+            click(workbench, "动作参考库")
+
         def inspect_action_sequence(self):
             from src.production_project import ProductionProject
 
@@ -516,6 +603,7 @@ def run_inside_launcher():
                     self.after(60, inspect_sequence)
                     return
                 assert project_path.read_bytes() == original
+                title, url, note = self.exercise_action_references(workbench)
                 click(workbench, "加入选中预设")
                 with patch.object(filedialog, "askopenfilename", return_value=str(director_path)):
                     click(workbench, "导入 3D 导演台工程")
@@ -536,6 +624,7 @@ def run_inside_launcher():
 
                 self.after(60, edit_route)
                 click(workbench, "编辑")
+                self.add_notes_to_selected_action(workbench)
                 tabs = next(walk(workbench, ttk.Notebook))
                 tabs.select(1)
                 self.update()
@@ -544,6 +633,7 @@ def run_inside_launcher():
                     radio = next(w for w in walk(board_page, ttk.Radiobutton) if w.cget("text") == f"{size} 格")
                     radio.invoke()
                     assert len(list(walk(board_page, tk.Frame))) == size
+                    assert any(note in w.cget("text") for w in walk(board_page, ttk.Label))
                 tabs.select(0)
                 cards.selection_set(second)
 
@@ -560,6 +650,12 @@ def run_inside_launcher():
                 assert saved.action_cards[0]["shot_id"] == saved.shots[0].id
                 assert "演员走到桌边" in saved.shots[0].fields["动作起止"]
                 assert "路线点" not in saved.shots[0].fields["动作起止"]
+                assert note in saved.shots[0].fields["动作起止"]
+                card_text = json.dumps(saved.action_cards, ensure_ascii=False)
+                shot_text = json.dumps(saved.shots[0].fields, ensure_ascii=False)
+                assert note in card_text and all(value not in card_text + shot_text for value in (title, url))
+                assert len(saved.action_references) == 1 and saved.action_references[0]["title"] == title
+                print("Verified new cards and notes-only handoff from saved, filtered and timed video references", flush=True)
                 print("Verified action card presets, director JSON, reordering, panel counts and formal shot handoff", flush=True)
                 print("COMICFLOW_GUI_OK", flush=True)
                 workbench.tk.eval(workbench.protocol("WM_DELETE_WINDOW"))

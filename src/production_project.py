@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from PIL import Image
 
+from .action_reference_library import refs_from_records
 from .asset_registry import Asset, sha256_file
 from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH, rule_revision
 
@@ -139,6 +140,7 @@ class ProductionProject:
     pending_shots: list[Shot] = field(default_factory=list)
     handoffs: dict[str, dict] = field(default_factory=dict)
     action_cards: list[dict] = field(default_factory=list)
+    action_references: list[dict] = field(default_factory=list)
 
     @classmethod
     def open(cls, path: Path):
@@ -151,6 +153,8 @@ class ProductionProject:
         payload["shots"] = [Shot(**item) for item in payload.get("shots", [])]
         payload["pending_shots"] = [Shot(**item) for item in payload.get("pending_shots", [])]
         payload["images"] = [ProjectImage(**item) for item in payload.get("images", [])]
+        if "action_references" in payload:
+            payload["action_references"] = [asdict(ref) for ref in refs_from_records(payload["action_references"])]
         project = cls(**payload)
         project.check_identity()
         return project
@@ -183,6 +187,10 @@ class ProductionProject:
         payload = asdict(self)
         if not self.action_cards:
             del payload["action_cards"]
+        if self.action_references:
+            payload["action_references"] = [asdict(ref) for ref in refs_from_records(self.action_references)]
+        else:
+            del payload["action_references"]
         atomic_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
     def import_source(self, name: str, version: str, text: str) -> ApprovedSource:
@@ -311,6 +319,7 @@ class ProductionProject:
         del payload["text_drafts"]
         del payload["handoffs"]
         del payload["action_cards"]
+        del payload["action_references"]
         for key in ("layout", "pending_shots"):
             if not payload[key]:
                 del payload[key]
