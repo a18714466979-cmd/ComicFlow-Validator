@@ -1,6 +1,7 @@
 """Inspect local commercial references and suggest timed visual cut points."""
 
 import re
+import sys
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -61,6 +62,11 @@ def resolve_ffmpeg(explicit=None) -> str:
         if not path.is_file():
             raise VideoError("指定的 FFmpeg 程序不存在。")
         return str(path)
+    if getattr(sys, "frozen", False):
+        executable = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+        bundled = Path(__file__).resolve().parents[1] / "tools" / executable
+        if bundled.is_file():
+            return str(bundled)
     installed = shutil.which("ffmpeg")
     if installed:
         return installed

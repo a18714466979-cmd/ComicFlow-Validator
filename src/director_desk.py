@@ -19,6 +19,7 @@ from urllib.parse import urlencode, urlsplit, unquote
 
 from PIL import Image
 
+from .desktop_runtime import NO_CONSOLE, python_command, application_data
 from .brand import APP_FOLDER, app_name
 from .director_action_import import MAX_PROJECT_BYTES, import_director_cards
 from .image_api import MAX_IMAGE_BYTES
@@ -172,8 +173,8 @@ def run_window(output, instance, language, mode):
         raise RuntimeError(f"Run {APP_FOLDER}-Setup.bat to install the desktop WebView."
                            if english else f"请运行 {APP_FOLDER}-Setup.bat 补装桌面 WebView。") from error
 
-    appdata = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share")
-    profile = appdata / APP_FOLDER / "director-webview"
+    appdata = application_data() or Path.home() / ".local" / "share" / APP_FOLDER
+    profile = appdata / "director-webview"
     profile.mkdir(parents=True, exist_ok=True)
     port_file = profile / "port.txt"
     port = int(port_file.read_text("ascii")) if port_file.is_file() else 0
@@ -229,8 +230,8 @@ def open_director(parent, project_path, mode, on_result, *, language="zh"):
     output = Path(temporary.name)
     try:
         process = subprocess.Popen(
-            [sys.executable, "-m", "src.director_desk", str(output), instance, language, mode],
-            cwd=ROOT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            python_command("-m", "src.director_desk", str(output), instance, language, mode),
+            cwd=ROOT, creationflags=NO_CONSOLE,
         )
     except OSError:
         temporary.cleanup()

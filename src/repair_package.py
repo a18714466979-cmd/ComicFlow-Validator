@@ -3,7 +3,6 @@
 import hashlib
 import os
 import subprocess
-import sys
 from contextlib import nullcontext
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -12,6 +11,7 @@ from shutil import copyfileobj
 from tempfile import TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
+from .desktop_runtime import NO_CONSOLE, python_command
 from .asset_registry import sha256_file
 from .delivery_checker import validate_delivery
 from .shot_review import load_shots
@@ -122,7 +122,7 @@ def pack_repair(
     with TemporaryDirectory(prefix="comicflow-repair-", dir=output.parent) as temporary:
         draft = Path(temporary) / output.name
         retained = write_delivery_zip(folder, draft, baseline)
-        command = [sys.executable, "-m", "src.delivery_checker"]
+        command = python_command("-m", "src.delivery_checker")
         if retained or panel_exception:
             # Validate the actual ZIP bytes, including any preserved original line endings.
             command.append(str(draft))
@@ -134,7 +134,7 @@ def pack_repair(
         if registry:
             command.extend(("--asset-registry", str(registry.resolve())))
         run = subprocess.run(command, check=False, capture_output=True, encoding="utf-8", errors="replace",
-                             env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                             env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_CONSOLE)
         report = (run.stdout + run.stderr).replace(str(draft), str(output))
         digest = sha256_file(draft)
         if run.returncode:

@@ -1,0 +1,161 @@
+name: Studio v2.9.1 desktop installers
+
+on:
+  push:
+    branches: [codex/desktop-installers-2.9.1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-installers-2.9.1
+  cancel-in-progress: false
+
+jobs:
+  windows-media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Windows cross compiler
+        run: sudo apt-get update -q && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Build the bundled local video decoder
+        run: bash packaging/build-ffmpeg.sh --target windows-x64 --output "$PWD/ffmpeg-runtime"
+      - name: Archive the executable and corresponding source
+        run: tar -czf ffmpeg-win.tar.gz ffmpeg-runtime
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ffmpeg-windows-x64-runtime
+          path: ffmpeg-win.tar.gz
+          retention-days: 2
+
+  windows:
+    needs: windows-media
+    runs-on: windows-2025
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STUDIO_INSTALLER_PAYLOAD: ${{ github.workspace }}/payload/Comic-Sequence-Studio
+      STUDIO_FFMPEG: ${{ github.workspace }}/ffmpeg-runtime/ffmpeg.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-windows-x64-runtime
+      - name: Download and verify the original v2.9.1 assets
+        shell: pwsh
+        run: |
+          tar -xzf ffmpeg-win.tar.gz
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release download v2.9.1 -p Comic-Sequence-Studio-Windows.zip -R "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python packaging/prepare_payload.py Comic-Sequence-Studio-Windows.zip payload "$env:GITHUB_SHA"
+      - name: Install runtime and run source tests
+        run: |
+          python -m pip install -r requirements.txt pyinstaller==6.22.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pytest -q
+      - name: Freeze the Studio and build the installer
+        run: |
+          python -m PyInstaller --clean --noconfirm packaging/studio.spec
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./packaging/windows/build-installer.ps1 -AppDirectory dist/Comic-Sequence-Studio -OutputDirectory release-assets -Version 2.9.1
+      - name: Install, launch, verify and uninstall on Windows x64
+        run: |
+          ./packaging/windows/verify-installer.ps1 -Installer release-assets/Comic-Sequence-Studio-2.9.1-Windows-x64-Setup.exe -Version 2.9.1 -Revision 6d6c7e0fb5163d6274472142a35bf5664a25a475
+      - uses: actions/upload-artifact@v7
+        with:
+          name: studio-win-x64
+          path: release-assets/Comic-Sequence-Studio-2.9.1-Windows-x64-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STUDIO_ARCH: ${{ matrix.architecture }}
+      STUDIO_INSTALLER_PAYLOAD: ${{ github.workspace }}/payload/Comic-Sequence-Studio
+      STUDIO_FFMPEG: ${{ github.workspace }}/ffmpeg-runtime/ffmpeg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Download and verify the original v2.9.1 assets
+        run: |
+          gh release download v2.9.1 -p Comic-Sequence-Studio-Windows.zip -R "$GITHUB_REPOSITORY"
+          python packaging/prepare_payload.py Comic-Sequence-Studio-Windows.zip payload "$GITHUB_SHA"
+      - name: Build the bundled local video decoder
+        run: bash packaging/build-ffmpeg.sh --target macos --output "$PWD/ffmpeg-runtime"
+      - name: Install the Cocoa runtime and freeze the Studio
+        run: |
+          python -m pip install -r requirements-runtime.txt 'pywebview>=6.2,<7' 'pyinstaller==6.22.3'
+          python -m PyInstaller --clean --noconfirm packaging/studio.spec
+      - name: Build, mount and launch the macOS installer
+        run: |
+          python -m scripts.macos_dmg dist/Comic-Sequence-Studio.app "release-assets/Comic-Sequence-Studio-2.9.1-macOS-${STUDIO_ARCH}.dmg" --arch "$STUDIO_ARCH" --revision 6d6c7e0fb5163d6274472142a35bf5664a25a475
+      - uses: actions/upload-artifact@v7
+        with:
+          name: studio-mac-${{ matrix.architecture }}
+          path: release-assets/Comic-Sequence-Studio-2.9.1-macOS-${{ matrix.architecture }}.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [windows, macos]
+    if: github.ref == 'refs/heads/codex/desktop-installers-2.9.1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: studio-*
+          path: release-assets
+          merge-multiple: true
+      - name: Add the three verified installers to the existing release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = a18714466979-cmd/Comic-Sequence-Studio
+          api="/repos/$GITHUB_REPOSITORY"
+          revision="$(gh api "$api/git/ref/tags/v2.9.1" --jq .object.sha)"
+          [[ "$revision" == 6d6c7e0fb5163d6274472142a35bf5664a25a475 ]]
+          release="$(gh api "$api/releases/tags/v2.9.1")"
+          [[ "$(jq -r '.assets[] | select(.name == "Comic-Sequence-Studio-Windows.zip") | .digest' <<<"$release")" == sha256:00f4a956feef4796d3c2f9371e973a1bef2cf7a1ca72dccbcce422578ed24a70 ]]
+          files=(
+            Comic-Sequence-Studio-2.9.1-Windows-x64-Setup.exe
+            Comic-Sequence-Studio-2.9.1-macOS-arm64.dmg
+            Comic-Sequence-Studio-2.9.1-macOS-x86_64.dmg
+          )
+          cd release-assets
+          sha256sum "${files[@]}"
+          for name in "${files[@]}"; do
+            uploaded="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$release")"
+            expected="sha256:$(sha256sum "$name" | cut -d' ' -f1)"
+            if [[ -z "$uploaded" ]]; then
+              gh release upload v2.9.1 "$name" -R "$GITHUB_REPOSITORY"
+            else
+              [[ "$uploaded" == "$expected" ]]
+            fi
+            actual="$(gh api "$api/releases/tags/v2.9.1" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+            [[ "$actual" == "$expected" ]]
+            echo "Verified v2.9.1 Release asset $name: $actual"
+          done

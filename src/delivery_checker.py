@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from shutil import copyfile, copyfileobj
 from tempfile import TemporaryDirectory
+from .desktop_runtime import NO_CONSOLE, python_command
 
 
 # ============================================================
@@ -595,7 +596,7 @@ def run_storyboard_validator(
     from .bundled_validators import VALIDATOR_BUNDLES, bundled_validator
     from .shot_review import package_camera_errors
 
-    command = [sys.executable, str(script), str(source.resolve())]
+    command = python_command(str(script), str(source.resolve()))
     if archive is not None:
         command.extend(("--zip", str(archive)))
     if allow_legacy:
@@ -607,11 +608,11 @@ def run_storyboard_validator(
             break
     approved_error = panel_exception.diagnostic(archive, source) if panel_exception and archive else None
     if not review_missing_sources and approved_error is None and not (asset_registry or local_errors):
-        return subprocess.run(command, check=False).returncode
+        return subprocess.run(command, check=False, creationflags=NO_CONSOLE).returncode
 
     result = subprocess.run(
         command, check=False, capture_output=True, encoding="utf-8", errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_CONSOLE,
     )
     if asset_registry or local_errors:
         result = reconcile_local_checks(result, resolved, local_errors)

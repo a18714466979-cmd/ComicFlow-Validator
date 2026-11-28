@@ -25,6 +25,7 @@ from .practice_project import make_practice, practice_example
 from .production_project import atomic_text
 from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
 from .production_workspace import ProductionWorkspace, StageEditor
+from .desktop_runtime import application_data
 from .image_api import ImageSettings
 from .release_notes import open_release_notes
 from .shot_review_dialog import open_shot_review
@@ -80,9 +81,9 @@ VALIDATOR_ENV = {ENGLISH: "COMICFLOW_STORYBOARD_VALIDATOR",
 
 
 def validator_preference(rules: str = ENGLISH) -> Path | None:
-    home = os.environ.get("LOCALAPPDATA")
+    home = application_data()
     filename = "settings.json" if rules == ENGLISH else "settings-zh.json"
-    return Path(home) / APP_FOLDER / filename if home else None
+    return home / filename if home else None
 
 
 def saved_validator(rules: str = ENGLISH) -> str:
@@ -107,7 +108,7 @@ def remember_validator(value: str, rules: str = ENGLISH) -> None:
         atomic_text(target, json.dumps({"validator": value}, ensure_ascii=False) + "\n")
 
 
-def open_workbench(initial_zip: str, initial_project: Path | None = None, *, initial_batch: Path | None = None) -> int:
+def open_workbench(initial_zip: str, initial_project: Path | None = None, *, initial_batch: Path | None = None, on_ready=None) -> int:
     window = tk.Tk()
     window.ui_language = load_language()
     window.geometry("1160x870")
@@ -908,6 +909,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None, *, ini
         window.after_idle(lambda: batch_center(initial_batch))
     elif initial_project is not None:
         window.after_idle(lambda: produce(initial_project))
+    if on_ready is not None:
+        window.after_idle(lambda: on_ready(window))
     try:
         window.mainloop()
     finally:

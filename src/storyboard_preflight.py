@@ -4,10 +4,10 @@ import json
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from .desktop_runtime import NO_CONSOLE, python_command
 from .bundled_validators import bundled_planner
 from .production_rules import CHINESE, ENGLISH
 
@@ -113,9 +113,9 @@ def plan_dialogue(source: str, planner: Path | None = None, *, rules: str = ENGL
         dialogue = Path(temporary) / "approved.json"
         dialogue.write_text(source, encoding="utf-8")
         completed = subprocess.run(
-            [sys.executable, str(planner.resolve()), str(dialogue)],
+            python_command(str(planner.resolve()), str(dialogue)),
             check=False, capture_output=True, encoding="utf-8", errors="replace", timeout=20,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_CONSOLE,
         )
     if completed.returncode:
         lines = completed.stderr.strip().splitlines()

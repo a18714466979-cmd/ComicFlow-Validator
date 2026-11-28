@@ -6,8 +6,8 @@ from shutil import copyfile
 from subprocess import run
 import os
 import re
-import sys
 from zipfile import ZipFile
+from .desktop_runtime import NO_CONSOLE, python_command
 
 
 LEVELS = {
@@ -80,9 +80,9 @@ def run_review(arguments: list[str], directory: Path) -> ReviewResult:
     archive = directory / Path(arguments[0]).name
     copyfile(arguments[0], archive)
     completed = run(
-        [sys.executable, "-m", "src.delivery_checker", str(archive), *arguments[1:]],
+        python_command("-m", "src.delivery_checker", str(archive), *arguments[1:]),
         capture_output=True, check=False, encoding="utf-8", errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=NO_CONSOLE,
     )
     report = (completed.stdout + completed.stderr).replace(str(archive), arguments[0])
     members = {}

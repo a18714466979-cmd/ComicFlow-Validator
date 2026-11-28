@@ -1,15 +1,13 @@
 """Translate interface labels independently of production rules and project data."""
 
-import os
-from pathlib import Path
-
-from .brand import APP_FOLDER, APP_NAME_EN, APP_NAME_ZH, app_name
+from .brand import APP_NAME_EN, APP_NAME_ZH, app_name
+from .desktop_runtime import application_data
 from .production_project import atomic_text
 
 
 def preference_path():
-    app_data = os.environ.get("LOCALAPPDATA")
-    return Path(app_data) / APP_FOLDER / "ui-language.txt" if app_data else None
+    app_data = application_data()
+    return app_data / "ui-language.txt" if app_data else None
 
 
 def load_language():
