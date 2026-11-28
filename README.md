@@ -1,95 +1,56 @@
 # 漫剧镜序制片台 · Comic Sequence Studio
 
-**面向 Seedance 2.0 的 Windows 漫剧制片工作台**
+面向字节跳动 **Seedance 2.0** 的 Windows 漫剧工作台。把一集定稿带进来，拆成分镜和故事板组，复用角色、场景和道具，最后交付每组的参考图与视频提示词。已有分镜、图片或交付 ZIP 时，可以直接从对应工序开始。
 
-把剧本、分镜、资产、故事板、提示词和 ZIP 交付串成一条流程。重点是把容易引起返工的问题尽量拦在生成前，减少所需的 Seedance 2.0 试生成。
+**[下载 Windows 试用包 v2.9.0][trial]** · [Windows 验证记录][run] · [安装与操作指南][guide] · [更新日志][changes] · [工作台源码][source] · [English](#english)
 
-[下载 Windows v2.3.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46115046723/artifacts/15251084145) · [历次 Windows 构建](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production) · [试用指南](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [更新日志](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [English](#english)
+## 第一次打开
 
-首页点版本号，或打开「帮助 → 更新日志」，即可离线查看各版改动和已知问题。
+1. 登录 GitHub，下载并解压 `Comic-Sequence-Studio-Windows.zip`。安装 Windows 版 Python 3.13，保留 Tcl/Tk 和 pip。
+2. 首次双击 **`Comic-Sequence-Studio-Setup.bat`** 安装依赖。看到 `COMIC_SEQUENCE_STUDIO_SETUP_OK` 后关闭窗口。以后双击 **`Comic-Sequence-Studio.bat`** 启动。
+3. 有 TXT 或 Markdown 剧本，点「新建项目」并导入原稿。有保存过的 `.cfproject`，点「继续已有项目」。手头是交付压缩包，点「验收已有 ZIP」。想先体验，打开「使用教程 → 从已有分镜练习」。
 
-新版素材库支持图片与视频方卡、全画幅放大、类别筛选和视频换封面。进入单组「批准图像」、批量「公共资产」或电商「导入与产品」即可使用。生图参考图也可按画面挑选。
+本页所在的 `main` 分支保留了早期校验器源码。完整桌面工作台在 [codex/chinese-production][source]。试用包由 GitHub Actions 保存 30 天。下载链接到期后，可在[制作分支的 Windows 构建列表][builds]选择近期成功的运行，从 **Artifacts** 下载同名 ZIP。
 
-2.1.1 修复内置 3D 导演台人偶的关节接合问题，适用于摆姿势、动作预览和取图。
+## 五个工作区
 
-2.2.0 更新了人物动作编排。点「浏览动作卡」可按类别看 53 张内置动作卡的封面和三帧预览。
-
-2.3.0 在内置 3D 导演台加入「动作片段」。可独立编排每个人物的关键帧、在指定时刻交接道具，并把最长 5 秒的片段保存为可重开的工程。
-
-## 工作台有什么
-
-A 版工作台在首页提供五步入口和当前项目进度，可沿着流程继续，也可直接跳到所需工序。在批量制作中心的验收交付页，左侧选组，右侧看当前画面复核和前后组交接；可直接打开对应的复核工具。
-
-| 页面 | 功能 |
+| 入口 | 可以完成什么 |
 | --- | --- |
-| **故事板制作** | 剧本创作 → 分镜拆分 → 资产分析，可带着同一原稿和镜头接续。支持资产图、黑白故事板和彩色净板、23 套内置服装参考、人物动作编排、Seedance 2.0 提示词、排版、相邻组交接和 ZIP 交付。已有稿件或素材可从对应工序直接导入。 |
-| **电商信息流视频复刻** | 导入参考视频和自有产品图，检测候选切点、核对分镜、制作资产及 9:16 故事板，预览 SD2 提示词并打包。 |
-| **检查验收** | 检查图片尺寸、比例和文件大小，复核 ZIP 成员、CRC 和文件指纹，逐格对照故事板、净板、制作记录和提示词，查看同组、跨页与跨组的镜头衔接。 |
-| **API 接入** | 为文本创作、AI 审图和图像生成分别配置模型。按任务锁定 API 指令，区分规则和用户资料，确认后才调用所选服务。生图接口只有一个提示词字段时，软件固定将规则放在补充需求之前。预检、排版、人工核图和打包可在本机进行。 |
-| **使用教程** | 中英文实机截图和简短步骤，覆盖快速开始、剧本到交付、ZIP 验收和 API 设置。可以直接打开内置示例或对应入口。 |
+| **故事板制作** | 写剧本、拆分镜、分析资产，将已选稿件和镜头直接交给下一步。按场景、人物和道具查看大图，制作资产图、故事板和净板，编写 SD2 提示词，导出单组 ZIP。「批量制作中心」按集导入定稿、追踪原文到镜头、复用批准资产、处理候选、核对跨组交接，最后导出整集或多集。 |
+| **电商信息流视频复刻** | 导入本地参考视频，检查候选切点和分镜，登记自己的产品名称及图片，重建所需资产，输出竖屏 9:16 故事板、分镜说明、SD2 提示词和交付 ZIP。 |
+| **检查验收** | 查看实际图像、像素尺寸、比例和文件大小，检查 ZIP 成员、CRC 和 SHA-256。并排检查故事板、净板、对白及相邻组的首尾镜，回到原项目返修。 |
+| **API 接入** | 文本创作、图片审核、图片生成分别选择服务和模型。同一服务可以承担多种任务，所选模型须支持对应输入和输出。预览材料并确认发送后，才会调用所配置的服务。 |
+| **使用教程** | 中英文共用 38 个详细主题，各有一套可放大的界面截图。可从剧本、已有分镜、电商视频、多集项目或交付返修五种离线练习开始，在工具里点「本页帮助」后可返回原任务。 |
 
-「人物动作编排」内置 53 张中英双语卡片。可从表演、走位、救援或刀、长枪、剑、戟等影视道具卡起步，添加姿势参考图，在 12 格或 15 格预演中对照前后动作、持物手与道具，再选择要带入正式分镜的卡片。支持读取 [3D 导演台](https://github.com/xiaozangao/3d-director-desk) 工程中的人物和道具轨迹。
+要设计多人表演，可从「故事板制作 → 人物动作编排 → 对话与站位」查看双人中景、过肩正反打和三人站位的俯视图与镜头图。另有 53 张动作卡、23 套服装参考，以及带独立人物关键帧、定时道具交接和最长 5 秒预演的内置 3D 导演台。Windows 使用导演台需要 Edge WebView2 Runtime。
 
-在「动作参考库」选择官方片段示例，或粘贴 YouTube、优酷、腾讯视频的播放页。记下起止时间和自己的镜头笔记，可直接用笔记新建动作卡，也可追加到选中的卡。视频在浏览器播放，参考条目随单组项目保存。
+## 制作规则怎样减少返工
 
-第二个一级标签「电商信息流视频复刻」从本地参考视频开始。先确认自有产品名称和所需照片，再拆镜并核对原声、表演与场景。完成角色、场景、道具、产品总图与竖屏彩色故事板后，导出每组独立可用的中文分镜 TXT、Seedance 2.0 提示词和验收 ZIP。
+- **按项目选择英文或中文影片制作。** 界面语言可以独立切换。英文规则 v14.10.4 和中文规则 v14.8.8 分别处理对白、分组和机位。英文导出的逐镜提示词绑定到具体 PNG 和板格，保留批准英文对白。中文按每组最多 100 个实际发声字符规划。
+- **生图前检查可判断的错误。** 英文预检可拦截有记录的相邻中景或大全景重复同一叙事目的，以及标记为打斗的组三镜同景别同角度。九图预算、对白与两份 TXT、素材版本及格号可提前核对。英文流程内置离线严格校验器，中文正式交付需要另选可信的中文规则校验脚本。
+- **逐格核对画面后再打包。** 景别警告依据已填镜头字段。实际机位、人物身份、动作接续和画面质量需要看图确认。这个流程针对可预防的返工，尚无实测的试生成降幅。素材和提示词最终提交到 Seedance 2.0 服务生成成片。其他视频模型的输入限制和提示词格式可能不同。
 
-### 制作一集或多集
+## 这个试用包验证了什么
 
-进入「故事板制作 → 批量制作中心」，每集导入一份 TXT 或 Markdown 定稿。可以从对白查到所在组和格，调整镜头切点，给组分配已批准的角色、场景和道具版本。执行队列保存进度与累计请求上限，按组核对模型候选。完成逐格、跨组和整集覆盖验收后，可导出本集或多集 ZIP，每组都附独立交付包。更新原稿会保留旧版，原文和分组一致的组可沿用已有制作成果。
-
-## 怎么减少 SD2 抽卡
-
-- **先锁镜头再生图。** 固定原稿版本、实际发声对白、镜头顺序和入画人数。清楚指明角色参考、取景范围、动作起止和须延续的手、道具、设备状态。
-- **把参考材料核在提交前。** 预检单组九图预算。并排检查故事板、彩色净板和文字，提前发现重复景别、跨镜跳变、漏件或机位对应错误。
-- **有问题修到具体位置。** 记录批准原图和版本，定位受影响的镜头、字段和像素窗口，支持以原图为底进行局部返修。打包后重新打开最终 ZIP 核对。
-
-这些步骤减少的是输入错误、素材漂移和整组返工带来的可预防试错。模型仍有随机性，实际减少多少取决于项目和输入质量。软件输出供 Seedance 2.0 使用的素材和提示词，成片生成在 Seedance 2.0 服务中进行。换用其他视频模型时，需要按模型调整参考图和提示词。
-
-## 制作规则与检查边界
-
-| 规则 | 当前执行方式 |
-| --- | --- |
-| **英文影片制作 v14.10.4** | 旧英文项目打开后直接应用新版。内置离线严格校验与整句对白预排。生成正式故事板前检查分组格数、关键分镜字段、批准对白和九图预算。已登记的相邻中景或大全景重复同一叙事目的，以及打斗组三镜同景别同角度，会被拦截。 |
-| **中文影片制作 v14.8.8** | 每组最多 100 个实际发声字符，超出按批准的自然停顿顺延。相邻独立镜头，包括组间边界，应拉开景别。真正的单机位连续动作按一镜处理，机位变换须保留轴线和固定背景。 |
-| **生图前与交付复核** | 分镜和故事板生成提示会写入对应规则。「镜头清单 → 景别与角度预检」会按已登记字段定位重复，预警进入生图确认和画面确认。跨组可并排核对前组末镜和后组首镜。实际构图、真实机位、身份和动作承接由人看图确认。 |
-| **英文 SD2 提示词** | 自动按组号、故事板硬切指令、实际 PNG 的 `@图` 上传清单、组级约束和固定逐镜字段导出。逐镜绑定到具体的净板文件与局部号，保留批准的英文对白。默认无配乐、无字幕。 |
-| **正式验收** | 至多九张交付图，核对图件命名、比例、编号、批准对白和两份 TXT 的对应关系。英文可用内置严格校验，中文使用对应脚本。实际构图、身份和动作承接仍须逐格复核。 |
-
-## 第一次打开选哪个入口
-
-| 手里有什么 | 从哪里开始 |
-| --- | --- |
-| 从零开始，或有 TXT / Markdown 剧本 | 点「新建项目」并选保存位置，软件会创建 `.cfproject`。已有原稿可在项目中点「导入批准剧本」。 |
-| 有保存过的 `.cfproject` | 点「继续已有项目」。想先练习，可以打开试用包里的 `Examples/SB01.cfproject`。 |
-| 有已做好的故事板交付包 | 点「验收已有 ZIP」，选原始压缩包，再点「开始验收」。 |
-
-## 试用
-
-1. 下载并解压 Windows 试用 ZIP。安装带 Tcl/Tk 的 Python 3.13，再双击 `Comic-Sequence-Studio-Setup.bat`。
-2. 双击 `Comic-Sequence-Studio.bat`。可以打开新项目，也可以把已有 `.cfproject` 或 ZIP 拖到启动器。
-3. 用 `Examples` 里的中英文示例体验排版、逐格复核、单组和相邻组交付。进入「资产图生成」选已有项目时会显示加载状态，打开项目本身不改写项目文件。
-
-当前 Windows 工作台代码在 [开发分支](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)。试用 ZIP 是 GitHub Actions 构建产物。当前链接到期后，可到上方构建列表打开通过的运行并下载试用包。
+v2.9.0 的 Windows 构建通过了自动化测试、生成 ZIP、解压安装、桌面操作与样例交付检查。样例覆盖中英文单组、相邻两组、局部返修及重新打包。上述检查不含真实付费模型调用或最终视频的动态、口型与音频质量验收。[查看该版本的 GitHub Actions 步骤][run]
 
 ## English
 
-Version 2.3.0 adds editable five-second character keyframes and timed prop handoffs to the built-in 3D Director Desk.
+**Comic Sequence Studio** is a Windows workbench for preparing and reviewing storyboard deliveries for ByteDance Seedance 2.0. Start with an approved script, carry shots and references into the next stage, or open existing local work. The output is a group, episode or series ZIP for production.
 
-Version 2.2.0 adds illustrated covers and three-beat previews for all 53 built-in action cards.
+**[Download the Windows v2.9.0 trial][trial]** · [Verified Windows build][run] · [Setup and walkthrough][guide] · [Changelog][changes] · [Workbench source][source]
 
-Version 2.1.1 fixes joint separation in the built-in 3D mannequin during posing, playback and frame capture.
+1. Sign in to GitHub, download and extract `Comic-Sequence-Studio-Windows.zip`, then install Python 3.13 with Tcl/Tk and pip. Run `Comic-Sequence-Studio-Setup.bat` once and `Comic-Sequence-Studio.bat` to launch.
+2. Choose **New project** for a text or Markdown script, **Resume saved project** for a `.cfproject`, or **Validate an existing ZIP** for a delivery. **Tutorial** includes five offline exercises and 38 illustrated topics in each interface language.
+3. **Storyboard production** connects script, shots, assets, wardrobe, action blocking, boards, clean plates, SD2 prompts and delivery. Its batch center tracks script coverage and handoffs across groups and episodes. **E-commerce video recreation** starts with a local video and your product photos and produces vertical storyboard groups. **Inspection and validation** checks images and archives and supports side-by-side visual review. **API connections** configures text, vision and image-generation models separately.
 
-The media library uses full-frame square cards for images and videos. Browse from approved group images, batch shared assets, or e-commerce source materials. Image production includes a visual picker for approved reference stills.
+English and Chinese film workflows use separate dialogue, framing and delivery rules. English strict validation is bundled. Formal Chinese delivery requires a trusted Chinese validator script. Preflight uses recorded fields to flag avoidable input errors. Composition, identity and continuity require review of the actual frames. Submit the exported material to Seedance 2.0 for final rendering.
 
-The A layout uses five workflow steps and a live project summary on the production home. In batch review, select a storyboard group on the left and check its panel and handoff status on the right.
+The linked Windows job tests installation, desktop interactions and sample delivery archives. Live paid API calls and final video or audio quality are outside that test. The desktop source is on [codex/chinese-production][source]. The default branch contains the original validator. Trial downloads expire after 30 days. If a link has expired, open a recent successful [Windows build][builds] and download the ZIP under **Artifacts**.
 
-**Comic Sequence Studio is a Windows production and review workbench for ByteDance Seedance 2.0.**
-
-It connects script writing, shot planning, asset analysis, reference preparation, storyboard generation, SD2 prompts and validated ZIP delivery. Each stage also accepts existing local work. Action sequencing includes 53 bilingual cards, 12- and 15-panel previews, local pose image references, and 3D Director Desk route import. Selected story actions can be sent to existing or source-bound new shots. The Action reference library saves YouTube, Youku and Tencent Video playback links, time ranges and your own shot notes with each project. Open a clip in your browser, then create an action card from your notes or append them to a selected card. The Batch production center imports a script for each episode, maps passages to shots, tracks shared asset versions and saves task progress and request limits. After review, it packages each storyboard group independently and exports complete episodes or a series. The ecommerce workspace imports a local reference video and approved product photography, proposes cuts, and prepares independently usable vertical storyboard groups and delivery ZIPs. The review workspace compares shots across panels, pages and groups. The API workspace separates text drafting, visual inspection and image generation. The illustrated Tutorial tab guides first-time users through these tools and opens the bundled offline example. Each request uses fixed workflow instructions before the user’s material, with a separate system message for text and visual review.
-
-Comic Sequence Studio is designed to reduce avoidable regenerations by checking approved dialogue, shot framing and the nine-image budget before submission, and by tracing fixes to the affected images or shots. The English and Chinese workflows have separate dialogue and framing rules. Automated framing alerts use recorded shot fields. Camera geometry, composition, continuity and generated videos still need visual review.
-
-To start, choose **New project**, **Resume saved project** (try `Examples/SB01.cfproject`), or **Validate an existing ZIP**. A `.cfproject` is the editable project that the app creates when you choose **New project**.
-
-[Windows v2.3.0](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46115046723/artifacts/15251084145) · [Setup guide](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md) · [Changelog](https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md) · [Workbench source](https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production)
+[trial]: https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46133461516/artifacts/15259185095
+[run]: https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46133461516
+[builds]: https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production
+[guide]: https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/WINDOWS-TRYOUT.md
+[changes]: https://github.com/a18714466979-cmd/ComicFlow-Validator/blob/codex/chinese-production/CHANGELOG.md
+[source]: https://github.com/a18714466979-cmd/ComicFlow-Validator/tree/codex/chinese-production
