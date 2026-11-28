@@ -23,6 +23,8 @@ ANGLE_ALIASES = {
     "俯拍": ("俯视", "俯視", "high angle", "high angle shot"),
     "仰拍": ("仰视", "仰視", "low angle", "low angle shot"),
     "顶拍": ("頂拍", "overhead", "top down"),
+    "左过肩": ("左過肩", "Over-the-shoulder, left foreground"),
+    "右过肩": ("右過肩", "Over-the-shoulder, right foreground"),
 }
 MISSING_ANGLES = {
     "?", "无", "無", "未知", "未填", "未填写", "未提供", "未记录", "未定", "待定", "待确认", "待核对",

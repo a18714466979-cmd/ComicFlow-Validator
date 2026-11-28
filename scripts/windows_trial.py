@@ -21,6 +21,7 @@ from src.production_project import ProductionProject, Shot
 from src.production_rules import CHINESE, ENGLISH
 from src.repair_package import write_delivery_zip
 from src.workbench_tutorial import SECTIONS, TUTORIAL_IMAGES, TUTORIAL_LOCALES
+from src.dialogue_blocking import DIALOGUE_CARDS, DIALOGUE_PREVIEW_DIRECTORY, dialogue_preview_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -187,6 +188,11 @@ def build(output, revision):
         (folder / ACTION_PREVIEW_DIRECTORY).mkdir(parents=True)
         for relative in previews:
             copy2(ROOT / relative, folder / relative)
+        dialogue_views = tuple(dialogue_preview_path(card.id, index).relative_to(ROOT)
+                               for card in DIALOGUE_CARDS for index in range(3))
+        (folder / DIALOGUE_PREVIEW_DIRECTORY).mkdir(parents=True)
+        for relative in dialogue_views:
+            copy2(ROOT / relative, folder / relative)
         copytree(ROOT / ECOMMERCE_VALIDATOR_DIRECTORY, folder / ECOMMERCE_VALIDATOR_DIRECTORY)
         (folder / ENGLISH_VALIDATOR_DIRECTORY).mkdir(parents=True)
         for filename in ENGLISH_VALIDATOR_FILES:
@@ -216,6 +222,11 @@ def build(output, revision):
                 strip.load()
                 if strip.format != "WEBP" or strip.n_frames != 1 or strip.width * 3 != strip.height * 12:
                     raise ValueError(f"Expected a three-panel 4:3 action preview strip: {relative.name}")
+        for relative in dialogue_views:
+            with Image.open(BytesIO(archive.read(f"{APP_FOLDER}/{relative.as_posix()}"))) as view:
+                view.load()
+                if view.format != "WEBP" or view.n_frames != 1 or view.width * 9 != view.height * 16:
+                    raise ValueError(f"Expected a 16:9 dialogue view: {relative.name}")
         for name, content in metadata.items():
             if archive.read(f"{APP_FOLDER}/{name}") != content.encode("utf-8"):
                 raise ValueError(f"The trial archive has mismatched metadata in {name}.")

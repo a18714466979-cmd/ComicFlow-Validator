@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
 from .action_card_catalog import ActionPreset, action_preview_path, find_legacy_preset, get_preset
+from .dialogue_blocking import action_dialogue_preview
 from .production_project import ProjectImage, Shot, atomic_text, identifier
 
 
@@ -107,7 +108,7 @@ def card_preview_source(card: ActionCard, images: dict[str, ProjectImage]) -> Pr
         return images[card.reference]
     if preset := preset_for_card(card):
         return action_preview_path(preset.id)
-    return None
+    return action_dialogue_preview(card.preset_id)
 
 
 def load_action_cards(path: Path) -> list[ActionCard]:
@@ -181,6 +182,8 @@ def plan_action_handoff(project, cards, selected_ids, *, source_id="", anchor=""
     if not picks or not picks <= {card.id for card in cards}:
         raise ValueError("请选择要带入分镜的有效动作卡。")
     selected = [card for card in cards if card.id in picks]
+    if any(action_dialogue_preview(card.preset_id) is not None for card in selected):
+        raise ValueError("对话镜位卡请从「对话与站位」选择机位和目标分镜后应用。")
     formal = {shot.id: shot for shot in project.shots}
     sources = {source.id for source in project.sources}
     anchor = anchor.strip()

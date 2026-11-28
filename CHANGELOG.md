@@ -2,6 +2,18 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.5.0 · 2026-11-28
+
+### 简体中文
+
+- 人物动作编排新增「对话与站位」。试用版提供双人平视中景同框、双人过肩正反打、三人三角站位接话。每组含一张俯视站位图与两幅 16:9 镜头图，支持离线查看和放大。
+- 给 A、B、C 对应上项目角色，可将当前镜头加到动作编排草稿，或应用到本组已有分镜。应用分镜时只写入景别、机位/角度、机位空间和人物站位，保留批准对白、镜头顺序及资产。可在保存前核对写入值。
+
+### English
+
+- Action sequencing adds Dialogue & blocking. The preview includes three samples: an eye-level medium two-shot, an over-the-shoulder shot and reverse, and a three-person triangle with an interjection. Each contains an overhead plan and two 16:9 frames with offline enlargement.
+- Map A, B and C to project characters, then add the view to the action draft or apply it to an existing shot in the group. Preview the framing, camera angle, camera position and blocking before writing those fields. Approved dialogue, shot order and assets stay as recorded.
+
 ## 2.4.0 · 2026-11-28
 
 ### 简体中文

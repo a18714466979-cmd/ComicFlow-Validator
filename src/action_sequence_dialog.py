@@ -16,7 +16,13 @@ from .action_sequence import (
     load_action_cards, plan_action_handoff, preset_for_card, rebind_action_cards, save_action_cards,
 )
 from .director_action_import import import_director_cards
+from .dialogue_blocking import (
+    DIALOGUE_PREVIEW_DIRECTORY, action_dialogue_preview, apply_dialogue_view, dialogue_fields, dialogue_roles,
+    dialogue_variant, dialogue_view,
+)
 from .director_desk import open_director
+from .production_project import ProductionProject
+from .production_rules import ENGLISH
 from .reference_tools_dialog import import_reference, read_reference
 from .ui_language import translate
 from .workbench_home import _adaptive_grid
@@ -155,6 +161,9 @@ class ActionSequenceDialog:
             "浏览动作卡", "Browse action cards",
         )
         self.browse_button.pack(side="left", padx=(0, 10))
+        self.caption(ttk.Button(browse, name="browse_dialogue_cards",
+                                command=lambda: self.guard(lambda: self.browse_presets(dialogue=True))),
+                     "对话与站位", "Dialogue & blocking").pack(side="left", padx=(0, 10))
         self.caption(ttk.Label(browse, style="A.Muted.TLabel"),
                      f"{len(ACTION_PRESETS)} 张内置卡 · 起始、关键变化、结束",
                      f"{len(ACTION_PRESETS)} built-in cards · Start, key beat, end").pack(side="left")
@@ -242,7 +251,7 @@ class ActionSequenceDialog:
         images = {image.id for image in self.images}
         for index, card in enumerate(self.cards, 1):
             preview = (self.t("已挂图", "Linked") if card.reference in images else
-                       self.t("内置示意", "Preset") if preset_for_card(card) else "")
+                       self.t("内置示意", "Preset") if card_preview_source(card, {}) else "")
             self.table.insert("", "end", iid=card.id, values=(
                 index, card.title or self.t("未命名", "Untitled"), card.actor, card.prop,
                 preview, shots.get(card.shot_id, ""),
@@ -265,7 +274,7 @@ class ActionSequenceDialog:
             self.detail_preview.preview_image = None
             self.detail_preview.preview_kind = None
             self.detail_preview.preview_request = None
-            if card and (card.reference or preset_for_card(card)):
+            if card and (card.reference or card_preview_source(card, {})):
                 self.detail_preview.grid(row=0, column=1, sticky="e", padx=(10, 0))
                 self.thumbnails([(self.detail_preview, card)], (250, 80))
             else:
@@ -302,7 +311,7 @@ class ActionSequenceDialog:
         self.add([ActionCard(title=preset.title[self.language], movement=preset.movement[self.language],
                              prop=preset.prop[self.language], preset_id=preset.id)])
 
-    def browse_presets(self):
+    def browse_presets(self, *, dialogue=False):
         from .action_preset_gallery import build_action_presets, open_action_presets
 
         selected = self.table.selection()
@@ -311,7 +320,8 @@ class ActionSequenceDialog:
             card = next(item for item in self.cards if item.id == selected[0])
             current = preset_for_card(card)
         options = {"english": bool(self.language), "on_add": self.add_preset_by_id,
-                   "initial_id": current.id if current else ""}
+                   "initial_id": current.id if current else "", "initial_dialogue": dialogue,
+                   "on_dialogue_apply": self.use_dialogue_view, "dialogue_context": self.dialogue_context}
         if self.embedded:
             self.gallery = build_action_presets(self.frame, on_close=self.return_to_sequence, **options)
             self.content.pack_forget()
@@ -319,6 +329,47 @@ class ActionSequenceDialog:
             self.gallery.focus_set()
         else:
             open_action_presets(self.window, **options)
+
+    def dialogue_context(self):
+        project = self.owner.latest_project() if self.embedded else self.owner.project
+        speakers = tuple(dict.fromkeys(line.speaker for line in project.lines if line.speaker))
+        labels = tuple((shot.id, f"{project.group}-{index:02d}  {shot.anchor[:70]}")
+                       for index, shot in enumerate(project.shots, 1))
+        return speakers, labels, project.rules == ENGLISH
+
+    def use_dialogue_view(self, card_id, view_index, mapping, shot_id=""):
+        project = self.owner.latest_project() if self.embedded else self.owner.project
+        if shot_id:
+            if self.embedded:
+                updated = apply_dialogue_view(project, card_id, view_index, mapping, shot_id)
+                updated.save(self.owner.path)
+            else:
+                # The legacy group window can have unrelated unsaved edits. Merge only
+                # this view into the saved project and retain those edits in its form.
+                saved = ProductionProject.open(self.owner.path)
+                if (saved.episode, saved.group, saved.rules) != (project.episode, project.group, project.rules):
+                    raise ValueError(self.t("项目已在别处变更，请重新打开后再应用。",
+                                            "The project changed elsewhere. Reopen it before applying a view."))
+                updated = apply_dialogue_view(project, card_id, view_index, mapping, shot_id)
+                apply_dialogue_view(saved, card_id, view_index, mapping, shot_id).save(self.owner.path)
+            self.owner.project = updated
+            self.owner.refresh()
+            self.refresh(tuple(self.table.selection()))
+            self.set_status("已将景别、机位和人物站位保存到选中的分镜。",
+                            "Framing, camera position and blocking were saved to the selected shot.")
+            return
+        card, view = dialogue_view(card_id, view_index)
+        locale = int(project.rules == ENGLISH)
+        roles = dialogue_roles(card_id, mapping, english=bool(locale))
+        fields = dialogue_fields(card_id, view_index, roles, english=bool(locale))
+        self.add([ActionCard(
+            title=view.title[locale], actor=(" / " if locale else "、").join(roles.values()),
+            start=fields["人物站位"],
+            movement=f'{fields["景别"]} · {fields["机位/角度"]}\n{fields["机位空间"]}',
+            preset_id=dialogue_variant(card.id, view_index),
+        )])
+        self.set_status("已加入动作编排草稿。点「保存动作编排」写入项目。",
+                        "Added to the action draft. Select Save sequence to write it to the project.")
 
     def return_to_sequence(self):
         self.gallery.destroy()
@@ -476,8 +527,9 @@ class ActionSequenceDialog:
                 raise ValueError(self.t("请填写卡片名称和动作内容。", "Enter a title and movement."))
             preset = preset_for_card(card)
             keeps_action = fields["movement"].strip() == card.movement and fields["prop"].strip() == card.prop
+            keeps_reference = keeps_action or action_dialogue_preview(card.preset_id) is not None
             updated = replace(card, **fields, shot_id=shots[target.get()], reference=selected_ref.id if selected_ref else "",
-                              preset_id=(preset.id if preset else card.preset_id) if keeps_action else "")
+                              preset_id=(preset.id if preset else card.preset_id) if keeps_reference else "")
             cards = ([updated if item.id == card.id else item for item in self.cards]
                      if self.table.exists(card.id) else self.cards + [updated])
             cards = cards_from_records(cards_to_records(cards))
@@ -591,7 +643,7 @@ class ActionSequenceDialog:
                 kind = "preset" if bundled else "reference"
                 try:
                     with Image.open(item if bundled else project.checked_image(path, item)) as source:
-                        if bundled and cover_only:
+                        if bundled and cover_only and item.parent.name != DIALOGUE_PREVIEW_DIRECTORY.name:
                             third = source.width // 3
                             sample = source.crop((third, 0, third * 2, source.height))
                         else:
@@ -732,6 +784,11 @@ class ActionSequenceDialog:
     def handoff(self):
         selected = self.selection()
         picks = [card for card in self.cards if card.id in selected]
+        if any(action_dialogue_preview(card.preset_id) is not None for card in picks):
+            raise ValueError(self.t(
+                "对话镜位卡请从「对话与站位」选择机位和目标分镜后应用。",
+                "To use a dialogue camera reference, choose a view and target shot in Dialogue & blocking.",
+            ))
         if any(card.route_notes and not card.movement for card in picks):
             raise ValueError(self.t("请先编辑导入的轨迹卡，填写实际成片动作，再带入分镜。",
                                     "Edit imported route cards and write their shot action before sending them."))

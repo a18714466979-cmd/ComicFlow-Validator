@@ -79,16 +79,26 @@ class _ScrollingPane(ttk.Frame):
             self.canvas.yview_moveto(max(0, target) / height)
 
 
-def open_action_presets(parent, *, english: bool, on_add: Callable[[str], None], initial_id: str = "") -> tk.Toplevel:
+def open_action_presets(
+    parent, *, english: bool, on_add: Callable[[str], None], initial_id: str = "",
+    on_dialogue_apply=None, dialogue_context=None, initial_dialogue=False,
+) -> tk.Toplevel:
     """Open the modal preset browser and return its native window."""
-    return _ActionPresetGallery(parent, english, on_add, initial_id).window
+    return _ActionPresetGallery(
+        parent, english, on_add, initial_id, on_dialogue_apply=on_dialogue_apply,
+        dialogue_context=dialogue_context, initial_dialogue=initial_dialogue,
+    ).window
 
 
 def build_action_presets(
     parent, *, english: bool, on_add: Callable[[str], None], on_close: Callable[[], None], initial_id: str = "",
+    on_dialogue_apply=None, dialogue_context=None, initial_dialogue=False,
 ) -> "_PresetGalleryFrame":
     """Build a gallery and frame preview that can be mounted in a workbench task."""
-    return _ActionPresetGallery(parent, english, on_add, initial_id, on_close=on_close).window
+    return _ActionPresetGallery(
+        parent, english, on_add, initial_id, on_close=on_close,
+        on_dialogue_apply=on_dialogue_apply, dialogue_context=dialogue_context, initial_dialogue=initial_dialogue,
+    ).window
 
 
 class _PresetGalleryFrame(ttk.Frame):
@@ -101,10 +111,17 @@ class _PresetGalleryFrame(ttk.Frame):
 
 
 class _ActionPresetGallery:
-    def __init__(self, parent, english, on_add, initial_id, *, on_close=None):
+    def __init__(
+        self, parent, english, on_add, initial_id, *, on_close=None, on_dialogue_apply=None,
+        dialogue_context=None, initial_dialogue=False,
+    ):
         self.locale = int(english)
         self.on_add = on_add
         self.on_close = on_close
+        self.on_dialogue_apply = on_dialogue_apply
+        self.dialogue_context = dialogue_context
+        self.dialogue_page = None
+        self.dialogue_button = None
         self.preview_page = None
         self.refresh_preview_text = None
         self.selected = None
@@ -148,6 +165,9 @@ class _ActionPresetGallery:
         self.filter(initial_id)
         if on_close is None:
             self.window.grab_set()
+        if initial_dialogue and self.dialogue_button is not None:
+            self.show_dialogue()
+        elif on_close is None:
             self.category.focus_set()
 
     def t(self, zh, en):
@@ -170,6 +190,12 @@ class _ActionPresetGallery:
         self.category.bind("<<ComboboxSelected>>", lambda _event: self.filter())
         self.count = ttk.Label(filter_bar, name="preset_count", foreground=MUTED)
         self.count.pack(side="left", padx=12)
+        if self.on_dialogue_apply is not None and self.dialogue_context is not None:
+            self.dialogue_button = ttk.Button(
+                filter_bar, name="dialogue_card_library", text=self.t("对话与站位", "Dialogue blocking"),
+                command=self.show_dialogue, style="Workbench.TButton",
+            )
+            self.dialogue_button.pack(side="right")
 
         body = ttk.Frame(view)
         body.pack(fill="both", expand=True)
@@ -255,6 +281,29 @@ class _ActionPresetGallery:
         self.schedule_frames()
         if self.refresh_preview_text is not None:
             self.refresh_preview_text()
+        if self.dialogue_button is not None:
+            self.dialogue_button.configure(text=self.t("对话与站位", "Dialogue blocking"))
+        if self.dialogue_page is not None:
+            self.dialogue_page.set_language(english)
+
+    def show_dialogue(self):
+        from .dialogue_card_gallery import DialogueCardGallery
+
+        if self.dialogue_page is None:
+            self.dialogue_page = DialogueCardGallery(
+                self.window, english=bool(self.locale), on_back=self.hide_dialogue, on_complete=self.close,
+                get_context=self.dialogue_context, apply=self.on_dialogue_apply,
+            )
+        else:
+            self.dialogue_page.refresh_context()
+        self.view.grid_remove()
+        self.dialogue_page.grid(row=0, column=0, sticky="nsew")
+        self.dialogue_page.tabs[self.dialogue_page.index].focus_set()
+
+    def hide_dialogue(self):
+        self.dialogue_page.grid_remove()
+        self.view.grid()
+        self.dialogue_button.focus_set()
 
     def update_count(self):
         count = len(self.visible)

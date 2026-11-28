@@ -201,6 +201,9 @@ def run_inside_launcher():
             if mode == "task-navigation":
                 self.inspect_task_navigation()
                 return
+            if mode == "dialogue-blocking":
+                self.inspect_dialogue_blocking()
+                return
             if mode == "batch-center":
                 self.inspect_batch_center()
                 return
@@ -873,6 +876,179 @@ def run_inside_launcher():
                        button.winfo_width() >= button.winfo_reqwidth() for button in initial_tabs)
             click(self, "中文 / English")
             print("Verified fixed pages, independent groups and projects, duplicate reuse, retained gallery preview, save/discard/cancel and narrow task navigation", flush=True)
+            print("COMICFLOW_GUI_OK", flush=True)
+            self.destroy()
+
+        def inspect_dialogue_blocking(self):
+            from dataclasses import replace
+            from hashlib import sha256
+
+            from src import dialogue_blocking
+            from src.production_project import ProductionProject, Shot
+
+            role_names = {"A": "岚", "B": "尧", "C": "澄"}
+            cast = tuple(role_names.values())
+            lines = ("Keep the side door open.", "I'll wait by the window.", "Someone is coming.")
+            project = ProductionProject("对话样例", "EP04", "SB03")
+            source = project.import_source("窗边对话", "R1", "\n".join(lines))
+            project.import_dialogue(source, json.dumps([
+                {"id": f"D{index}", "speaker": speaker, "text": line}
+                for index, (speaker, line) in enumerate(zip((cast[1], cast[0], cast[2]), lines), 1)
+            ], ensure_ascii=False))
+            camera_fields = {"景别", "机位/角度", "机位空间", "人物站位"}
+            project.shots = [
+                Shot(source=source.id, anchor=f"窗边第 {index} 句", scene="门厅", plate_note="固定窗框不能移动",
+                     fields={**dict.fromkeys(camera_fields, "原机位记录"), "画面/事件": "说话时保持空间",
+                             "动作起止": "抬眼停顿", "声音": "门外脚步声"},
+                     dialogue=[(f"D{index}", 0, len(line))])
+                for index, line in enumerate(lines, 1)
+            ]
+            project.save(project_path)
+            before_bytes = project_path.read_bytes()
+            before = ProductionProject.open(project_path)
+            card_ids = ("dialogue-01", "dialogue-02", "dialogue-03")
+            image_folder = Path(dialogue_blocking.__file__).resolve().parents[1] / "assets" / "dialogue_previews"
+            checksums = set()
+            for identity in card_ids:
+                for variant in ("map", "1", "2"):
+                    image_path = image_folder / f"{identity}-{variant}.webp"
+                    checksums.add(sha256(image_path.read_bytes()).digest())
+                    with Image.open(image_path) as illustration:
+                        illustration.load()
+                        assert illustration.format == "WEBP" and illustration.width * 9 == illustration.height * 16
+            assert len(checksums) == 9
+
+            def open_editor():
+                production = show_page(self, PRODUCTION_TAB)
+                click(production, "人物动作编排")
+                self.update_idletasks()
+                picker = named(self, ttk.Frame, "action_project_picker", mapped=True)
+                with patch.object(filedialog, "askopenfilename", return_value=str(project_path)):
+                    named(picker, ttk.Button, "open_project").invoke()
+                return wait_for(self, lambda: next((widget for widget in walk(self, ttk.Frame)
+                                if widget.winfo_name() == "action_sequence_editor" and widget.winfo_ismapped()), None),
+                                "The dialogue example project did not open")
+
+            def open_library(editor):
+                named(editor, ttk.Button, "browse_action_cards", mapped=True).invoke()
+                self.update_idletasks()
+                named(editor, ttk.Button, "dialogue_card_library", mapped=True).invoke()
+                self.update_idletasks()
+                return named(editor, ttk.Frame, "dialogue_cards", mapped=True)
+
+            def photo_ready(widget):
+                photos = self.tk.splitlist(widget.cget("image"))
+                return any(int(self.tk.call("image", "width", photo)) > 10 for photo in photos)
+
+            def choose(library, identity, view):
+                named(library, ttk.Button, f"card_{identity}").invoke()
+                named(library, ttk.Button, f"dialogue_show_{view}").invoke()
+                wait_for(self, lambda: photo_ready(named(library, ttk.Label, "dialogue_image", mapped=True)),
+                         f"{identity}-{view} did not show its decoded image")
+
+            def map_roles(library, identities):
+                widgets = {}
+                for role in identities:
+                    field = named(library, ttk.Combobox, f"dialogue_role_{role.lower()}", mapped=True)
+                    value = role_names[role]
+                    assert value in field.cget("values"), (role, field.cget("values"))
+                    field.set(value)
+                    field.event_generate("<<ComboboxSelected>>")
+                    widgets[role] = field
+                return widgets
+
+            def preview_and_apply(library, target):
+                control = named(library, ttk.Combobox, "dialogue_target", mapped=True)
+                control.current(target)
+                control.event_generate("<<ComboboxSelected>>")
+                on_disk = project_path.read_bytes()
+                named(library, ttk.Button, "dialogue_apply", mapped=True).invoke()
+                self.update_idletasks()
+                assert project_path.read_bytes() == on_disk, "Preview wrote to the approved project"
+                assert not self.grab_current() and not list(walk(self, tk.Toplevel))
+                changes = named(library, ttk.Label, "dialogue_changes", mapped=True).cget("text")
+                assert camera_fields <= {line.split("  ", 1)[0] for line in changes.splitlines()}
+                if target:
+                    assert "对白" in changes
+                named(library, ttk.Button, "dialogue_confirm", mapped=True).invoke()
+                self.update_idletasks()
+
+            editor = open_editor()
+            library = open_library(editor)
+            for identity in card_ids:
+                for view in ("map", 1, 2):
+                    choose(library, identity, view)
+            roles = map_roles(library, "ABC")
+            named(library, ttk.Button, "dialogue_enlarge", mapped=True).invoke()
+            self.update_idletasks()
+            assert named(library, ttk.Button, "dialogue_restore", mapped=True)
+            assert not self.grab_current() and not list(walk(self, tk.Toplevel))
+            show_page(self, REVIEW_TAB)
+            task = next(widget for widget in walk(self, ttk.Button)
+                        if widget.winfo_name() == "select" and "SB03" in widget.cget("text"))
+            task.invoke()
+            self.update_idletasks()
+            assert named(library, ttk.Button, "dialogue_restore", mapped=True)
+            click(self, "中文 / English")
+            self.update_idletasks()
+            assert self.title() == APP_NAME_EN and named(library, ttk.Button, "dialogue_restore", mapped=True)
+            named(library, ttk.Button, "dialogue_restore", mapped=True).invoke()
+            click(self, "中文 / English")
+            assert {role: widget.get() for role, widget in roles.items()} == role_names
+            roles["C"].set(role_names["B"])
+            named(library, ttk.Button, "dialogue_apply", mapped=True).invoke()
+            self.update_idletasks()
+            assert named(library, ttk.Label, "dialogue_error", mapped=True).cget("text")
+            assert not named(library, ttk.Button, "dialogue_confirm").winfo_ismapped()
+            roles["C"].set(role_names["C"])
+            preview_and_apply(library, 0)
+            assert project_path.read_bytes() == before_bytes, "Adding a dialogue card saved the draft unexpectedly"
+            table = named(editor, ttk.Treeview, "action_cards", mapped=True)
+            assert len(table.get_children()) == 1
+            assert all(name in table.set(table.get_children()[0], "actor") for name in cast)
+
+            for view in (1, 2):
+                library = open_library(editor)
+                choose(library, "dialogue-02", view)
+                map_roles(library, "AB")
+                preview_and_apply(library, view)
+            edited = ProductionProject.open(project_path)
+            assert not edited.action_cards
+            assert edited.lines == before.lines and edited.sources == before.sources
+            assert len(edited.shots) == len(before.shots)
+            assert edited.shots[-1] == before.shots[-1]
+            for index, (original, changed) in enumerate(zip(before.shots, edited.shots), 1):
+                if index == 3:
+                    continue
+                expected = dialogue_blocking.dialogue_fields(
+                    "dialogue-02", index, {"A": "岚", "B": "尧"}, english=True,
+                )
+                assert set(expected) == camera_fields
+                assert changed == replace(original, fields={**original.fields, **expected})
+            assert edited.shots[0].fields["机位空间"] != edited.shots[1].fields["机位空间"]
+
+            click(editor, "保存动作编排")
+            close = next(widget for widget in walk(task.master, ttk.Button) if widget.winfo_name() == "close")
+            close.invoke()
+            assert not editor.winfo_exists()
+            editor = open_editor()
+            table = named(editor, ttk.Treeview, "action_cards", mapped=True)
+            (card,) = table.get_children()
+            table.selection_set(card)
+            table.event_generate("<<TreeviewSelect>>")
+            card_preview = named(editor, ttk.Label, "selected_action_preview")
+            wait_for(self, lambda: photo_ready(card_preview), "Saved dialogue card did not restore its camera illustration")
+            snapshot = project_path.read_bytes()
+            with patch.object(messagebox, "showerror") as error:
+                click(editor, "带入正式分镜")
+                assert error.call_count == 1 and "对话与站位" in error.call_args.args[1]
+            assert project_path.read_bytes() == snapshot, "Generic action handoff rewrote a dialogue camera reference"
+            saved = ProductionProject.open(project_path)
+            assert saved.action_cards[0]["preset_id"] == "dialogueview-06"
+            assert all(name in saved.action_cards[0]["actor"] for name in cast)
+            assert saved.lines == before.lines and saved.shots == edited.shots
+            print("Verified three dialogue cards and nine offline images, in-page preview, cast mapping, "
+                  "draft reopening and formal camera-only update with approved dialogue intact", flush=True)
             print("COMICFLOW_GUI_OK", flush=True)
             self.destroy()
 
@@ -2490,13 +2666,14 @@ def verify_windows_launcher(root=ROOT):
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("image-entry", ""),
                                ("action-sequence", f' "{archive}"'), ("task-navigation", f' "{archive}"'),
+                               ("dialogue-blocking", f' "{archive}"'),
                                ("ecommerce", f' "{archive}"'),
                                ("batch-center", f' "{archive}"'),
                                ("batch-file", f' "{folder / "制片-batch-center.cfbatch"}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
-            if mode.startswith("a-layout-") or mode == "task-navigation":
+            if mode.startswith("a-layout-") or mode in {"task-navigation", "dialogue-blocking"}:
                 launch_env["LOCALAPPDATA"] = str(folder / f"AppData-{mode}")
             completed = subprocess.run(
                 f'cmd.exe /d /c .\\Comic-Sequence-Studio.bat{argument}', cwd=root, env=launch_env,
