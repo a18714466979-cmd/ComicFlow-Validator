@@ -15,8 +15,8 @@ SECTIONS = (
     ("start", ("快速开始", "Quick start"), (
         ("先选顶部的「英文影片制作」或「中文影片制作」。界面语言可在右上角单独切换。",
          "Choose English or Chinese film production at the top. The interface language switches separately."),
-        ("点「新建项目」，选择保存位置。软件会创建可继续编辑的 .cfproject。",
-         "Choose New project and a save location. ComicFlow creates an editable .cfproject file."),
+        ("点「新建项目」制作单组；有整集或多集剧本时，在「故事板制作」打开「批量制作中心」。",
+         "Use New project for a single group. For one or more episode scripts, open the batch center under Storyboard production."),
         ("已经有剧本时，在项目里点「导入批准剧本」，选 TXT 或 Markdown。也可先打开内置样例练习。",
          "To start from a script, use Import approved script in the project and select TXT or Markdown. You can also open a sample."),
     ), ("新建项目", "New project")),

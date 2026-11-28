@@ -36,6 +36,10 @@ English Film Production and Chinese Film Production are designed for delivery to
 - Shot drafting and board image prompts include the workflow's camera guidance by default. English preflight blocks a new full storyboard request and formal SD2 delivery if the shot records declare the same purpose in consecutive medium or extreme-wide shots of the same size, or three consecutive shots with the same size and angle in a group marked as a fight. Other framing findings support visual review.
 - Compare the actual panels and clean plates for camera geometry, composition, identity and action continuity. Approve the reviewed version before delivery. Review the final Seedance 2.0 video separately.
 
+### Batch production
+
+Open **Batch production center** from **Storyboard production** to plan one episode or import several episode scripts. Each episode has its own source text, trace table and editable group projects. Select a passage to find its group and shot, then open that group to review the actual images and dialogue. Use **Revise episode script** for a new draft of an imported episode. Approve the plan before queuing model work. Review candidates and reuse approved reference images by identity, state and version. Episode delivery verifies script coverage and group handoffs, then packs the group ZIPs and the source-to-shot index. Series delivery collects the episode ZIPs. The batch manifest (`.cfbatch`) and its adjacent `.batch` directory belong together when moving or backing up the production.
+
 ### Action sequencing
 
 Open **Action sequencing** under **Storyboard production** and create or reopen a `.cfproject`. Start from the action-card library, enter your own movements, or import the Director Desk v1 motion-demo/keyframe JSON. Attach local reference images for key poses, order the cards by hand and use a 12- or 15-cell review grid to compare adjacent movements. ComicFlow action-card JSON can be imported and exported locally. After review, explicitly send selected cards to existing shots or create new shots against an approved script and source location.
@@ -174,6 +178,10 @@ python -m src.delivery_checker "交付目录" --storyboard-validator "工作流�
 「人物动作编排」可从新建或已有项目开始。内置 53 张中英双语动作卡，覆盖日常表演、双人互动、救援、走位和刀、长枪、剑、戟等影视道具。可自建卡片、添加本地姿势参考图，或从 3D 导演台工程 JSON 导入人物和道具轨迹作为预演参考。调整顺序后，用 12 格或 15 格视图对照前后动作、持物手和道具交接。动作卡可另存为本地 JSON。确认成片动作后，选择要接入的正式分镜，或按批准剧本与实际源段位置新建分镜。
 
 在「人物动作编排 → 动作参考库」可以选内置示例，也可以粘贴版权方在 YouTube、优酷或腾讯视频发布的播放链接。用浏览器观看，记下起止时间和自己的镜头笔记，例如「先用全景交代两人站位，再切近景看其中一人的反应」。参考条目随 `.cfproject` 保存。点「用笔记新建动作卡」即可开始编排，也可以把笔记追加到选中的动作卡。视频在原平台播放，参考库留在项目里。
+
+### 批量制作中心
+
+在「故事板制作」打开「批量制作中心」，可先导入一集定稿，再追加后续集。每集有独立的源稿、镜头对照和可编辑的单组项目；可从台词找到对应的组和镜头，进入该组修订。定稿换版时点「更新本集原稿」，核对变化的组。确认规划后可把本集或多集加入模型任务队列，设置请求次数上限，审阅候选，并按身份、状态与版本复用已批准的图像。交付时重新检查原稿覆盖、组内画面确认和相邻组交接，整集包包含各组 ZIP 和原稿对照，多集总包包含各集 ZIP。移动或备份时，一并保留 `.cfbatch` 文件和旁边的 `.batch` 文件夹。[Windows 操作步骤](WINDOWS-TRYOUT.md#批量制作中心)
 
 ### 电商信息流视频复刻
 

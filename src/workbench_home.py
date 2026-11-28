@@ -71,9 +71,10 @@ def build_production_page(page, label_text, callbacks):
         flow.rowconfigure(row, weight=1, uniform="stage")
     shortcuts = tk.Frame(flow, bg=BACKGROUND)
     shortcuts.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
-    shortcuts.columnconfigure(tuple(range(3)), weight=1, uniform="shortcut")
+    shortcuts.columnconfigure(tuple(range(4)), weight=1, uniform="shortcut")
     routes = (
         ("新建项目", "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。", "new"),
+        ("批量制作中心", "导入一集或多集剧本，编排故事板组、查看任务并按集交付。", "batch"),
         ("继续已有项目", "打开 ComicFlow 保存的 .cfproject。想试用可打开 Examples/SB01.cfproject。", "open"),
         ("验收已有 ZIP", "选择已有的交付压缩包，无需解压。选完点「开始验收」。", "review_zip"),
     )

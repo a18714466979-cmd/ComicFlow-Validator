@@ -61,6 +61,9 @@ ENGLISH = {
         "Check each panel for its actual framing and camera position, identity and cast count, action continuity, line-art legibility, and usable frame.",
     "中文影片制作": "Chinese film production",
     "新建项目": "New project",
+    "批量制作中心": "Batch production center",
+    "导入一集或多集剧本，编排故事板组、查看任务并按集交付。":
+        "Import one or more episode scripts, plan storyboard groups, track jobs and deliver by episode.",
     "继续已有项目": "Resume saved project",
     "先选保存位置，软件会创建 .cfproject。已有剧本可导入 TXT 或 Markdown。":
         "Choose where to save your .cfproject. You can then import a TXT or Markdown script.",

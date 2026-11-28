@@ -132,6 +132,16 @@ def run_inside_launcher():
             if not self.winfo_viewable():
                 self.after(100, self.begin)
                 return
+            if mode == "batch-file":
+                panel = next((w for w in walk(self, tk.Toplevel) if w.title() == "批量制作中心"), None)
+                combo = next((w for w in walk(panel, ttk.Combobox) if w.winfo_name() == "episode"), None) if panel else None
+                if combo is None or len(self.tk.splitlist(combo.cget("values"))) != 3:
+                    self.after(80, self.begin)
+                    return
+                print("Verified saved .cfbatch launcher argument restored three episodes", flush=True)
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.destroy()
+                return
             if mode == "image-entry":
                 self.inspect_image_entry()
                 return
@@ -161,6 +171,9 @@ def run_inside_launcher():
                 return
             if mode == "action-sequence":
                 self.inspect_action_sequence()
+                return
+            if mode == "batch-center":
+                self.inspect_batch_center()
                 return
             if mode == "ecommerce":
                 self.inspect_ecommerce()
@@ -663,6 +676,152 @@ def run_inside_launcher():
 
             self.after(60, inspect_sequence)
 
+        def inspect_batch_center(self):
+            from src.batch_runner import BatchQueue
+            from src.batch_workspace import BatchWorkspace
+            from src.production_project import ProductionProject
+
+            workspace_path = project_path.with_suffix(".cfbatch")
+            scripts = []
+            for index, line in enumerate(("The lantern is lit.", "I see the bridge.", "We can go."), 1):
+                path = project_path.with_name(f"EP{index:02d}-script.txt")
+                path.write_text(f'INT. STATION - DAY\nMira opens the door.\nMira: "{line}"', encoding="utf-8")
+                scripts.append(path)
+            gallery = show_page(self, PRODUCTION_TAB)
+
+            def wait_for(ready, then, reason):
+                deadline = time.monotonic() + 8
+
+                def poll():
+                    value = ready()
+                    if value:
+                        then(value)
+                    elif time.monotonic() < deadline:
+                        self.after(45, poll)
+                    else:
+                        fail(reason)
+
+                self.after(45, poll)
+
+            def titled(label):
+                return next((panel for panel in walk(self, tk.Toplevel) if panel.title() == label), None)
+
+            def named(panel, kind, name):
+                return next(widget for widget in walk(panel, kind) if widget.winfo_name() == name)
+
+            def imported(panel, count):
+                combo = named(panel, ttk.Combobox, "episode")
+                return len(self.tk.splitlist(combo.cget("values"))) == count
+
+            def click_import(panel, paths):
+                with patch.object(filedialog, "askopenfilenames", return_value=tuple(map(str, paths))):
+                    click(panel, "导入剧本")
+
+            def create(panel):
+                with patch.object(filedialog, "asksaveasfilename", return_value=str(workspace_path)):
+                    click(panel, "新建批次")
+                wait_for(lambda: any(button.cget("text") == "导入剧本" and button.instate(["!disabled"])
+                                     for button in walk(panel, ttk.Button)) and workspace_path.is_file(),
+                         lambda _ok: first_import(panel), "batch creation did not finish")
+
+            def first_import(panel):
+                click_import(panel, scripts[:1])
+                wait_for(lambda: imported(panel, 1), lambda _ok: add_more(panel), "single script did not import")
+
+            def add_more(panel):
+                workspace = BatchWorkspace.open(workspace_path)
+                first = workspace.episodes[0]
+                group = ProductionProject.open(workspace.group_paths(first.id)[0])
+                assert any("The lantern is lit." in item.text for item in group.sources)
+                click_import(panel, scripts[1:])
+                wait_for(lambda: imported(panel, 3), lambda _ok: test_reopen(panel), "multi-script import failed")
+
+            def test_reopen(panel):
+                workspace = BatchWorkspace.open(workspace_path)
+                assert len(workspace.episodes) == 3
+                for episode, script in zip(workspace.episodes, scripts):
+                    assert workspace.source_text(episode.id).strip() == script.read_text(encoding="utf-8").strip()
+                click(panel, "关闭")
+                wait_for(lambda: titled("批量制作中心"), reopen, "batch center did not reopen")
+                click(gallery, "批量制作中心")
+
+            def reopen(panel):
+                with patch.object(filedialog, "askopenfilename", return_value=str(workspace_path)):
+                    click(panel, "打开批次")
+                wait_for(lambda: imported(panel, 3), lambda _ok: show_trace(panel), "saved batch did not reopen")
+
+            def show_trace(panel):
+                selector = named(panel, ttk.Combobox, "episode")
+                selector.current(2)
+                selector.event_generate("<<ComboboxSelected>>")
+                trace = named(panel, ttk.Treeview, "trace")
+
+                def locate_line():
+                    return next((iid for iid in trace.get_children() if "We can go." in str(trace.item(iid))), None)
+
+                def inspect_group(iid):
+                    trace.selection_set(iid)
+                    trace.event_generate("<<TreeviewSelect>>")
+                    self.update_idletasks()
+                    wait_for(lambda: titled("ComicFlow 单组制片"), finish, "could not open group from batch")
+                    click(panel, "打开单组制片")
+
+                wait_for(locate_line, inspect_group, "could not trace episode 3 dialogue to its group")
+
+            def finish(group_editor):
+                def loaded():
+                    entries = {widget.get() for widget in walk(group_editor, ttk.Entry)}
+                    return {"EP03", "SB01"} <= entries
+                def close_editor(_ok):
+                    with patch.object(messagebox, "askyesnocancel", return_value=False):
+                        group_editor.tk.eval(group_editor.protocol("WM_DELETE_WINDOW"))
+                    self.after(100, prepare_queue)
+
+                wait_for(loaded, close_editor, "incorrect group opened from source trace")
+
+            def prepare_queue():
+                panel = titled("批量制作中心")
+                def enabled(label):
+                    return any(b.cget("text") == label and b.instate(["!disabled"]) for b in walk(panel, ttk.Button))
+
+                def approve(_ready):
+                    click(panel, "确认本集规划")
+                    wait_for(lambda: BatchWorkspace.open(workspace_path).plan_approved("EP03") and enabled("本集加入队列"),
+                             enqueue, "episode plan approval was not persisted")
+
+                def enqueue(_ready):
+                    show_page(panel, 2)
+                    click(panel, "本集加入队列")
+                    jobs = named(panel, ttk.Treeview, "jobs")
+                    wait_for(lambda: jobs.get_children(), lambda _rows: preflight(panel),
+                             "approved episode tasks did not enter the queue")
+
+                wait_for(lambda: enabled("确认本集规划"), approve, "batch editor did not resume")
+
+            def preflight(panel):
+                queue = BatchQueue(BatchWorkspace.open(workspace_path))
+                assert queue.jobs() and queue.spent() == 0
+                assert all(row["episode"] == "EP03" for row in queue.jobs())
+                show_page(panel, 3)
+                target = workspace_path.with_name("未验收的整集.zip")
+                errors = patch.object(messagebox, "showerror")
+                captured = errors.start()
+                with patch.object(filedialog, "asksaveasfilename", return_value=str(target)):
+                    click(panel, "导出整集 ZIP")
+
+                def finish_export(_ready):
+                    errors.stop()
+                    assert not target.exists(), "draft episode presented as a completed delivery"
+                    click(panel, "关闭")
+                    print("Verified batch creation, source-to-shot trace, three-episode reopen, offline queue and blocked draft delivery", flush=True)
+                    print("COMICFLOW_GUI_OK", flush=True)
+                    self.after_idle(self.destroy)
+
+                wait_for(lambda: captured.called, finish_export, "unreviewed episode was accepted")
+
+            wait_for(lambda: titled("批量制作中心"), create, "batch center did not open")
+            click(gallery, "批量制作中心")
+
         def inspect_ecommerce(self):
             from src.ecommerce_delivery import PRODUCT_FILE, label_board_sheet
             from src.ecommerce_project import EcommerceProject, EcommerceShot, render_shots
@@ -1013,7 +1172,7 @@ def run_inside_launcher():
             assert next(walk(page_at(self, REVIEW_TAB), ttk.Entry)).get() == archive
             self.geometry("900x700")
             self.update_idletasks()
-            home_actions = ("Script writing", "Shot planning", "Asset analysis", "Asset image generation",
+            home_actions = ("Batch production center", "Script writing", "Shot planning", "Asset analysis", "Asset image generation",
                             "Storyboard generation", "Prompt drafting", "Costume design", "Character pose design",
                             "Package storyboard group")
             for name in home_actions:
@@ -1627,7 +1786,9 @@ def verify_windows_launcher(root=ROOT):
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
                                ("production-handoff", f' "{archive}"'), ("image-entry", ""),
-                               ("action-sequence", f' "{archive}"'), ("ecommerce", f' "{archive}"')):
+                               ("action-sequence", f' "{archive}"'), ("ecommerce", f' "{archive}"'),
+                               ("batch-center", f' "{archive}"'),
+                               ("batch-file", f' "{folder / "制片-batch-center.cfbatch"}"')):
             launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
             if mode in {"file-only", "mode-switch"}:
                 launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")

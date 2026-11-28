@@ -64,7 +64,7 @@ def remember_validator(value: str, rules: str = ENGLISH) -> None:
         atomic_text(target, json.dumps({"validator": value}, ensure_ascii=False) + "\n")
 
 
-def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int:
+def open_workbench(initial_zip: str, initial_project: Path | None = None, *, initial_batch: Path | None = None) -> int:
     window = tk.Tk()
     window.ui_language = load_language()
     window.geometry("1160x870")
@@ -126,6 +126,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     vision_session: dict[str, VisionSettings] = {}
     text_session: dict[str, VisionSettings] = {}
     image_session: dict[str, ImageSettings] = {}
+    active_batch = None
 
     tabs = ttk.Notebook(review_page)
     issues_tab = ttk.Frame(tabs, padding=8)
@@ -319,6 +320,27 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
                                       active_rules, switch_rules, initial_project=path, initial_action=action,
                                       destination=destination, loaded_project=loaded_project, source_id=source_id)
 
+    def batch_center(path=None):
+        nonlocal active_batch
+        from .batch_dialog import BatchDialog
+
+        if active_batch is not None and active_batch.window.winfo_exists():
+            active_batch.window.lift()
+            return
+        save_validator_choice()
+
+        def open_group(group_path, rules, parent):
+            return open_production_dialog(
+                parent, validators, registry_path, text_session, image_session, rules, switch_rules,
+                initial_project=group_path, destination="shots",
+            )
+
+        center = BatchDialog(window, active_rules, text_session, image_session, validators, open_group)
+        active_batch = center
+        center.window.grab_set()
+        if path is not None:
+            center.open_path(path)
+
     def clear_review() -> None:
         nonlocal result, selected_issue
         result = selected_issue = None
@@ -398,6 +420,16 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         window.after(100, receive)
 
     def close() -> None:
+        if active_batch is not None and active_batch.window.winfo_exists():
+            modal = window.grab_current()
+            if modal is not None and modal not in (window, active_batch.window):
+                modal.winfo_toplevel().lift()
+                return
+            if active_batch.busy:
+                active_batch.close()
+                active_batch.window.lift()
+                return
+            active_batch.close()
         if busy:
             messagebox.showinfo(tr("验收进行中"), tr("当前正在读取交付包，请等待验收完成。"), parent=window)
             return
@@ -479,6 +511,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
 
     callbacks = {
         "new": lambda: produce(action="new"),
+        "batch": batch_center,
         "open": lambda: produce(action="open"),
         "review_zip": choose_delivery_zip,
         "group": produce,
@@ -543,7 +576,9 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
     tabs.pack(expand=True, fill="both", padx=16, pady=(0, 10))
     refresh_language()
     window.protocol("WM_DELETE_WINDOW", close)
-    if initial_project is not None:
+    if initial_batch is not None:
+        window.after_idle(lambda: batch_center(initial_batch))
+    elif initial_project is not None:
         window.after_idle(lambda: produce(initial_project))
     try:
         window.mainloop()
@@ -555,6 +590,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
 
 def main() -> int:
     initial = sys.argv[1] if len(sys.argv) > 1 else ""
+    if Path(initial).suffix.casefold() == ".cfbatch":
+        return open_workbench("", initial_batch=Path(initial).expanduser().resolve())
     if Path(initial).suffix.casefold() == ".cfproject":
         return open_workbench("", Path(initial).expanduser().resolve())
     return open_workbench(initial)
