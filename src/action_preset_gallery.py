@@ -141,14 +141,6 @@ class _ActionPresetGallery:
         self.count = ttk.Label(filter_bar, name="preset_count", foreground=MUTED)
         self.count.pack(side="left", padx=12)
 
-        footer = ttk.Frame(view)
-        footer.pack(side="bottom", fill="x", pady=(12, 0))
-        self.add_button = ttk.Button(footer, name="add_preset", text=self.t("加入动作编排", "Add to sequence"),
-                                     style="Primary.Workbench.TButton", command=self.add)
-        self.add_button.pack(side="right")
-        ttk.Button(footer, name="close_preset", text=self.t("关闭", "Close"), command=self.close,
-                   style="Workbench.TButton").pack(side="right", padx=(0, 8))
-
         body = ttk.Frame(view)
         body.pack(fill="both", expand=True)
         body.rowconfigure(0, weight=1)
@@ -192,7 +184,19 @@ class _ActionPresetGallery:
         self.description.pack(fill="x", pady=(14, 0))
         self.preview.attach_scroll(self.description)
 
+        footer = ttk.Frame(view)
+        footer.pack(side="bottom", before=body, fill="x", pady=(12, 0))
+        footer.columnconfigure(0, weight=1)
+        ttk.Button(footer, name="close_preset", text=self.t("关闭", "Close"), command=self.close,
+                   style="Workbench.TButton").grid(row=0, column=1, padx=(0, 8))
+        self.add_button = ttk.Button(footer, name="add_preset", text=self.t("加入动作编排", "Add to sequence"),
+                                     style="Primary.Workbench.TButton", command=self.add)
+        self.add_button.grid(row=0, column=2)
+
     def filter(self, preferred=""):
+        if self.cover_job is not None:
+            self.window.after_cancel(self.cover_job)
+            self.cover_job = None
         category_index = self.category.current()
         category = self.categories[category_index - 1] if category_index > 0 else None
         self.visible = tuple(preset for preset in ACTION_PRESETS if category is None or preset.category == category)
