@@ -2862,10 +2862,23 @@ def run_inside_launcher():
             self.after(75, inspect_camera_warning)
             click(dialog, "景别与角度预检")
             print("Verified repeated Chinese shot scales are flagged before generation", flush=True)
-            # Correct the declared cut before testing the successful export path.
-            example.shots[1].fields["景别"] = "特写"
-            example.save(path)
-            click(dialog, "打开单组项目")
+            table = next(widget for widget in walk(dialog, ttk.Treeview)
+                         if widget.exists(example.shots[1].id))
+            table.selection_set(example.shots[1].id)
+
+            def correct_scale():
+                edit = next(walk(dialog, tk.Toplevel))
+                editor = named(edit, tk.Text, "production_shot_fields")
+                raw = editor.get("1.0", "end-1c")
+                assert "景别：近中景" in raw
+                editor.delete("1.0", "end")
+                editor.insert("1.0", raw.replace("景别：近中景", "景别：特写", 1))
+                click(edit, "应用镜头更改")
+
+            self.after(60, correct_scale)
+            click(dialog, "编辑镜头")
+            click(dialog, "保存项目")
+            assert ProductionProject.open(path).shots[1].fields["景别"] == "特写"
 
             def adopt():
                 drafting = next(walk(dialog, tk.Toplevel))
