@@ -10,15 +10,20 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from .action_card_catalog import PRESETS
+from .action_card_catalog import ACTION_PRESETS, PRESETS, get_preset
 from .action_sequence import (
-    ActionCard, action_continuity, cards_from_records, cards_to_records, load_action_cards,
-    plan_action_handoff, rebind_action_cards, save_action_cards,
+    ActionCard, action_continuity, card_preview_source, cards_from_records, cards_to_records,
+    load_action_cards, plan_action_handoff, preset_for_card, rebind_action_cards, save_action_cards,
 )
 from .director_action_import import import_director_cards
 from .director_desk import open_director
 from .reference_tools_dialog import import_reference, read_reference
 from .ui_language import translate
+
+
+def clear_preview_image(event):
+    # Tk images must be released while their interpreter is on the UI thread.
+    event.widget.preview_image = None
 
 
 class ActionSequenceDialog:
@@ -36,7 +41,7 @@ class ActionSequenceDialog:
         self.saved_cards, self.saved_images = list(self.cards), list(self.images)
         self.drag = None
         self.page = 0
-        self.categories = list(PRESETS.values())
+        self.categories = [[item for item in ACTION_PRESETS if item.category == category] for category in PRESETS]
         self.category = tk.StringVar(self.window)
         self.preset = tk.StringVar(self.window)
         self.status = tk.StringVar(self.window)
@@ -56,8 +61,8 @@ class ActionSequenceDialog:
         resources.pack(fill="x")
         self.button(resources, "动作参考库", "Action reference library", self.open_reference_library).pack(side="right")
         ttk.Label(resources, text=self.t(
-            "选卡或新建 → 核对格间动作 → 带入分镜。预演可用文字或参考图。",
-            "Add cards → review adjacent beats → send to shots. Preview with text or reference images.",
+            "选卡或新建 → 核对格间动作 → 带入分镜。",
+            "Add cards → review adjacent beats → send to shots.",
         ), wraplength=565, justify="left").pack(side="left")
 
         self.tabs = ttk.Notebook(self.window)
@@ -85,11 +90,18 @@ class ActionSequenceDialog:
             messagebox.showerror(translate(self.window, "人物动作编排"), str(error), parent=parent or self.window)
 
     def build_editor(self, parent):
+        browse = ttk.Frame(parent)
+        browse.pack(fill="x", pady=(0, 6))
+        ttk.Button(browse, name="browse_action_cards", style="Primary.Workbench.TButton",
+                   text=self.t("浏览动作卡", "Browse action cards"),
+                   command=lambda: self.guard(self.browse_presets)).pack(side="left", padx=(0, 10))
+        ttk.Label(browse, style="A.Muted.TLabel",
+                  text=self.t(f"{len(ACTION_PRESETS)} 张内置卡 · 起始、关键变化、结束",
+                              f"{len(ACTION_PRESETS)} built-in cards · Start, key beat, end")).pack(side="left")
         catalog = ttk.Frame(parent)
         catalog.pack(fill="x", pady=(0, 6))
         names = [name[self.language] for name in PRESETS]
-        ttk.Label(catalog, text=self.t(f"预设库 · {sum(map(len, self.categories))} 张",
-                                      f"Presets · {sum(map(len, self.categories))}")).pack(side="left", padx=(0, 6))
+        ttk.Label(catalog, text=self.t("快速选择", "Quick add")).pack(side="left", padx=(0, 6))
         self.category_box = ttk.Combobox(catalog, state="readonly", values=names, textvariable=self.category, width=22)
         self.category_box.pack(side="left", padx=4)
         self.category_box.bind("<<ComboboxSelected>>", lambda _event: self.update_presets())
@@ -132,7 +144,23 @@ class ActionSequenceDialog:
         self.table.bind("<ButtonRelease-1>", lambda event: self.guard(lambda: self.drag_end(event)), add="+")
         self.table.bind("<<TreeviewSelect>>", lambda _event: self.update_detail())
         self.detail = tk.StringVar(self.window)
-        ttk.Label(parent, textvariable=self.detail, justify="left", wraplength=780).pack(anchor="w", pady=(6, 0))
+        detail_row = ttk.Frame(parent)
+        detail_row.pack(fill="x", pady=(6, 0))
+        detail_row.columnconfigure(0, weight=1)
+        self.detail_preview = ttk.Label(detail_row, name="selected_action_preview")
+        self.detail_preview.bind("<Destroy>", clear_preview_image, add="+")
+        description = ttk.Label(detail_row, textvariable=self.detail, justify="left", wraplength=580)
+        description.grid(row=0, column=0, sticky="ew")
+
+        def fit_description(_event):
+            preview_width = self.detail_preview.winfo_reqwidth() + 10 if self.detail_preview.winfo_manager() else 0
+            width = max(140, detail_row.winfo_width() - preview_width)
+            if int(description.cget("wraplength")) != width:
+                description.configure(wraplength=width)
+
+        detail_row.bind("<Configure>", fit_description, add="+")
+        self.detail_preview.bind("<Configure>", fit_description, add="+")
+        self.detail_preview_card = None
 
     def build_board(self, parent):
         header = ttk.Frame(parent)
@@ -153,9 +181,11 @@ class ActionSequenceDialog:
                  for index, shot in enumerate(self.owner.project.shots, 1)}
         images = {image.id for image in self.images}
         for index, card in enumerate(self.cards, 1):
+            preview = (self.t("已挂图", "Linked") if card.reference in images else
+                       self.t("内置示意", "Preset") if preset_for_card(card) else "")
             self.table.insert("", "end", iid=card.id, values=(
                 index, card.title or self.t("未命名", "Untitled"), card.actor, card.prop,
-                self.t("已挂图", "Linked") if card.reference in images else "", shots.get(card.shot_id, ""),
+                preview, shots.get(card.shot_id, ""),
             ))
         if selection:
             self.table.selection_set(*selection)
@@ -167,6 +197,17 @@ class ActionSequenceDialog:
     def update_detail(self):
         selected = self.table.selection()
         card = next((item for item in self.cards if item.id in selected), None)
+        if card != self.detail_preview_card:
+            self.detail_preview_card = card
+            self.detail_preview.configure(image="", text="")
+            self.detail_preview.preview_image = None
+            self.detail_preview.preview_kind = None
+            self.detail_preview.preview_request = None
+            if card and (card.reference or preset_for_card(card)):
+                self.detail_preview.grid(row=0, column=1, sticky="e", padx=(10, 0))
+                self.thumbnails([(self.detail_preview, card)], (250, 80))
+            else:
+                self.detail_preview.grid_remove()
         if card is None:
             self.detail.set(self.t("拖动或用上移／下移排序。按住 Ctrl 可选多张卡带入分镜。",
                                    "Drag or use Move up/down to reorder. Hold Ctrl to select multiple cards."))
@@ -183,13 +224,29 @@ class ActionSequenceDialog:
 
     def update_presets(self):
         cards = self.categories[self.category_box.current()]
-        self.preset_box.configure(values=[card[0][self.language] for card in cards])
+        self.preset_box.configure(values=[card.title[self.language] for card in cards])
         self.preset_box.current(0)
 
     def add_preset(self):
-        title, movement, prop = self.categories[self.category_box.current()][self.preset_box.current()]
-        cards = [ActionCard(title=title[self.language], movement=movement[self.language], prop=prop[self.language])]
-        self.add(cards)
+        self.add_preset_by_id(self.categories[self.category_box.current()][self.preset_box.current()].id)
+
+    def add_preset_by_id(self, preset_id):
+        preset = get_preset(preset_id)
+        if preset is None:
+            raise ValueError(self.t("找不到这张内置动作卡。", "This built-in action card is unavailable."))
+        self.add([ActionCard(title=preset.title[self.language], movement=preset.movement[self.language],
+                             prop=preset.prop[self.language], preset_id=preset.id)])
+
+    def browse_presets(self):
+        from .action_preset_gallery import open_action_presets
+
+        selected = self.table.selection()
+        current = None
+        if len(selected) == 1:
+            card = next(item for item in self.cards if item.id == selected[0])
+            current = preset_for_card(card)
+        open_action_presets(self.window, english=bool(self.language), on_add=self.add_preset_by_id,
+                            initial_id=current.id if current else "")
 
     def open_reference_library(self):
         from .action_reference_dialog import ActionReferenceDialog
@@ -202,7 +259,9 @@ class ActionSequenceDialog:
         if len(movement) > 1500:
             raise ValueError(self.t("动作与反应最多 1500 字。请缩短笔记或已有动作后再加入。",
                                     "Movement & reaction allows 1,500 characters. Shorten the notes or existing movement."))
-        self.cards = [replace(item, movement=movement) if item.id == identity else item for item in self.cards]
+        preset = preset_for_card(card)
+        updated = replace(card, movement=movement, preset_id=preset.id if preset else card.preset_id)
+        self.cards = [updated if item.id == identity else item for item in self.cards]
         self.refresh((identity,))
         self.status.set(self.t(f"笔记已加入「{card.title}」。可打开预演格查看，或保存动作编排。",
                                f"Notes added to “{card.title}”. Open Preview panels or save the sequence."))
@@ -337,8 +396,10 @@ class ActionSequenceDialog:
                       for key, control in values.items()}
             if not fields["title"].strip() or not fields["movement"].strip():
                 raise ValueError(self.t("请填写卡片名称和动作内容。", "Enter a title and movement."))
-            updated = replace(card, **fields, shot_id=shots[target.get()],
-                              reference=selected_ref.id if selected_ref else "")
+            preset = preset_for_card(card)
+            keeps_action = fields["movement"].strip() == card.movement and fields["prop"].strip() == card.prop
+            updated = replace(card, **fields, shot_id=shots[target.get()], reference=selected_ref.id if selected_ref else "",
+                              preset_id=(preset.id if preset else card.preset_id) if keeps_action else "")
             cards = ([updated if item.id == card.id else item for item in self.cards]
                      if self.table.exists(card.id) else self.cards + [updated])
             cards = cards_from_records(cards_to_records(cards))
@@ -395,13 +456,13 @@ class ActionSequenceDialog:
             if offset < len(visible):
                 card = visible[offset]
                 label = self.card_panel(frame, card, start + offset + 1, compact=True)
-                pending.append((label, card.reference))
+                pending.append((label, card))
                 frame.bind("<Button-1>", lambda _event, identity=card.id: self.show_card(identity))
                 for child in frame.winfo_children():
                     child.bind("<Button-1>", lambda _event, identity=card.id: self.show_card(identity))
             else:
                 tk.Label(frame, text=f"{start + offset + 1:02d}", bg="#f6f8fa", fg="#546679").pack(anchor="nw", padx=5)
-        self.thumbnails(pending, (142, 66))
+        self.thumbnails(pending, (142, 66), cover_only=True)
 
     def show_card(self, identity):
         self.table.selection_set(identity)
@@ -411,7 +472,8 @@ class ActionSequenceDialog:
     def card_panel(self, frame, card, number, *, compact=False):
         title = f"{number:02d}  {card.title[:34]}"
         ttk.Label(frame, text=title, wraplength=145 if compact else 320).pack(anchor="w", padx=5, pady=3)
-        reference = ttk.Label(frame, text=self.t("待挂图", "No reference"))
+        reference = ttk.Label(frame, name="action_preview", text=self.t("待挂图", "No reference"))
+        reference.bind("<Destroy>", clear_preview_image, add="+")
         reference.pack(anchor="center", pady=2)
         action = card.movement or card.route_notes
         text = action.replace("\n", " ")[:64] if compact else "\n\n".join(
@@ -425,23 +487,38 @@ class ActionSequenceDialog:
         ttk.Label(frame, text=text, justify="left", wraplength=145 if compact else 320).pack(anchor="w", padx=5, pady=3)
         return reference
 
-    def thumbnails(self, pending, size):
+    def thumbnails(self, pending, size, *, cover_only=False):
         by_id = {image.id: image for image in self.images}
-        work = [(label, by_id[identity]) for label, identity in pending if identity in by_id]
-        if not work:
+        labels, sources = [], []
+        token = object()
+        for label, card in pending:
+            label.preview_request = token
+            label.preview_kind = None
+            source = card_preview_source(card, by_id)
+            if source is not None:
+                labels.append(label)
+                sources.append(source)
+        if not sources:
             return
         results = Queue()
         project, path = self.owner.project, self.owner.path
         root = self.window._root()
 
         def read():
-            for order, (_, item) in enumerate(work):
+            for order, item in enumerate(sources):
+                bundled = isinstance(item, Path)
+                kind = "preset" if bundled else "reference"
                 try:
-                    with Image.open(project.checked_image(path, item)) as source:
-                        source.thumbnail(size)
-                        results.put((order, source.copy()))
+                    with Image.open(item if bundled else project.checked_image(path, item)) as source:
+                        if bundled and cover_only:
+                            third = source.width // 3
+                            sample = source.crop((third, 0, third * 2, source.height))
+                        else:
+                            sample = source.copy()
+                    sample.thumbnail(size, Image.Resampling.LANCZOS)
+                    results.put((order, kind, sample))
                 except (OSError, ValueError, RuntimeError, Image.DecompressionBombError):
-                    results.put((order, None))
+                    results.put((order, kind, None))
             results.put(None)
 
         def receive():
@@ -449,19 +526,20 @@ class ActionSequenceDialog:
                 try:
                     result = results.get_nowait()
                 except Empty:
-                    if any(label.winfo_exists() for label, _ in work):
+                    if any(label.winfo_exists() and label.preview_request is token for label in labels):
                         root.after(75, receive)
                     return
                 if result is None:
                     return
-                order, preview = result
-                label = work[order][0]
-                if not label.winfo_exists():
+                order, kind, preview = result
+                label = labels[order]
+                if not label.winfo_exists() or label.preview_request is not token:
                     continue
                 if preview is None:
                     label.configure(text=self.t("参考图不可用", "Reference unavailable"))
                 else:
-                    label.preview_image = ImageTk.PhotoImage(preview, master=self.window)
+                    label.preview_kind = kind
+                    label.preview_image = ImageTk.PhotoImage(preview, master=label)
                     label.configure(image=label.preview_image, text="")
 
         Thread(target=read, daemon=True).start()
@@ -495,7 +573,7 @@ class ActionSequenceDialog:
             for offset, card in enumerate((a, b)):
                 frame = ttk.Frame(row, padding=5, relief="groove")
                 frame.pack(side="left", fill="both", expand=True, padx=4)
-                pending.append((self.card_panel(frame, card, pair + offset + 1), card.reference))
+                pending.append((self.card_panel(frame, card, pair + offset + 1), card))
             self.thumbnails(pending, (325, 150))
             notes = [issue.english if self.language else issue.message for issue in action_continuity([a, b])]
             findings.configure(text="\n".join(notes) or self.t(

@@ -86,9 +86,9 @@ def verify(archive_path, validator=None, install=False, chinese_validator=None):
             python = str(folder / ".venv" / "Scripts" / "python.exe")
             smoke = Path(__file__).resolve().parents[1] / "tests" / "windows_smoke.py"
             subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=230)
-            media_smoke = smoke.with_name("media_gallery_smoke.py")
-            subprocess.run([python, "-c", "import runpy, sys; runpy.run_path(sys.argv[1], run_name='__main__')",
-                            str(media_smoke)], cwd=folder, check=True, timeout=65)
+            for name in ("media_gallery_smoke.py", "action_previews_smoke.py"):
+                subprocess.run([python, "-c", "import runpy, sys; runpy.run_path(sys.argv[1], run_name='__main__')",
+                                str(smoke.with_name(name))], cwd=folder, check=True, timeout=65)
         chinese_validator = chinese_validator or fixture_validator(base)
         run_in_kit = (
             "import runpy, sys; from pathlib import Path; "

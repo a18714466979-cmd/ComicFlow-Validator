@@ -1,5 +1,10 @@
 """Original, bilingual action-card starters for staging fictional scenes."""
 
+from dataclasses import dataclass
+from pathlib import Path
+
+
+ACTION_PREVIEW_DIRECTORY = Path("assets/action_previews")
 
 PRESETS = {
     ("日常与表演", "Everyday & performance"): (
@@ -233,3 +238,92 @@ PRESETS = {
          ("道具手机", "Prop phone")),
     ),
 }
+
+
+_CATEGORY_IDS = {
+    ("日常与表演", "Everyday & performance"): "performance",
+    ("双人配合与救援", "Partner movement & rescue"): "partners",
+    ("路线、遮挡与转场", "Paths, occlusion & transitions"): "paths",
+    ("刀道具", "Stage sabers"): "sabers",
+    ("长枪道具", "Stage spears"): "spears",
+    ("剑道具", "Stage swords"): "swords",
+    ("戟道具", "Stage halberds"): "halberds",
+    ("扇、棍与盾", "Fans, staffs & shields"): "stage",
+    ("现代影视道具", "Modern screen props"): "modern",
+}
+# Assign IDs explicitly to each shipped title so a reorder never changes
+# saved cards or their link to the bundled preview.
+_KEYS = {
+    "performance": {
+        "推门后等一拍": "01", "起身时发现异样": "02", "递出后松手": "03",
+        "停步侧耳": "04", "放下杯子才开口": "05", "转身前犹豫": "06",
+    },
+    "partners": {
+        "伸手得到回应": "01", "一人扶起另一人": "02", "护送通过门洞": "03",
+        "两人架着大箱让路": "04", "前人示意后人停下": "05", "交接手电照明": "06",
+    },
+    "paths": {
+        "从柱后走入光里": "01", "经过前景遮挡切镜": "02", "踩过门槛回身看": "03",
+        "借栏杆停住": "04", "逆光里换成前景视角": "05", "避开落下的布景": "06",
+    },
+    "sabers": {
+        "灯光扫过道具刀": "01", "刀停在桌沿": "02", "刀影进入墙上": "03",
+        "刀道具让位给表情": "04", "放下后退到光外": "05", "刀光划过前景转场": "06",
+    },
+    "spears": {
+        "枪杆先露出转角": "01", "长枪靠到固定墙边": "02", "长枪过窄门": "03",
+        "枪尾留下固定触点": "04", "并行走位保留间距": "05", "枪缨迎风显出方向": "06",
+    },
+    "swords": {
+        "剑尖余光过渡": "01", "剑身映出画外灯": "02", "剑与护手停在同一构图": "03",
+        "剑道具交回架上": "04", "剑鞘入画接背影": "05", "漂浮剑影汇合成一柄": "06",
+    },
+    "halberds": {
+        "戟的剪影预示来人": "01", "举起后顶端仍在画内": "02", "戟过台阶保持高低关系": "03",
+        "戟头挂饰停摆": "04", "长柄戟交接道具位": "05", "雾中亮起戟头轮廓": "06",
+    },
+    "stage": {
+        "扇面打开显露眼神": "01", "合扇后让出面部": "02", "长棍带出机位移动": "03",
+        "长棍从画面边缘移走": "04", "盾边让出同伴的脸": "05", "盾靠墙露出路牌": "06",
+    },
+    "modern": {
+        "枪形道具留在支架": "01", "携带枪形道具走过门框": "02", "对讲机入画接声音": "03",
+        "拎箱进场放到标记": "04", "手机光把视线带过去": "05",
+    },
+}
+
+
+@dataclass(frozen=True)
+class ActionPreset:
+    id: str
+    category: tuple[str, str]
+    title: tuple[str, str]
+    movement: tuple[str, str]
+    prop: tuple[str, str]
+
+
+ACTION_PRESETS = tuple(
+    ActionPreset(f"{_CATEGORY_IDS[category]}-{_KEYS[_CATEGORY_IDS[category]][title[0]]}",
+                 category, title, movement, prop)
+    for category, records in PRESETS.items()
+    for title, movement, prop in records
+)
+_BY_KEY = {preset.id: preset for preset in ACTION_PRESETS}
+_BY_LEGACY_TEXT = {
+    (preset.title[language], preset.movement[language], preset.prop[language]): preset
+    for preset in ACTION_PRESETS for language in range(2)
+}
+
+
+def get_preset(preset_id: str) -> ActionPreset | None:
+    return _BY_KEY.get(preset_id)
+
+
+def find_legacy_preset(title: str, movement: str, prop: str) -> ActionPreset | None:
+    return _BY_LEGACY_TEXT.get((title, movement, prop))
+
+
+def action_preview_path(preset_id: str) -> Path | None:
+    if preset_id in _BY_KEY:
+        return Path(__file__).resolve().parents[1] / ACTION_PREVIEW_DIRECTORY / f"{preset_id}.webp"
+    return None

@@ -2,6 +2,20 @@
 
 漫剧镜序制片台 · Comic Sequence Studio
 
+## 2.2.0 · 2026-11-28
+
+### 简体中文
+
+- 人物动作编排新增「浏览动作卡」。9 类 53 张内置卡均有大封面和三帧预览，可查看起始姿势、关键变化和结束状态。中英文界面共用同一套随包图。
+- 把动作卡加入项目后，预演格和相邻卡对照可显示内置示意图。已挂的项目参考图优先显示。内置图用于选卡和编排，正式交付仍使用项目已批准的图件。
+- 验证记录可按安装包里的 `REVISION.txt` 查询。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
+### English
+
+- Action sequencing now includes a visual action card browser. All 53 built-in cards across nine categories have a cover and three frames showing the start, key change and end. The same offline artwork is available in both interface languages.
+- Sequence panels and adjacent-card review show the built-in illustration after adding a preset. Project reference images take precedence. Formal deliveries use the project's approved images.
+- Match the package revision in `REVISION.txt` to the installation and desktop verification run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+
 ## 2.1.1 · 2026-11-28
 
 ### 简体中文
@@ -9,14 +23,14 @@
 - 修复内置 3D 导演台程序化人偶的躯干、骨盆和四肢接合问题。摆姿势和播放动作时，关节继续跟随各自的旋转中心。
 - 核对弯腰、转身、下蹲和抬臂，以及动作预览、截图与保存后打开。已保存的导演台工程继续使用原有姿势和动作数据。
 - 素材库和预览关闭时，在界面线程释放预览图片与控件资源。
-- 验证记录可按安装包里的 `REVISION.txt` 查询。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+- Windows 已复验内置人偶的摆姿势、工程重开、播放和取图，以及素材库关闭和交付流程。[2.1.1 Windows 验证](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46111175088)
 
 ### English
 
 - Repair the joints of the built-in procedural mannequin in the 3D Director Desk. The torso, pelvis and limbs stay connected as their joints rotate in the editor and during playback.
 - Verify bending, twisting, crouching and arm raises, plus playback, capture and reopening a saved project. Existing Director Desk projects continue to use their saved pose and motion data.
 - The media library and detail preview release their display resources on the UI thread when closed.
-- Match the package revision in `REVISION.txt` to the installation and desktop verification run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
+- Windows verification covered built-in mannequin posing, reopening, playback and frame capture, as well as media-library teardown and delivery workflows. [2.1.1 Windows verification](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/runs/46111175088)
 
 ## 2.1.0 · 2026-11-28
 

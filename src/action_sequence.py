@@ -1,10 +1,12 @@
 """Local action cards, declared continuity checks, and formal-shot handoff."""
 
 import json
+import re
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
-from .production_project import Shot, atomic_text, identifier
+from .action_card_catalog import ActionPreset, action_preview_path, find_legacy_preset, get_preset
+from .production_project import ProjectImage, Shot, atomic_text, identifier
 
 
 SEQUENCE_FORMAT = "comicflow-action-sequence"
@@ -28,6 +30,7 @@ class ActionCard:
     reference: str = ""
     shot_id: str = ""
     route_notes: str = ""
+    preset_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ class ContinuityIssue:
 
 CARD_FIELDS = {entry.name for entry in fields(ActionCard)}
 DESCRIPTIVE_FIELDS = {"start", "movement", "end", "route_notes"}
+PRESET_ID_PATTERN = re.compile(r"[a-z]+-\d{2}", re.ASCII)
 UNKNOWN = {"", "待核对", "待确认", "未知", "unknown", "tbd", "n/a"}
 EMPTY_PROP = {"无", "none"}
 HANDS = {
@@ -77,13 +81,33 @@ def cards_from_records(records: list[dict]) -> list[ActionCard]:
             clean[key] = value.strip()
         if not clean["id"] or clean["id"] in seen:
             raise ValueError(f"第 {number} 张动作卡缺少唯一 ID。")
+        if (preset_id := clean.get("preset_id")) and not PRESET_ID_PATTERN.fullmatch(preset_id):
+            raise ValueError(f"第 {number} 张动作卡的预设 ID 无效。")
         seen.add(clean["id"])
         cards.append(ActionCard(**clean))
     return cards
 
 
 def cards_to_records(cards) -> list[dict]:
-    return [asdict(card) for card in cards_from_records([asdict(card) for card in cards])]
+    records = [asdict(card) for card in cards_from_records([asdict(card) for card in cards])]
+    for record in records:
+        if not record["preset_id"]:
+            del record["preset_id"]
+    return records
+
+
+def preset_for_card(card: ActionCard) -> ActionPreset | None:
+    if card.preset_id:
+        return get_preset(card.preset_id)
+    return find_legacy_preset(card.title, card.movement, card.prop)
+
+
+def card_preview_source(card: ActionCard, images: dict[str, ProjectImage]) -> ProjectImage | Path | None:
+    if card.reference in images:
+        return images[card.reference]
+    if preset := preset_for_card(card):
+        return action_preview_path(preset.id)
+    return None
 
 
 def load_action_cards(path: Path) -> list[ActionCard]:

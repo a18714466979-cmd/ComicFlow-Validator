@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageDraw
 
+from src.action_card_catalog import ACTION_PRESETS, ACTION_PREVIEW_DIRECTORY
 from src.brand import APP_FOLDER, VERSION
 from src.bundled_validators import ENGLISH_VALIDATOR_DIRECTORY, ENGLISH_VALIDATOR_FILES
 from src.director_desk import DIRECTOR_BUNDLE, DIRECTOR_HOST
@@ -182,6 +183,10 @@ def build(output, revision):
         copytree(ROOT / DIRECTOR_HOST, folder / DIRECTOR_HOST)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
         copytree(ROOT / TUTORIAL_IMAGES, folder / TUTORIAL_IMAGES)
+        previews = tuple(ACTION_PREVIEW_DIRECTORY / f"{preset.id}.webp" for preset in ACTION_PRESETS)
+        (folder / ACTION_PREVIEW_DIRECTORY).mkdir(parents=True)
+        for relative in previews:
+            copy2(ROOT / relative, folder / relative)
         copytree(ROOT / ECOMMERCE_VALIDATOR_DIRECTORY, folder / ECOMMERCE_VALIDATOR_DIRECTORY)
         (folder / ENGLISH_VALIDATOR_DIRECTORY).mkdir(parents=True)
         for filename in ENGLISH_VALIDATOR_FILES:
@@ -206,6 +211,11 @@ def build(output, revision):
                          for path in (ROOT / directory).rglob("*") if path.is_file())
         for name in (*INSTALL_FILES, *samples, *references, *validators, ecommerce_validator, *tutorial, *director):
             archive.getinfo(f"{APP_FOLDER}/{name}")
+        for relative in previews:
+            with Image.open(BytesIO(archive.read(f"{APP_FOLDER}/{relative.as_posix()}"))) as strip:
+                strip.load()
+                if strip.format != "WEBP" or strip.n_frames != 1 or strip.width * 3 != strip.height * 12:
+                    raise ValueError(f"Expected a three-panel 4:3 action preview strip: {relative.name}")
         for name, content in metadata.items():
             if archive.read(f"{APP_FOLDER}/{name}") != content.encode("utf-8"):
                 raise ValueError(f"The trial archive has mismatched metadata in {name}.")
