@@ -1,4 +1,5 @@
-const params = new URLSearchParams(location.search);
+const external = location.hash.length > 1;
+const params = new URLSearchParams(external ? location.hash.slice(1) : location.search);
 const token = params.get("token");
 const instanceId = params.get("instanceId");
 const language = params.get("language") === "en" ? "en" : "zh-CN";
@@ -61,8 +62,15 @@ async function sendResult(makeResult) {
   send.disabled = true;
   status.textContent = title("正在发送到制片台…", "Sending to the workspace…");
   try {
-    await submit(await makeResult());
-    status.textContent = title("已发送，正在返回制片台。", "Sent. Returning to the workspace.");
+    const result = await makeResult();
+    await submit(result);
+    if (external) {
+      status.textContent = result.kind === "close"
+        ? title("本次会话已取消，可以关闭此页。", "Session cancelled. You can close this tab.")
+        : title("结果已带回制片台，可以关闭此页。", "Sent to the workspace. You can close this tab.");
+    } else {
+      status.textContent = title("已发送，正在返回制片台。", "Sent. Returning to the workspace.");
+    }
   } catch (error) {
     status.textContent = error.message;
     sending = false;
@@ -118,6 +126,22 @@ function receive(event) {
 }
 
 if (instanceId && token && ["pose", "action"].includes(mode)) {
+  if (external) {
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = title("取消并返回", "Cancel and return");
+    cancel.addEventListener("click", () => sendResult(() => ({ kind: "close" })));
+    send.after(cancel);
+    window.addEventListener("pagehide", () => {
+      if (!sending) {
+        fetch("/__director_output", {
+          method: "POST", keepalive: true,
+          headers: { "Content-Type": "application/json", "X-ComicFlow-Director": token },
+          body: JSON.stringify({ kind: "close" }),
+        }).catch(() => {});
+      }
+    });
+  }
   window.addEventListener("message", receive);
   send.addEventListener("click", () => {
     void sendResult(async () => {

@@ -3,6 +3,7 @@
 import hashlib
 import sys
 from pathlib import Path
+from shutil import copyfile
 from zipfile import ZipFile
 
 
@@ -21,6 +22,10 @@ def main():
     kit = destination / "Comic-Sequence-Studio"
     assert (kit / "VERSION.txt").read_text(encoding="utf-8").strip() == "2.9.1"
     assert (kit / "REVISION.txt").read_text(encoding="utf-8").strip() == "6d6c7e0fb5163d6274472142a35bf5664a25a475"
+    if sys.platform == "darwin":
+        # The Mac browser bridge adds a session cancel button to the verified offline desk.
+        host = Path("assets/director_host/host.js")
+        copyfile(Path(__file__).resolve().parents[1] / host, kit / host)
     (kit / "INSTALLER-BUILD.txt").write_text(build_revision + "\n", encoding="ascii")
 
 

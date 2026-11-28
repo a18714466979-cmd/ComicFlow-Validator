@@ -22,16 +22,23 @@ from src.windows_launcher import open_workbench
 
 
 def verify_director(folder):
+    environment = {**os.environ, "STUDIO_DIRECTOR_SMOKE": "1", "PYWEBVIEW_LOG": "debug"}
+    if sys.platform == "darwin":
+        environment["STUDIO_DIRECTOR_SMOKE_BROWSER"] = "chrome"
     with (folder / "worker.log").open("wb") as output:
         process = subprocess.Popen(
             python_command("-m", "src.director_desk", str(folder), "installer-smoke", "en", "pose"),
             stdout=output, stderr=subprocess.STDOUT, creationflags=NO_CONSOLE,
-            env={**os.environ, "STUDIO_DIRECTOR_SMOKE": "1", "PYWEBVIEW_LOG": "debug"},
+            env=environment,
         )
     try:
-        deadline = time.monotonic() + 35
+        deadline = time.monotonic() + (70 if sys.platform == "darwin" else 35)
         while time.monotonic() < deadline:
             if (folder / "ready").is_file():
+                if sys.platform == "darwin":
+                    (folder / "cancel").touch()
+                    if process.wait(timeout=15) != 0:
+                        raise RuntimeError("The installed Studio did not close the browser session cleanly.")
                 return
             if process.poll() is not None:
                 error = folder / "error.txt"
@@ -94,7 +101,9 @@ def exercise(report_path):
                 raise RuntimeError(result["tk_error"])
             base.joinpath("director").mkdir()
             verify_director(base / "director")
-            checks.append("Bundled 3D Director Desk opened and completed its native WebView handshake")
+            checks.append("Bundled 3D Director Desk opened in Chrome, completed its browser handshake and closed"
+                          if sys.platform == "darwin" else
+                          "Bundled 3D Director Desk opened and completed its native WebView handshake")
         result["status"] = "ok"
     except Exception:
         result["error"] = traceback.format_exc()

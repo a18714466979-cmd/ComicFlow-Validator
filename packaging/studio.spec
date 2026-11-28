@@ -15,21 +15,17 @@ datas += [(str(payload / name), ".") for name in
 datas += [(str(media.parent / "ffmpeg-source"), "Notices/FFmpeg")]
 # Package redistribution notices provided by the installed wheels.
 from PyInstaller.utils.hooks import copy_metadata
-for dependency in ("Pillow", "numpy", "pywebview", "bottle", "proxy_tools"):
+dependencies = ["Pillow", "numpy"]
+if not macos:
+    dependencies += ["pywebview", "bottle", "proxy_tools", "pythonnet", "clr_loader", "cffi"]
+for dependency in dependencies:
     datas += copy_metadata(dependency)
-if macos:
-    for dependency in ("pyobjc-core", "pyobjc-framework-Cocoa", "pyobjc-framework-WebKit",
-                       "pyobjc-framework-Quartz", "pyobjc-framework-Security", "pyobjc-framework-UniformTypeIdentifiers"):
-        datas += copy_metadata(dependency)
-else:
-    for dependency in ("pythonnet", "clr_loader", "cffi"):
-        datas += copy_metadata(dependency)
 
 a = Analysis(
     [str(root / "packaging" / "desktop_entry.py")], pathex=[str(root)],
     binaries=[(str(media), "tools")], datas=datas,
-    hiddenimports=["webview.platforms.cocoa" if macos else "webview.platforms.edgechromium"],
-    excludes=["imageio_ffmpeg"], noarchive=False,
+    hiddenimports=[] if macos else ["webview.platforms.edgechromium"],
+    excludes=["imageio_ffmpeg", "webview"] if macos else ["imageio_ffmpeg"], noarchive=False,
 )
 pyz = PYZ(a.pure)
 app = EXE(pyz, a.scripts, [], exclude_binaries=True, name=app_name, console=False, upx=False)
@@ -46,8 +42,5 @@ if macos:
         info_plist={
             "CFBundleDisplayName": "Comic Sequence Studio",
             "NSHighResolutionCapable": True,
-            "NSAppTransportSecurity": {"NSExceptionDomains": {
-                "127.0.0.1": {"NSExceptionAllowsInsecureHTTPLoads": True},
-            }},
         },
     )

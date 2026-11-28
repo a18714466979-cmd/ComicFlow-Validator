@@ -14,6 +14,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from threading import Event, Lock, Thread
+from time import monotonic
 from tkinter import messagebox
 from urllib.parse import urlencode, urlsplit, unquote
 
@@ -96,6 +97,7 @@ def director_server(output, mode, language, *, port=0):
         def end_headers(self):
             self.send_header("Content-Security-Policy", CSP)
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
             super().end_headers()
 
         def valid_host(self):
@@ -167,17 +169,61 @@ def session_url(origin, token, instance, language, mode):
     return f"{origin}/director_host/?{query}"
 
 
+MAC_SMOKE_CHROME = (
+    Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    Path("/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+)
+
+
+def run_mac_browser(output, url, finished, english, *, startup_timeout=60):
+    """Keep the private local bridge alive while a separate browser renders the desk."""
+    browser = None
+    if (os.environ.get("STUDIO_DIRECTOR_SMOKE") == "1"
+            and os.environ.get("STUDIO_DIRECTOR_SMOKE_BROWSER") == "chrome"):
+        # CI owns this isolated Chrome profile and process. A normal session uses LaunchServices.
+        chrome = next((path for path in MAC_SMOKE_CHROME if path.is_file()), None)
+        if chrome is None:
+            raise RuntimeError("The macOS Director Desk install check requires Google Chrome.")
+        browser = subprocess.Popen([
+            str(chrome), "--headless", "--no-first-run", "--no-default-browser-check",
+            "--use-gl=angle", "--use-angle=swiftshader", f"--user-data-dir={output / 'smoke-profile'}", url,
+        ], stdin=subprocess.DEVNULL, stdout=None, stderr=None)
+    else:
+        try:
+            launched = subprocess.run(["/usr/bin/open", url], capture_output=True, timeout=12)
+        except (OSError, subprocess.TimeoutExpired):
+            launched = None
+        if launched is None or launched.returncode:
+            raise RuntimeError("The default browser could not open the local Director Desk."
+                               if english else "系统默认浏览器未能打开本机 3D 导演台。")
+
+    deadline = monotonic() + startup_timeout
+    ready = output / "ready"
+    cancel = output / "cancel"
+    try:
+        while not finished.wait(0.2):
+            if cancel.exists():
+                return
+            if browser is not None and browser.poll() is not None:
+                raise RuntimeError("The macOS smoke browser exited before handoff.")
+            if not ready.exists() and monotonic() >= deadline:
+                raise RuntimeError("The browser did not open the local 3D Director Desk in time. Reopen it to retry."
+                                   if english else "浏览器未能及时打开本机 3D 导演台。请重新打开后再试。")
+    finally:
+        if browser is not None and browser.poll() is None:
+            browser.terminate()
+            try:
+                browser.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                browser.kill()
+                browser.wait()
+
+
 def run_window(output, instance, language, mode):
     english = language == "en"
     if not (ROOT / DIRECTOR_BUNDLE / "index.html").is_file():
         raise OSError("This build does not contain the 3D Director Desk. Reinstall the complete Windows trial."
                       if english else "当前安装缺少内置 3D 导演台。请重新解压完整的 Windows 试用包。")
-    try:
-        import webview
-    except ImportError as error:
-        raise RuntimeError(f"Run {APP_FOLDER}-Setup.bat to install the desktop WebView."
-                           if english else f"请运行 {APP_FOLDER}-Setup.bat 补装桌面 WebView。") from error
-
     appdata = application_data() or Path.home() / ".local" / "share" / APP_FOLDER
     profile = appdata / "director-webview"
     profile.mkdir(parents=True, exist_ok=True)
@@ -187,6 +233,16 @@ def run_window(output, instance, language, mode):
         with director_server(output, mode, language, port=port) as (origin, token, finished):
             if not port:
                 port_file.write_text(urlsplit(origin).netloc.rsplit(":", 1)[-1], encoding="ascii")
+            if sys.platform == "darwin":
+                options = urlencode({"token": token, "instanceId": instance, "language": language, "mode": mode})
+                run_mac_browser(output, origin + "/director_host/#" + options, finished, english)
+                return
+
+            try:
+                import webview
+            except ImportError as error:
+                raise RuntimeError(f"Run {APP_FOLDER}-Setup.bat to install the desktop WebView."
+                                   if english else f"请运行 {APP_FOLDER}-Setup.bat 补装桌面 WebView。") from error
             webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = False
             webview.settings["ALLOW_DOWNLOADS"] = True
             window = webview.create_window(
@@ -244,6 +300,10 @@ def open_director(parent, project_path, mode, on_result, *, language="zh"):
         if current[1] is not parent:
             raise RuntimeError("3D Director Desk is already open for another group. Finish that session first."
                                if english else "另一组已打开 3D 导演台，请先完成那一组的取景。")
+        if sys.platform == "darwin" and current[0].poll() is None:
+            if messagebox.askyesno(title, "End the current browser session? You can then open another Director Desk."
+                                   if english else "结束当前浏览器中的导演台会话？结束后可以重新打开。", parent=parent):
+                (current[2] / "cancel").touch()
         return
     instance = "comicflow_" + sha256(os.fsencode(Path(project_path).resolve())).hexdigest()[:24]
     temporary = TemporaryDirectory(prefix="comicflow-director-")
@@ -256,7 +316,7 @@ def open_director(parent, project_path, mode, on_result, *, language="zh"):
     except OSError:
         temporary.cleanup()
         raise
-    root._director_session = (process, parent)
+    root._director_session = (process, parent, output)
 
     def cancel(event):
         if event.widget == parent and process.poll() is None:
