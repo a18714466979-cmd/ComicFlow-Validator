@@ -14,13 +14,29 @@ concurrency:
 
 jobs:
   windows-media:
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Reuse the verified Windows decoder when the recipe matches
+        run: |
+          set -euo pipefail
+          if gh run download 46140448257 -n ffmpeg-windows-x64-runtime -D previous-decoder -R "$GITHUB_REPOSITORY"; then
+            tar -xzf previous-decoder/ffmpeg-win.tar.gz
+            if ! cmp -s packaging/build-ffmpeg.sh ffmpeg-runtime/ffmpeg-source/build-ffmpeg.sh; then
+              mv ffmpeg-runtime previous-decoder/unmatched
+            fi
+          fi
       - name: Install Windows cross compiler
+        if: hashFiles('ffmpeg-runtime/ffmpeg.exe') == ''
         run: sudo apt-get update -q && sudo apt-get install -y gcc-mingw-w64-x86-64
       - name: Build the bundled local video decoder
+        if: hashFiles('ffmpeg-runtime/ffmpeg.exe') == ''
         run: bash packaging/build-ffmpeg.sh --target windows-x64 --output "$PWD/ffmpeg-runtime"
       - name: Archive the executable and corresponding source
         run: tar -czf ffmpeg-win.tar.gz ffmpeg-runtime
@@ -99,11 +115,23 @@ jobs:
         run: |
           gh release download v2.9.1 -p Comic-Sequence-Studio-Windows.zip -R "$GITHUB_REPOSITORY"
           python packaging/prepare_payload.py Comic-Sequence-Studio-Windows.zip payload "$GITHUB_SHA"
+      - uses: actions/cache/restore@v4
+        id: mac-media
+        with:
+          path: ffmpeg-runtime
+          key: studio-ffmpeg-${{ matrix.architecture }}-${{ hashFiles('packaging/build-ffmpeg.sh') }}
       - name: Build the bundled local video decoder
+        if: steps.mac-media.outputs.cache-hit != 'true'
         run: bash packaging/build-ffmpeg.sh --target macos --output "$PWD/ffmpeg-runtime"
+      - uses: actions/cache/save@v4
+        if: steps.mac-media.outputs.cache-hit != 'true'
+        with:
+          path: ffmpeg-runtime
+          key: studio-ffmpeg-${{ matrix.architecture }}-${{ hashFiles('packaging/build-ffmpeg.sh') }}
       - name: Install the Cocoa runtime and freeze the Studio
         run: |
-          python -m pip install -r requirements-runtime.txt 'pywebview>=6.2,<7' 'pyinstaller==6.22.3'
+          python -m pip install -r requirements-runtime.txt 'pywebview==6.2.1' 'pyinstaller==6.22.3'
+          python packaging/patch_cocoa_webview.py
           python -m PyInstaller --clean --noconfirm packaging/studio.spec
       - name: Build, mount and launch the macOS installer
         run: |

@@ -81,12 +81,12 @@ try {
             if ($process.HasExited) {
                 throw "The app closed before opening its main window. Exit code $($process.ExitCode)."
             }
-            if ($process.MainWindowHandle -and $process.Responding) {
+            if (($process.MainWindowHandle -ne [IntPtr]::Zero) -and $process.Responding) {
                 break
             }
             Start-Sleep -Milliseconds 200
         } until ((Get-Date) -ge $deadline)
-        if (-not $process.MainWindowHandle -or -not $process.Responding) {
+        if (($process.MainWindowHandle -eq [IntPtr]::Zero) -or -not $process.Responding) {
             throw 'The app did not open a responsive main window.'
         }
         Write-Output "Opened installed Tk window: $($process.MainWindowTitle)"

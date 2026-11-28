@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 from shutil import copytree
 import subprocess
 import sys
@@ -21,10 +22,12 @@ from src.windows_launcher import open_workbench
 
 
 def verify_director(folder):
-    process = subprocess.Popen(
-        python_command("-m", "src.director_desk", str(folder), "installer-smoke", "en", "pose"),
-        creationflags=NO_CONSOLE, env={**os.environ, "STUDIO_DIRECTOR_SMOKE": "1"},
-    )
+    with (folder / "worker.log").open("wb") as output:
+        process = subprocess.Popen(
+            python_command("-m", "src.director_desk", str(folder), "installer-smoke", "en", "pose"),
+            stdout=output, stderr=subprocess.STDOUT, creationflags=NO_CONSOLE,
+            env={**os.environ, "STUDIO_DIRECTOR_SMOKE": "1", "PYWEBVIEW_LOG": "debug"},
+        )
     try:
         deadline = time.monotonic() + 35
         while time.monotonic() < deadline:
@@ -36,7 +39,8 @@ def verify_director(folder):
                 raise RuntimeError(f"The bundled 3D Director Desk exited before drawing: {detail}")
             time.sleep(0.15)
         diagnostics = "\n".join(path.read_text(encoding="utf-8")[-3500:] for path in
-                                (folder / "requests.log", folder / "webview-status.txt") if path.is_file())
+                                (folder / "requests.log", folder / "webview-status.txt", folder / "worker.log") if path.is_file())
+        diagnostics = re.sub(r"token=[A-Za-z0-9_-]+", "token=[redacted]", diagnostics)
         raise TimeoutError("The bundled native 3D Director Desk did not signal bridge readiness.\n" + diagnostics)
     finally:
         if process.poll() is None:
@@ -68,10 +72,17 @@ def exercise(report_path):
                 exercise_sample(folder, base, script, language, counts)
             checks.append("English and Chinese single-group, two-group and repair ZIPs passed with bundled validators")
 
+            startup_deadline = time.monotonic() + 6
+
             def inspect_window(window):
+                if not window.winfo_viewable() and time.monotonic() < startup_deadline:
+                    window.after(100, lambda: inspect_window(window))
+                    return
                 try:
                     window.update_idletasks()
-                    assert window.title() == app_name(window.ui_language) and window.winfo_ismapped()
+                    assert window.title() == app_name(window.ui_language) and window.winfo_viewable(), (
+                        window.title(), window.winfo_viewable(), window.state(),
+                    )
                     checks.append("The installed Studio opened its Tk workbench")
                 except Exception:
                     result["tk_error"] = traceback.format_exc()
