@@ -585,26 +585,18 @@ def run_inside_launcher():
             click(workbench, "动作参考库")
 
         def inspect_action_sequence(self):
+            from src import action_sequence_dialog
             from src.production_project import ProductionProject
 
             project = ProductionProject("动作编排试用", "EP01", "SB01")
             source = project.import_source("场景一", "R1", "演员从门口走到桌边。")
             project.save(project_path)
             original = project_path.read_bytes()
-            director_path = project_path.with_suffix(".json")
+            director_path = project_path.parent / "director-action" / "project.json"
 
-            def point(position, time):
-                return {"time": time, "transform": {"position": position, "rotation": [0, 0, 0]}}
-
-            director_path.write_text(json.dumps({
-                "format": "3d-director-desk-project", "schemaVersion": 1, "project": {
-                    "version": 1, "scene": {"backgroundColor": "#ffffff"}, "assets": [], "cameras": [],
-                    "objects": [{
-                        "kind": "character", "name": "试用演员", "visible": True,
-                        "motionPath": {"keyframes": [point([0, 0, 0], 0), point([2, 0, 0], 1)]},
-                    }],
-                },
-            }), encoding="utf-8")
+            def receive_tracks(_parent, path, mode, callback, *, language):
+                assert (path, mode, language) == (project_path, "action", "zh")
+                callback(director_path)
             gallery = show_page(self, PRODUCTION_TAB)
             click(gallery, "人物动作编排")
             picker = next(w for w in walk(self, tk.Toplevel) if w.title() == "人物动作编排")
@@ -619,11 +611,11 @@ def run_inside_launcher():
                 assert project_path.read_bytes() == original
                 title, url, note = self.exercise_action_references(workbench)
                 click(workbench, "加入选中预设")
-                with patch.object(filedialog, "askopenfilename", return_value=str(director_path)):
-                    click(workbench, "导入 3D 导演台工程")
+                with patch.object(action_sequence_dialog, "open_director", side_effect=receive_tracks):
+                    click(workbench, "打开内置 3D 导演台")
                 cards = next(walk(workbench, ttk.Treeview))
                 first, second = cards.get_children()
-                assert cards.set(second, "actor") == "试用演员"
+                assert cards.set(second, "actor") == "角色01"
                 click(workbench, "上移")
                 assert cards.get_children() == (second, first)
 
@@ -670,7 +662,7 @@ def run_inside_launcher():
                 assert note in card_text and all(value not in card_text + shot_text for value in (title, url))
                 assert len(saved.action_references) == 1 and saved.action_references[0]["title"] == title
                 print("Verified new cards and notes-only handoff from saved, filtered and timed video references", flush=True)
-                print("Verified action card presets, director JSON, reordering, panel counts and formal shot handoff", flush=True)
+                print("Verified action card presets, built-in director handoff, reordering, panel counts and formal shot handoff", flush=True)
                 print("COMICFLOW_GUI_OK", flush=True)
                 workbench.tk.eval(workbench.protocol("WM_DELETE_WINDOW"))
                 self.after_idle(self.destroy)
@@ -1008,12 +1000,19 @@ def run_inside_launcher():
             after_ready(lambda: "144" in status_text() and "256" in status_text(), confirm_references)
 
         def inspect_new_tools(self):
+            from src import reference_tools_dialog
             from src.production_project import ProductionProject
 
             parent = project_path.parent
             draft = parent / "本地剧本草稿.md"
             reference_png = parent / "动作参考.png"
+            director_png = parent / "director-pose" / "frame.png"
             Image.new("RGB", (640, 360), "tan").save(reference_png)
+
+            def receive_still(_parent, path, mode, callback, *, language):
+                assert (path, mode, language) == (project_path, "pose", "zh")
+                callback(director_png)
+
             show_page(self, PRODUCTION_TAB)
             click(self, "剧本创作")
             script = next(walk(self, tk.Toplevel))
@@ -1065,8 +1064,8 @@ def run_inside_launcher():
                     assert gallery.get(0, "end") == ("白底浅蓝边护士服",)
                     assert gallery.curselection() == (0,) and confirm.instate(["!disabled"])
                 else:
-                    filedialog.askopenfilename = lambda **_kwargs: str(reference_png)
-                    click(chooser, "导入本地参考图")
+                    with patch.object(reference_tools_dialog, "open_director", side_effect=receive_still):
+                        click(chooser, "打开内置 3D 导演台")
                 self.after(80, lambda: check_image_job(project, costume))
                 click(chooser, "使用参考图进入生图")
                 project.destroy()
@@ -1095,7 +1094,7 @@ def run_inside_launcher():
                 saved = ProductionProject.open(project_path)
                 assert len(saved.images) == 2 and all(image.reference_only for image in saved.images)
                 assert "costume_C259_front.webp | WEBP SHA-256 " in saved.images[0].origin, saved.images[0].origin
-                assert saved.checked_image(project_path, saved.images[-1]).read_bytes() == reference_png.read_bytes()
+                assert saved.checked_image(project_path, saved.images[-1]).read_bytes() == director_png.read_bytes()
                 assert not saved.image_jobs
                 show_page(self, REVIEW_TAB)
                 filedialog.askopenfilename = lambda **_kwargs: str(reference_png)

@@ -56,7 +56,9 @@ def build(destination, checkout=None):
         source.mkdir()
         with open_tar(archive_path) as archive:
             archive.extractall(source, filter="data")
-        run(["git", "apply", str(VENDOR / "comicflow.patch")], check=True, cwd=source)
+        # The archive preserves upstream LF bytes; normalize a Windows CRLF checkout of our patch.
+        patch = (VENDOR / "comicflow.patch").read_bytes().replace(b"\r\n", b"\n")
+        run(["git", "-c", "core.autocrlf=false", "apply", "-"], input=patch, check=True, cwd=source)
         run([npm, "ci", "--ignore-scripts", "--no-audit", "--no-fund"], check=True, cwd=source)
         run([npm, "run", "build"], check=True, cwd=source)
         dist = source / "dist"
