@@ -789,7 +789,6 @@ def run_inside_launcher():
                 return x, y
 
             def measure(window, buttons):
-                window.update_idletasks()
                 rows = {}
                 for button in buttons:
                     _, y = measured_bounds(window, button)
@@ -812,6 +811,7 @@ def run_inside_launcher():
                     window.after(90, verify_size)
 
                 def verify_size():
+                    window.update_idletasks()
                     measure(window, get_buttons())
                     apply_size()
 
@@ -867,7 +867,8 @@ def run_inside_launcher():
                     assert not choose.called
 
                 def batch_steps():
-                    measured_bounds(panel, export)
+                    footer = export.master.master
+                    measure(panel, list(walk(footer, ttk.Button)))
                     return [named(panel, ttk.Button, "step_" + name) for name in step_names]
 
                 layout(panel, batch_steps, lambda: open_group_review(english, production, panel))

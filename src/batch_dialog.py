@@ -448,26 +448,15 @@ class BatchDialog:
 
         footer = ttk.Frame(page, style="A.TFrame")
         footer.grid(row=2, column=0, sticky="ew", pady=(3, 0))
-        footer.columnconfigure(0, weight=1)
-        footer.columnconfigure(1, weight=1)
         coverage = ttk.Frame(footer, style="A.TFrame")
         release = ttk.Frame(footer, style="A.TFrame")
-        coverage.grid(row=0, column=0, sticky="w")
-        release.grid(row=0, column=1, sticky="e")
+        coverage.pack(anchor="w")
+        release.pack(anchor="w")
         self.button(coverage, "复查本集覆盖", "Recheck coverage", self.reload)
         self.button(coverage, "查看原稿覆盖", "Script coverage", self.show_coverage)
         self.button(release, "导出整集 ZIP", "Export episode ZIP", lambda: self.publish(False), "release_episode",
-                    primary=True, side="right")
-        self.button(release, "导出多集总包", "Export series ZIP", lambda: self.publish(True), side="right")
-
-        def arrange_footer(event):
-            stacked = event.width < coverage.winfo_reqwidth() + release.winfo_reqwidth() + 8
-            target = (1, 0, 2) if stacked else (0, 1, 1)
-            current = release.grid_info()
-            if tuple(int(current[key]) for key in ("row", "column", "columnspan")) != target:
-                release.grid_configure(row=target[0], column=target[1], columnspan=target[2])
-
-        footer.bind("<Configure>", arrange_footer)
+                    primary=True)
+        self.button(release, "导出多集总包", "Export series ZIP", lambda: self.publish(True))
 
     def show_coverage(self):
         self.show_text(self.t("本集原稿覆盖", "Episode script coverage"), self.coverage_text())

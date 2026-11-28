@@ -8,6 +8,7 @@
 
 - 软件定名为「漫剧镜序制片台」（Comic Sequence Studio），体现从分镜、资产到整集制作和交付的工作范围。增加版本历史，方便定位每批改动和验收记录。
 - 新名称在首页、窗口和安装说明统一展示。点击首页版本号，或打开「帮助 → 更新日志」，可在软件里离线查看这份记录。
+- 调整批量制作中心的验收交付按钮布局，让窄窗口里仍可查看覆盖情况和导出选项。
 - 解压 Windows 包后，先运行 `Comic-Sequence-Studio-Setup.bat` 安装依赖，再运行 `Comic-Sequence-Studio.bat` 启动。项目仍使用 `.cfproject`、`.cfbatch` 和 `.cfecom`。
 - 已报告的 3D 导演台部分姿势的人偶接合问题仍待复现定位。当前版本使用既有素材预览和动作卡。
 - 验证本版时，可按安装包里的 `REVISION.txt` 核对提交号，再查看对应运行的 Windows 安装与桌面验证结果。[Windows 验证记录](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
@@ -16,6 +17,7 @@
 
 - The name Comic Sequence Studio reflects the range of the application, from shots and assets to episode production and delivery. A release history documents each batch of changes and its verification.
 - The new name appears on the home page, in windows, and in the installation guide. Click the version on the home page or open **Help → Changelog** to read this history offline.
+- The batch review footer keeps coverage and export controls in view at narrow window widths.
 - Extract the Windows package, run `Comic-Sequence-Studio-Setup.bat` to install dependencies, and run `Comic-Sequence-Studio.bat` to launch. Projects use `.cfproject`, `.cfbatch`, and `.cfecom`.
 - A reported issue with visible gaps at the mannequin's joints in the 3D Director Desk is awaiting reproduction and diagnosis. This release uses the existing media preview and action cards.
 - To check this release's validation, match the commit in the package's `REVISION.txt` to the corresponding Windows installation and desktop validation run. [Windows validation runs](https://github.com/a18714466979-cmd/ComicFlow-Validator/actions/workflows/windows-smoke.yml?branch=codex%2Fchinese-production)
