@@ -18,8 +18,9 @@ from .api_settings_dialog import build_api_settings
 from .asset_repair_dialog import open_asset_repair
 from .preflight_dialog import open_preflight_dialog
 from .production_dialog import open_production_dialog
+from .bundled_validators import bundled_validator
 from .production_project import atomic_text
-from .production_rules import CHINESE, ENGLISH, RULE_LABELS
+from .production_rules import CHINESE, ENGLISH, RULE_LABELS, rule_revision
 from .image_api import ImageSettings
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import PREVIEW_LIMIT, ReviewIssue, ReviewResult, read_preview, run_review
@@ -50,7 +51,8 @@ def saved_validator(rules: str = ENGLISH) -> str:
                 return value
         except (OSError, ValueError, AttributeError):
             pass
-    return ""
+    bundled = bundled_validator(rules)
+    return str(bundled) if bundled else ""
 
 
 def remember_validator(value: str, rules: str = ENGLISH) -> None:
@@ -303,7 +305,8 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
         if path.suffix.lower() == ".py" and path.is_file():
             validators[active_rules] = str(path.resolve())
             try:
-                remember_validator(validators[active_rules], active_rules)
+                if path.resolve() != bundled_validator(active_rules):
+                    remember_validator(validators[active_rules], active_rules)
             except OSError:
                 messagebox.showinfo(tr("校验脚本"), tr("本次可使用所选脚本，下次启动时需重新选择。"), parent=window)
 
@@ -337,7 +340,7 @@ def open_workbench(initial_zip: str, initial_project: Path | None = None) -> int
             widget.state(["!disabled"] if rules == ENGLISH else ["disabled"])
         clear_review()
         exit_code = 0
-        set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rules)
+        set_status("{rules} · SB 规则 v{version}", rules=RULE_LABELS[rules], version=rule_revision(rules))
 
     def set_running(running: bool) -> None:
         for widget in (start_button, *workflow_buttons, *rule_buttons, *checks.winfo_children()):

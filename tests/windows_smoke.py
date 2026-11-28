@@ -111,6 +111,9 @@ def run_inside_launcher():
             if not self.winfo_viewable():
                 self.after(100, self.begin)
                 return
+            if mode == "image-entry":
+                self.inspect_image_entry()
+                return
             if mode == "shell-project":
                 dialog = next(walk(self, tk.Toplevel))
                 name = next(walk(dialog, ttk.Entry))
@@ -146,7 +149,11 @@ def run_inside_launcher():
                 self.destroy()
                 return
             if mode == "file-only":
-                assert not validator.get()
+                from src.bundled_validators import bundled_validator
+                from src.production_rules import ENGLISH
+
+                assert Path(validator.get()) == bundled_validator(ENGLISH)
+                validator.delete(0, "end")
                 click(self, "开始验收")
                 self.after(100, self.inspect_file_only)
                 return
@@ -500,8 +507,9 @@ def run_inside_launcher():
             open_reference("角色服装设计")
 
         def inspect_mode_switch(self, validator):
+            from src.bundled_validators import bundled_validator
             from src.production_project import ProductionProject
-            from src.production_rules import CHINESE
+            from src.production_rules import CHINESE, ENGLISH
 
             english, chinese = walk(self, ttk.Radiobutton)
             assert english.cget("text") == "英文影片制作" and english.instate(["selected"])
@@ -511,7 +519,10 @@ def run_inside_launcher():
                                  and int(widget.grid_info().get("row", -1)) == 1)
             for choice, script in zip((english, chinese), scripts):
                 choice.invoke()
-                assert not validator.get()
+                if choice is english:
+                    assert Path(validator.get()) == bundled_validator(ENGLISH)
+                else:
+                    assert not validator.get()
                 filedialog.askopenfilename = lambda **_kwargs: str(script)
                 select_script.invoke()
                 assert validator.get() == str(script)
@@ -582,11 +593,14 @@ def run_inside_launcher():
 
             def verify_view(route):
                 shortcut, tab_name, modal_name, modal_tab = route
-                panel = next(walk(self, tk.Toplevel))
+                panel = next(walk(self, tk.Toplevel), None)
+                tool = next(walk(panel, tk.Toplevel), None) if panel else None
+                if panel is None or (modal_name and (tool is None or not tool.winfo_viewable())):
+                    self.after(25, lambda: verify_view(route))
+                    return
                 tabs = next(walk(panel, ttk.Notebook))
                 assert tabs.tab(tabs.select(), "text") == tab_name
                 if modal_name:
-                    tool = next(walk(panel, tk.Toplevel))
                     tool_tabs = next(walk(tool, ttk.Notebook))
                     assert tool.title() == modal_name and tool_tabs.tab(tool_tabs.select(), "text") == modal_tab
                     if shortcut == "Prompt drafting":
@@ -1025,6 +1039,68 @@ def run_inside_launcher():
             click(dialog, "恢复本组待制作")
             dialog.destroy()
 
+        def inspect_image_entry(self):
+            from threading import Event
+
+            from src.production_project import ProductionProject
+
+            show_page(self, 0)
+            with patch.object(filedialog, "askopenfilename", return_value="") as picker:
+                click(self, "资产图生成")
+                assert picker.call_args.kwargs["parent"] is self
+            assert next(walk(self, tk.Toplevel), None) is None
+
+            project = ProductionProject("制片测试", "EP01", "SB06")
+            project.image_jobs = [{"kind": "角色", "provider": "历史配置", "status": "ready"}]
+            project.save(project_path)
+            original_bytes = project_path.read_bytes()
+            real_open = ProductionProject.open
+            reading, release = Event(), Event()
+
+            def delayed_read(path):
+                reading.set()
+                assert release.wait(5), "Opening the project blocked the Tk event loop"
+                return real_open(path)
+
+            opening = patch.object(ProductionProject, "open", side_effect=delayed_read)
+            forbidden_save = patch.object(ProductionProject, "save", side_effect=AssertionError("Opening rewrote the project"))
+            opening.start()
+            write = forbidden_save.start()
+            with patch.object(filedialog, "askopenfilename", return_value=str(project_path)) as picker:
+                click(self, "资产图生成")
+                assert picker.call_args.kwargs["parent"] is self
+            parent = next(walk(self, tk.Toplevel))
+
+            def allow_read():
+                if not reading.is_set():
+                    self.after(25, allow_read)
+                    return
+                variables = (widget.cget("textvariable") for widget in walk(parent, ttk.Label))
+                assert any("正在打开项目" in self.getvar(value) for value in variables if value)
+                assert next(walk(parent, tk.Toplevel), None) is None
+                release.set()
+                self.after(25, inspect_loaded)
+
+            def inspect_loaded():
+                panel = next(walk(parent, tk.Toplevel), None)
+                if panel is None or not panel.winfo_viewable() or self.grab_current() is not panel:
+                    self.after(25, inspect_loaded)
+                    return
+                assert panel.title() == "ComicFlow 图像制片"
+                assert project_path.read_bytes() == original_bytes and not write.called
+                tabs = next(walk(panel, ttk.Notebook))
+                tabs.select(1)
+                assert any("历史图像任务的记录不完整" in widget.get("1.0", "end")
+                           for widget in walk(panel, tk.Text))
+                panel.destroy()
+                opening.stop()
+                forbidden_save.stop()
+                print("Verified responsive direct asset opening with a delayed read and incomplete job history")
+                print("COMICFLOW_GUI_OK", flush=True)
+                self.after_idle(self.destroy)
+
+            self.after(25, allow_read)
+
         def inspect_candidate(self, dialog):
             from src.production_project import ProductionProject
 
@@ -1098,12 +1174,12 @@ def verify_windows_launcher(root=ROOT):
         for mode, argument in (("empty", ""), ("drop-argument", f' "{archive}"'), ("file-only", f' "{archive}"'),
                                ("mode-switch", f' "{archive}"'), ("ui-language-restore", f' "{archive}"'),
                                ("api-settings", f' "{archive}"'), ("new-tools", f' "{archive}"'),
-                               ("production-handoff", f' "{archive}"')):
-            env["COMICFLOW_SMOKE_MODE"] = mode
-            if mode == "file-only":
-                env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
+                               ("production-handoff", f' "{archive}"'), ("image-entry", "")):
+            launch_env = {**env, "COMICFLOW_SMOKE_MODE": mode}
+            if mode in {"file-only", "mode-switch"}:
+                launch_env.pop("COMICFLOW_STORYBOARD_VALIDATOR")
             completed = subprocess.run(
-                f'cmd.exe /d /c .\\ComicFlow-Windows.bat{argument}', cwd=root, env=env,
+                f'cmd.exe /d /c .\\ComicFlow-Windows.bat{argument}', cwd=root, env=launch_env,
                 stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", timeout=35,
             )
             print(completed.stdout, end="")

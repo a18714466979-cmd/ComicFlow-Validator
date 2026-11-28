@@ -46,6 +46,8 @@ ENGLISH = {
     "界面语言": "Interface",
     "制作规则": "Production rules",
     "英文影片制作": "English film production",
+    "逐格确认实际景别与机位、角色身份和数量、动作承接、线稿可读性及实际画幅。":
+        "Check each panel for its actual framing and camera position, identity and cast count, action continuity, line-art legibility, and usable frame.",
     "中文影片制作": "Chinese film production",
     "新建项目": "New project",
     "继续已有项目": "Resume saved project",
@@ -57,6 +59,8 @@ ENGLISH = {
         "Choose an existing delivery ZIP as-is, then click Validate ZIP.",
     "保存新建的单组项目": "Save new storyboard group project",
     "打开已保存的 ComicFlow 项目（.cfproject）": "Open a saved ComicFlow project (.cfproject)",
+    "正在打开项目…": "Opening project…",
+    "项目打开失败。": "Could not open the project.",
     "剧本与分镜": "Script & shots",
     "导入批准剧本、安排镜头与对白。": "Import approved scripts and plan shots and dialogue.",
     "开始拆分镜": "Plan shots",
@@ -376,6 +380,8 @@ ENGLISH = {
     "预览本次发送": "Preview request",
     "确认并提交生图": "Confirm & generate",
     "图像任务": "Image job",
+    "这条历史图像任务的记录不完整。可以继续新建生图任务。":
+        "This older image job is incomplete. You can still start a new image job.",
     "查询所选任务": "Check selected job",
     "带入任务连接设置": "Load job connection settings",
     "登记已核对后台": "Mark provider record checked",

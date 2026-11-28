@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 from PIL import Image, ImageDraw
 
+from src.bundled_validators import ENGLISH_VALIDATOR_DIRECTORY, ENGLISH_VALIDATOR_FILES
 from src.image_api import EDIT, IMAGE_PROVIDERS, ImageReply, ImageSettings
 from src.production_export import build_batch, project_registry
 from src.production_images import local_patch, prepare_job, store_reply
@@ -22,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALL_FILES = ("ComicFlow-Setup.bat", "ComicFlow-Windows.bat", "requirements-runtime.txt", "WINDOWS-TRYOUT.md", "LICENSE")
 COSTUME_REFERENCES = Path("assets/costume_references")
 CONTINUITY = "门保持关闭，右侧绿灯稳定，左侧柜体仍在原位"
+ENGLISH_EXAMPLE_FRAMING = ("全景", "中景", "近景", "特写", "全景", "中景", "近景", "特写", "全景")
 
 
 def draw_frame(path, beat, *, board, reverse=False, east=False, steady=False):
@@ -96,7 +98,9 @@ def make_group(dest, scratch, number, rules):
         shot = Shot(source=source.id, anchor=f"信号站合成节拍 {beat:02d}", scene=scene,
                     plate_note=f"机位 {camera:02d} 对照门框、左柜与右灯",
                     fields={
-                        "景别": "全景" if ordinal in (1, 5, 9) else "中景", "机位/角度": "同侧平视",
+                        "景别": ("全景" if ordinal in (1, 5, 9) else "中景")
+                        if chinese else ENGLISH_EXAMPLE_FRAMING[ordinal - 1],
+                        "机位/角度": "同侧平视",
                         "机位空间": f"{scene}同侧机位 {camera:02d}", "可见范围": "门框、左柜和右灯", "运镜": "固定",
                         "画面/事件": "记录合成设备在当前观察角度的状态", "人物站位": "无人物",
                         "动作起止": "观察门和信号灯，保持画面可见的设备位置",
@@ -166,6 +170,10 @@ def build(output, revision):
         for path in sorted((ROOT / "src").glob("*.py")):
             copy2(path, folder / "src" / path.name)
         copytree(ROOT / COSTUME_REFERENCES, folder / COSTUME_REFERENCES)
+        (folder / ENGLISH_VALIDATOR_DIRECTORY).mkdir(parents=True)
+        for filename in ENGLISH_VALIDATOR_FILES:
+            relative = ENGLISH_VALIDATOR_DIRECTORY / filename
+            copy2(ROOT / relative, folder / relative)
         (folder / "REVISION.txt").write_text(revision + "\n", encoding="utf-8")
         make_examples(folder / "Examples", scratch / "en", ENGLISH, "预览_信号站_相邻两组.zip")
         make_examples(folder / "Examples" / "中文制作", scratch / "zh", CHINESE, "预览_相邻两组.zip")
@@ -176,7 +184,8 @@ def build(output, revision):
         samples = ("Examples/SB01.cfproject", "Examples/SB02.cfproject", "Examples/预览_信号站_相邻两组.zip",
                    "Examples/中文制作/SB01.cfproject", "Examples/中文制作/SB02.cfproject", "Examples/中文制作/预览_相邻两组.zip")
         references = tuple(path.relative_to(ROOT).as_posix() for path in (ROOT / COSTUME_REFERENCES).iterdir())
-        for name in (*INSTALL_FILES, *samples, *references):
+        validators = tuple((ENGLISH_VALIDATOR_DIRECTORY / name).as_posix() for name in ENGLISH_VALIDATOR_FILES)
+        for name in (*INSTALL_FILES, *samples, *references, *validators):
             archive.getinfo(f"ComicFlow-Windows/{name}")
         if any(".sqlite3" in name for name in archive.namelist()):
             raise ValueError("The portable archive must rebuild machine-local asset paths.")

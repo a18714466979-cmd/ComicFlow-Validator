@@ -39,26 +39,24 @@ def check_archive(result, count):
     return rows
 
 
-def fixture_validator(folder, chinese=False):
-    path = folder / ("fixture_validator_zh.py" if chinese else "fixture_validator_en.py")
+def fixture_validator(folder):
+    path = folder / "fixture_validator_zh.py"
     path.write_text(
         'import re, sys\nfrom pathlib import Path\n'
-        f'chinese = {chinese!r}\n'
         'groups = sorted(Path(sys.argv[1]).glob("SB*"))\n'
         'assert 1 <= len(groups) <= 2\n'
         'for group in groups:\n'
         '    production = (group / (group.name + "_shot_details.txt")).read_text(encoding="utf-8-sig")\n'
         '    prompt = (group / "SD2_prompt.txt").read_text(encoding="utf-8-sig")\n'
-        '    count = 10 if chinese and group.name == "SB01" else 9\n'
+        '    count = 10 if group.name == "SB01" else 9\n'
         '    expected = [f"{group.name}-{n:02d}" for n in range(1, count+1)]\n'
         '    assert re.findall(r"^分镜 (SB\\d+-\\d+)", production, re.M) == expected\n'
         '    assert re.findall(r"^分镜编号：(SB\\d+-\\d+)", prompt, re.M) == expected\n'
-        '    if chinese:\n'
-        '        assert "总发声字数：0" in production and "允许中文" in prompt\n'
-        '        if group.name == "SB01":\n'
-        '            assert len(list(group.glob("storyboard*.png"))) == 2\n'
-        '        else:\n'
-        '            assert "场景资产模式：多场景局部" in production\n'
+        '    assert "总发声字数：0" in production and "允许中文" in prompt\n'
+        '    if group.name == "SB01":\n'
+        '        assert len(list(group.glob("storyboard*.png"))) == 2\n'
+        '    else:\n'
+        '        assert "场景资产模式：多场景局部" in production\n'
         'print("RESULT: 0 error(s), 0 warning(s)")\n',
         encoding="utf-8",
     )
@@ -82,19 +80,25 @@ def verify(archive_path, validator=None, install=False, chinese_validator=None):
             python = str(folder / ".venv" / "Scripts" / "python.exe")
             smoke = Path(__file__).resolve().parents[1] / "tests" / "windows_smoke.py"
             subprocess.run([python, str(smoke), str(folder)], cwd=folder, check=True, timeout=150)
-        validator = validator or fixture_validator(base)
-        chinese_validator = chinese_validator or fixture_validator(base, chinese=True)
+        chinese_validator = chinese_validator or fixture_validator(base)
         run_in_kit = (
             "import runpy, sys; from pathlib import Path; "
             "sys.path.insert(0, str(Path.cwd())); "
-            "runpy.run_path(sys.argv[1])['exercise'](Path.cwd(), Path(sys.argv[2]), Path(sys.argv[3]))"
+            "runpy.run_path(sys.argv[1])['exercise']("
+            "Path.cwd(), Path(sys.argv[2]) if sys.argv[2] else None, Path(sys.argv[3]))"
         )
-        subprocess.run([python, "-I", "-c", run_in_kit, str(Path(__file__).resolve()), str(validator),
+        subprocess.run([python, "-I", "-c", run_in_kit, str(Path(__file__).resolve()), str(validator or ""),
                         str(chinese_validator)], cwd=folder, check=True, timeout=90)
 
 
 def exercise(folder, validator, chinese_validator):
+    from src.bundled_validators import bundled_validator
+
     base = folder.parent
+    local = bundled_validator(ENGLISH)
+    assert local is not None and local.is_relative_to(folder)
+    assert bundled_validator(CHINESE) is None
+    validator = validator or local
     exercise_sample(folder / "Examples", base, validator, ENGLISH, (9, 9))
     exercise_sample(folder / "Examples" / "中文制作", base, chinese_validator, CHINESE, (10, 9))
 

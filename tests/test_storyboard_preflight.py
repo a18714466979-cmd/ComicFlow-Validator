@@ -55,3 +55,15 @@ def test_dialogue_preflight_reports_workflow_sentence_error(tmp_path):
 def test_dialogue_preflight_reports_invalid_json_position(tmp_path):
     with pytest.raises(ValueError, match="第 2 行"):
         plan_dialogue('[\n  invalid\n]', tmp_path / "unused.py")
+
+
+def test_bundled_english_planner_keeps_whole_sentences_without_a_custom_planner(tmp_path):
+    first = " ".join(["Wait"] * 58) + "."
+    second = "Hold the door."
+    rows = [
+        {"id": "D001", "speaker": "角色甲", "text": first},
+        {"id": "D002", "speaker": "角色乙", "text": second},
+    ]
+    groups = plan_dialogue(json.dumps(rows), tmp_path / "missing_custom_planner.py")
+    assert [group["words"] for group in groups] == [58, 3]
+    assert [group["fragments"][0]["text"] for group in groups] == [first, second]

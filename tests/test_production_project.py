@@ -123,7 +123,22 @@ def test_single_group_reopen_render_and_verify_zip(production, validator, tmp_pa
         assert first in details.decode("utf-8-sig")
         assert '值班员：“The signal is green.”' in details.decode("utf-8-sig")
         assert '值班员：“The signal is green.”' in prompt.decode("utf-8-sig")
-        assert "资产复用核对" not in prompt.decode("utf-8-sig")
+        model = prompt.decode("utf-8-sig")
+        header, *shots = model.strip().split("\n\n")
+        assert header.splitlines()[:2] == [
+            "分组：SB01", "按 @图1（storyboard_8panel_bw_16x9.png）的格号顺序硬切，逐格使用同号局部。",
+        ]
+        assert "@图2（scene_试验间_details_01_16x9.png）使用本页对应镜号的局部01、02、03、04。" in header
+        assert "@图3（scene_试验间_details_02_16x9.png）使用本页对应镜号的局部05、06、07、08。" in header
+        assert [row.partition("：")[0] for row in header.splitlines()[-4:]] == [
+            "场景/总体状态", "视频上色约束", "视频文字约束", "公共限制",
+        ]
+        assert "无配乐、无字幕" in header
+        assert "场景/环境：@图2 的局部01。地点「试验间」。空仓间，门框和灯固定" in shots[0]
+        assert "场景/环境：@图3 的局部08。地点「试验间」。" in shots[-1]
+        assert "对白：无" in shots[0].splitlines()
+        assert len(shots) == 8
+        assert "资产复用核对" not in model and "approved_reference.png" not in model
         assert "SB01/approved_reference.png" not in members
     with pytest.raises(ValueError, match="逐格核对"):
         publish_project(project, production, validator, tmp_path / "blocked.zip")
@@ -179,6 +194,40 @@ def test_source_revision_and_missing_spoken_line(production, validator, tmp_path
     project.shots[3].dialogue.clear()
     with pytest.raises(ValueError, match="有遗漏：D001"):
         preview_project(project, production, validator, tmp_path)
+
+
+def test_english_prompt_manifest_binds_approved_assets_in_upload_order(production, validator, tmp_path):
+    project = ProductionProject.open(production)
+    old_scene = "室内仅保留固定的门框和灯。"
+    project.shots[0].fields["场景/环境"] = f"@图99 的局部22。地点「旧位置」。{old_scene}"
+    project.shots[0].fields["动作起止"] += "\n- 灯保持稳定。"
+    props = "06_props_门闩_16x9.png"
+    other = "02_other_characters_01_陪同者_16x9.png"
+    main = "03_protagonist_园丁_16x9.png"
+    scene = "07_scene_试验间_reverse_16x9.png"
+    for filename in (props, other, scene, main):
+        source = tmp_path / filename
+        synthetic_sheet(source, (160, 90), [(1, 0, 0, 1)])
+        project.import_image(production, source, filename, action="直接复用", reason="合成样例原图",
+                             inspection="合成数据核对")
+    project.notes["人物资产表"] = (
+        f"- 园丁 | 篇章主角 | {main} | 正侧背与特写 | 袖口干燥\n"
+        f"- 陪同者 | 配角 | {other} | 半身 | 无"
+    )
+    with ZipFile(preview_project(project, production, validator, tmp_path)) as archive:
+        model = archive.read("SB01/SD2_prompt.txt").decode("utf-8-sig")
+        header, first, *_ = model.strip().split("\n\n")
+        references = [line for line in header.splitlines() if line.startswith("@图")]
+        assert [line.split("（", 1)[1].split("）", 1)[0] for line in references] == [
+            "storyboard_8panel_bw_16x9.png", main, other, props, scene,
+            "scene_试验间_details_01_16x9.png", "scene_试验间_details_02_16x9.png",
+        ]
+        assert references[1].endswith("只调用本组镜号所列身份：园丁（袖口干燥）。")
+        assert "按本镜阶段调用：门闩参考。" in references[3]
+        assert "地点「试验间」的反打彩色参考" in references[4]
+        assert "场景/环境：@图6 的局部01。地点「试验间」。" + old_scene in first
+        assert "@图99" not in model and "旧位置" not in model
+        assert "动作：画面留在门框直到灯稳住；灯保持稳定。" in first
 
 
 def test_approved_local_image_repair_enters_strict_zip(production, validator, tmp_path):

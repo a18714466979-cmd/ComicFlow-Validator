@@ -3,7 +3,9 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+from queue import Empty, Queue
 from tempfile import TemporaryDirectory
+from threading import Thread
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 from zipfile import ZipFile
@@ -12,6 +14,7 @@ from PIL import Image, ImageTk
 
 from .ui_language import translate
 from .asset_registry import AssetRegistry, sha256_file
+from .bundled_validators import bundled_validator
 from .camera_preflight import camera_findings_text, project_camera_cuts
 from .production_drafting import SD2_TASK, SHOT_TASK
 from .production_export import (
@@ -20,13 +23,20 @@ from .production_export import (
 )
 from .production_flow import asset_shot_context, shot_sources
 from .production_project import ACTIONS, PROMPT_FIELDS, SHOT_FIELDS, ProductionProject, Shot
-from .production_rules import CHINESE, DELIVERY_TARGET, ENGLISH, RULE_LABELS
+from .production_rules import CHINESE, DELIVERY_TARGET, ENGLISH, RULE_LABELS, rule_revision
 from .shot_review_dialog import open_shot_review
 from .storyboard_review import ReviewResult, index_members
 from .storyboard_preflight import IMAGE_LIMIT
 
 
 PROJECT_FILES = (("ComicFlow 单组项目", "*.cfproject"),)
+
+
+def choose_project_file(parent):
+    return filedialog.askopenfilename(
+        parent=parent, title=translate(parent, "打开已保存的 ComicFlow 项目（.cfproject）"),
+        filetypes=((translate(parent, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),),
+    )
 
 
 def write_text(widget, value):
@@ -86,7 +96,8 @@ class ProductionDialog:
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         top = ttk.Frame(self.window, padding=10)
         top.pack(fill="x")
-        self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open), ("保存项目", self.save))
+        self.file_buttons = self.buttons(top, ("新建单组项目", self.create), ("打开单组项目", self.open),
+                                         ("保存项目", self.save))
         guides = ttk.Frame(self.window, padding=(10, 0, 10, 8))
         guides.pack(fill="x")
         self.production_tools = self.buttons(
@@ -129,7 +140,7 @@ class ProductionDialog:
 
     def show_rules(self, rules):
         self.rules = rules
-        self.rule_name.set(f"{translate(self.window, RULE_LABELS[rules])} · v{rules}")
+        self.rule_name.set(f"{translate(self.window, RULE_LABELS[rules])} · v{rule_revision(rules)}")
         chinese = rules == CHINESE
         has_project = self.project is not None
         self.tabs.tab(3, state="normal" if has_project else "disabled", text=translate(self.tabs, "文本与排版" if chinese else "复核与交付"))
@@ -294,15 +305,53 @@ class ProductionDialog:
     def open(self):
         if not self.allow_leave():
             return
-        value = filedialog.askopenfilename(
-            parent=self.window, title=translate(self.window, "打开已保存的 ComicFlow 项目（.cfproject）"),
-            filetypes=((translate(self.window, PROJECT_FILES[0][0]), PROJECT_FILES[0][1]),),
-        )
+        value = choose_project_file(self.window)
         if value:
             path = Path(value)
             self.load(ProductionProject.open(path), path)
 
-    def load(self, project, path, *, source_id=""):
+    def open_image_project(self, path, destination):
+        """Keep Tk responsive while reading a selected, possibly synced project."""
+        result = Queue()
+        root = self.window._root()
+        self.status.set(translate(self.window, "正在打开项目…") + f" {path.name}")
+        self.window.configure(cursor="watch")
+        for button in self.file_buttons:
+            button.state(["disabled"])
+
+        def read():
+            try:
+                project = ProductionProject.open(path)
+                result.put((project, project_registry(path).is_file()))
+            except Exception as exc:
+                result.put(exc)
+
+        def receive():
+            if not self.window.winfo_exists():
+                return
+            try:
+                loaded = result.get_nowait()
+            except Empty:
+                root.after(50, receive)
+                return
+            self.window.configure(cursor="")
+            for button in self.file_buttons:
+                button.state(["!disabled"])
+
+            def launch():
+                if isinstance(loaded, Exception):
+                    self.status.set(translate(self.window, "项目打开失败。"))
+                    raise loaded
+                project, has_registry = loaded
+                self.load(project, path, has_registry=has_registry)
+                self.go_to(destination)
+
+            self.guarded(launch)
+
+        Thread(target=read, daemon=True).start()
+        root.after(50, receive)
+
+    def load(self, project, path, *, source_id="", has_registry=None):
         self.project, self.path, self.previewed = project, path, None
         self.show_rules(project.rules)
         self.on_rules_changed(project.rules)
@@ -318,8 +367,11 @@ class ProductionDialog:
         self.tabs.select(0)
         self.refresh_sources(source_id)
         self.refresh()
-        if project_registry(path).is_file():
-            self.registry.set(str(project_registry(path)))
+        registry = project_registry(path)
+        if has_registry is None:
+            has_registry = registry.is_file()
+        if has_registry:
+            self.registry.set(str(registry))
         self.status.set(path.name)
 
     def go_to(self, destination):
@@ -331,7 +383,8 @@ class ProductionDialog:
             self.open_drafting(task=SD2_TASK)
         elif destination in {"generate_assets", "generate_board"}:
             self.tabs.select(2)
-            self.open_image_production(kind="故事板" if destination == "generate_board" else "角色")
+            self.open_image_production(kind="故事板" if destination == "generate_board" else "角色",
+                                       save_project=False)
         elif destination in {"costume", "pose"}:
             self.tabs.select(2)
             self.open_reference_design(destination)
@@ -498,12 +551,18 @@ class ProductionDialog:
         owner.grab_set()
         return selection[0] if selection else None
 
-    def open_image_production(self, *, kind="角色", reference_id="", reference_kind=""):
+    def open_image_production(self, *, kind="角色", reference_id="", reference_kind="", save_project=True):
         from .image_production_dialog import ImageProductionDialog
 
-        self.save()
-        self.wait(ImageProductionDialog(self, self.image_session, kind=kind, reference_id=reference_id,
-                                        reference_kind=reference_kind).window)
+        if save_project:
+            self.save()
+        panel = ImageProductionDialog(self, self.image_session, kind=kind, reference_id=reference_id,
+                                      reference_kind=reference_kind).window
+        panel.lift()
+        if not panel.winfo_viewable():
+            panel.wait_visibility()
+        panel.focus_set()
+        self.wait(panel)
 
     def open_reference_design(self, kind):
         from .reference_tools_dialog import open_reference_tools
@@ -734,8 +793,9 @@ class ProductionDialog:
         write_text(self.report, "当前版本需复核\n" + "\n".join(impacts) if impacts else "已确认本版画面，可发起严格验收。")
 
     def validator_path(self):
-        path = Path(self.validators.get(self.rules, "")).expanduser()
-        if not path.is_file():
+        chosen = self.validators.get(self.rules, "")
+        path = Path(chosen).expanduser() if chosen else bundled_validator(self.rules)
+        if path is None or not path.is_file():
             raise ValueError(f"请在主窗口为{RULE_LABELS[self.rules]}选择对应的故事板校验脚本。")
         return path
 
@@ -795,6 +855,10 @@ class ProductionDialog:
         if self.previewed != self.project.fingerprint():
             raise ValueError("请先打开当前版本的逐格复核预览。")
         details = translate(self.window, "是否已核对故事板格序、净板局部和镜头文字？")
+        if self.rules == ENGLISH:
+            details += "\n\n" + translate(
+                self.window, "逐格确认实际景别与机位、角色身份和数量、动作承接、线稿可读性及实际画幅。",
+            )
         if findings := self.camera_notes():
             details += "\n\n" + findings + "\n\n" + translate(
                 self.window, "请核对实际画面。只有规则允许且已确认的衔接才能保留。",
@@ -839,6 +903,18 @@ class ProductionDialog:
 def open_production_dialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed,
                            initial_project=None, *, initial_action=None, destination="group",
                            loaded_project=None, source_id=""):
+    if initial_action == "open" and destination in {"generate_assets", "generate_board"} and initial_project is None:
+        try:
+            selected = choose_project_file(parent)
+        except tk.TclError as exc:
+            messagebox.showerror(translate(parent, "单组制片"), str(exc), parent=parent)
+            return None
+        if not selected:
+            return None
+        dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)
+        dialog.open_image_project(Path(selected), destination)
+        return dialog
+
     dialog = ProductionDialog(parent, validators, registry, text_session, image_session, rules, on_rules_changed)
 
     def open_at_destination():

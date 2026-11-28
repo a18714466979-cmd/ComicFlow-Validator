@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from .bundled_validators import bundled_planner
 from .production_rules import CHINESE, ENGLISH
 
 IMAGE_LIMIT = 9
@@ -104,6 +105,8 @@ def plan_dialogue(source: str, planner: Path | None = None, *, rules: str = ENGL
     if rules == CHINESE:
         return plan_chinese_dialogue(approved)
     if planner is None or not planner.is_file():
+        planner = bundled_planner()
+    if planner is None:
         raise ValueError("请先选择故事板校验脚本，并确认同目录有 plan_english_dialogue.py。")
 
     with TemporaryDirectory(prefix="comicflow-dialogue-") as temporary:

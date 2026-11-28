@@ -13,7 +13,7 @@ from uuid import uuid4
 from PIL import Image
 
 from .asset_registry import Asset, sha256_file
-from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH
+from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH, rule_revision
 
 
 RULE_VERSION = ENGLISH
@@ -301,6 +301,8 @@ class ProductionProject:
 
     def fingerprint(self) -> str:
         payload = asdict(self)
+        if self.rules == ENGLISH:
+            payload["delivery_rule_revision"] = rule_revision(self.rules)
         del payload["structure_review"]
         del payload["text_drafts"]
         del payload["handoffs"]

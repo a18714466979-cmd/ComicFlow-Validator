@@ -69,7 +69,7 @@ def test_insert_blocks_export_until_reflow_and_updates_real_files(production, va
     lay(project, production, tmp_path / "layout-before")
     earlier = project.shots[1]
     inserted = Shot(source=earlier.source, anchor="明确的新增动作", scene=earlier.scene,
-                    plate_note=earlier.plate_note, fields=dict(earlier.fields))
+                    plate_note=earlier.plate_note, fields={**earlier.fields, "本格新增叙事功能": "窗闩回位"})
     project.shots.insert(1, inserted)
     attach(project, production, inserted, 10)
     assert "storyboard_8panel_bw_16x9.png" in project.impacts()

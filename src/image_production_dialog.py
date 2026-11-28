@@ -12,11 +12,12 @@ from PIL import Image, ImageOps, ImageTk
 from .ui_language import translate
 from .image_api import EDIT, IMAGE_PROVIDERS, REFERENCE, TEXT, ImageRequestError, ImageSettings, query_image, submit_image
 from .production_dialog import field, write_text
+from .production_export import check_english_board_input
 from .production_images import (
     KINDS, STATUS, approve_candidate, candidate_path, image_prompt, job_request_prompt, local_patch, pinned_assets,
     prepare_job, shot_input, storyboard_job_page, store_reply,
 )
-from .production_rules import CHINESE
+from .production_rules import CHINESE, ENGLISH
 from .shot_review import pixel_selection
 
 
@@ -40,10 +41,14 @@ class ImageProductionDialog:
         form, history = (ttk.Frame(self.tabs, padding=9) for _ in range(2))
         self.tabs.add(form, text=translate(self.tabs, "新建生图任务"))
         self.tabs.add(history, text=translate(self.tabs, "候选与任务"))
-        self.setup_form(form, kind)
-        self.setup_history(history)
-        if reference_id:
-            self.select_imported_reference()
+        try:
+            self.setup_form(form, kind)
+            self.setup_history(history)
+            if reference_id:
+                self.select_imported_reference()
+        except Exception:
+            self.window.destroy()
+            raise
 
     def close(self):
         if self.busy:
@@ -265,6 +270,9 @@ class ImageProductionDialog:
 
     def prepare(self, references, *, preview=False):
         settings = self.settings()
+        if self.project.rules == ENGLISH and self.kind() == "故事板" and self.mode() != EDIT:
+            validator = self.production.validator_path()
+            check_english_board_input(self.project, validator.with_name("plan_english_dialogue.py"))
         prompt = self.prompt.get("1.0", "end-1c")
         if self.mode() == REFERENCE and references and references[0].id == self.reference_id:
             note = ("第一张参考图仅指定服装的版型、层次、颜色和面料，保留目标角色身份。"
@@ -360,7 +368,7 @@ class ImageProductionDialog:
 
     def refresh_jobs(self, current=None):
         self.jobs["values"] = tuple(
-            f"{index:02d} · {job['kind']} · {job['provider']} · {STATUS.get(job['status'], '待核对')}"
+            f"{index:02d} · {job.get('kind', '—')} · {job.get('provider', '—')} · {STATUS.get(job.get('status'), '待核对')}"
             for index, job in enumerate(self.project.image_jobs, 1)
         )
         if self.project.image_jobs:
@@ -377,13 +385,22 @@ class ImageProductionDialog:
     def show_job(self, _event=None):
         job = self.picked_job()
         self.details.configure(state="normal")
-        write_text(self.details, self.summary(job))
+        try:
+            details = self.summary(job)
+            outputs = tuple(f"候选 {n:02d} · {out['width']}×{out['height']}"
+                            f"{' · 已合成并复验选区外像素' if out.get('patch_sha') else ''}"
+                            for n, out in enumerate(job["outputs"], 1))
+            selected = job.get("approved_output", 0)
+            if outputs and (type(selected) is not int or not 0 <= selected < len(outputs)):
+                raise ValueError("Invalid approved output index")
+        except (KeyError, TypeError, ValueError):
+            details = translate(self.window, "这条历史图像任务的记录不完整。可以继续新建生图任务。")
+            outputs, selected = (), 0
+        write_text(self.details, details)
         self.details.configure(state="disabled")
-        self.outputs["values"] = tuple(f"候选 {n:02d} · {out['width']}×{out['height']}"
-                                       f"{' · 已合成并复验选区外像素' if out.get('patch_sha') else ''}"
-                                       for n, out in enumerate(job["outputs"], 1))
-        if job["outputs"]:
-            self.outputs.current(job.get("approved_output", 0))
+        self.outputs["values"] = outputs
+        if outputs:
+            self.outputs.current(selected)
         else:
             self.outputs.set("")
 

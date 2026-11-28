@@ -2,11 +2,13 @@
 
 import json
 import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
 
+from .camera_preflight import require_english_camera_rules
 from .production_project import SHOT_FIELDS, ApprovedSource, ProductionProject, Shot, identifier
-from .production_rules import CAMERA_ACTION_FIELD, CAMERA_DRAFTING, CHINESE, ENGLISH
+from .production_rules import CAMERA_ACTION_FIELD, CAMERA_DRAFTING, CHINESE, ENGLISH, ENGLISH_SD2_RULES, ENGLISH_SHOT_RULES
 from .storyboard_preflight import IMAGE_LIMIT
 from .text_api import TextReply
 
@@ -35,9 +37,13 @@ def instructions_for(task: str, rules: str = ENGLISH) -> str:
         example = {"shots": [{"line_start": 1, "line_end": 2, "fields": dict.fromkeys(fields, "")}]}
         direction = ("镜头按叙事顺序，每次最多 12 镜。line_start/line_end 填剧本绝对行号（含首尾）。"
                      "未明确的字段可省略。" + CAMERA_DRAFTING[rules])
+        if rules == ENGLISH:
+            direction += ENGLISH_SHOT_RULES
     elif task == SD2_TASK:
         example = {"prompt": dict.fromkeys(SD2_FIELDS, "")}
         direction = "只建议所选镜头的成片动作和声效，不写生产审计、净板加工、角色数量、设备状态变更或对白。"
+        if rules == ENGLISH:
+            direction += ENGLISH_SD2_RULES
     elif task == HANDOFF_TASK:
         example = {"handoff": dict.fromkeys(HANDOFF_FIELDS, "")}
         direction = "按前后相邻实际状态建议入组和出组交接，缺证据写入待核对。"
@@ -47,7 +53,7 @@ def instructions_for(task: str, rules: str = ENGLISH) -> str:
 
 
 def build_context(project: ProductionProject, source: ApprovedSource, task: str, start: int, end: int,
-                  shot_id: str = "", previous: dict | None = None) -> tuple[dict, str]:
+                  shot_id: str = "", previous: dict | None = None, *, include_camera=True) -> tuple[dict, str]:
     if source not in project.sources:
         raise ValueError("请先选择项目内的批准剧本版本。")
     lines = source.text.splitlines()
@@ -57,6 +63,7 @@ def build_context(project: ProductionProject, source: ApprovedSource, task: str,
     if task == SD2_TASK and (not shot or shot.source != source.id):
         raise ValueError("请选择一个已绑定当前剧本版本的镜头。")
     excerpt = "\n".join(lines[start - 1:end])
+    camera_context = project.rules == ENGLISH and task == SHOT_TASK and include_camera
     dialogue = []
     for line in project.lines:
         if line.source != source.id:
@@ -92,14 +99,22 @@ def build_context(project: ProductionProject, source: ApprovedSource, task: str,
             for item in project.shots if item.source == source.id
         ]
     else:
+        known_fields = ("景别", "机位/角度", "机位空间", "可见范围", "本格新增叙事功能", "画面/事件")
+        if camera_context:
+            data["group_locks"].update({key: project.notes[key] for key in ("内容类型", "对白规格", "分组状态")
+                                        if key in project.notes})
         data["existing_shots"] = [
-            {"anchor": item.anchor, "已记录事件": item.fields.get("画面/事件", "")}
+            {"anchor": item.anchor, "已记录事件": item.fields.get("画面/事件", ""),
+             **({key: item.fields[key] for key in known_fields if item.fields.get(key)}
+                if camera_context else {})}
             for item in project.shots if item.source == source.id
         ]
     payload = json.dumps(data, ensure_ascii=False, indent=2)
     context = {"source": source.id, "source_name": source.name, "source_version": source.version,
                "start": start, "end": end, "shot_id": shot_id if task == SD2_TASK else "",
                "fingerprint": sha256(json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()}
+    if camera_context:
+        context["include_camera"] = True
     return context, payload
 
 
@@ -183,17 +198,21 @@ def apply_candidate(project: ProductionProject, candidate: dict, selected: tuple
     source = next((item for item in project.sources if item.id == context["source"]), None)
     if source is None:
         raise ValueError("候选绑定的批准剧本版本已移除。")
-    current, _ = build_context(project, source, task, context["start"], context["end"], context["shot_id"])
+    current, _ = build_context(project, source, task, context["start"], context["end"], context["shot_id"],
+                               include_camera=context.get("include_camera", False))
     if current["fingerprint"] != context["fingerprint"]:
         raise ValueError("项目的剧本、镜头或交接已变化。请按最新资料重新生成候选。")
     output = checked_output(task, context, candidate["output"])
     if task == SHOT_TASK:
         if not selected or any(not 0 <= index < len(output["shots"]) for index in selected):
             raise ValueError("请选择要采纳的候选镜头。")
+        additions = []
         for index in sorted(set(selected)):
             row = output["shots"][index]
             anchor = f"剧本第 {row['line_start']}–{row['line_end']} 行"
-            project.shots.append(Shot(source=context["source"], anchor=anchor, fields=row["fields"]))
+            additions.append(Shot(source=context["source"], anchor=anchor, fields=row["fields"]))
+        require_english_camera_rules(replace(project, shots=project.shots + additions))
+        project.shots.extend(additions)
     elif task == SD2_TASK:
         shot = next((item for item in project.shots if item.id == context["shot_id"]), None)
         if not shot:

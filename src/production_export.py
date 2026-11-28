@@ -2,11 +2,13 @@
 
 import json
 import re
+from collections import defaultdict
 from pathlib import Path
 from shutil import copyfile, copyfileobj
 from tempfile import TemporaryDirectory
 
 from .asset_registry import AssetRegistry, sha256_file
+from .camera_preflight import require_english_camera_rules
 from .production_dialogue import handoff_rows
 from .production_handoff import active_scope, adjacent, boundary_report, pending_record, reviewed_boundary
 from .production_images import provenance_rows
@@ -15,15 +17,24 @@ from .production_project import (
     CHINESE_CHARACTER_FIELDS, CHINESE_TEXT_FIELDS, CHINESE_TEXT_OPTIONAL, GROUP_FIELDS, GROUP_OPTIONAL, OPTIONAL_SHOT_FIELDS,
     PROMPT_FIELDS, SHOT_FIELDS, ProductionProject,
 )
-from .production_rules import CAMERA_ACTION_FIELD, CHINESE
+from .production_rules import CAMERA_ACTION_FIELD, CHINESE, ENGLISH, rule_revision
 from .repair_package import pack_repair, write_delivery_zip
 from .storyboard_preflight import CHINESE_SPEECH_LIMIT, IMAGE_LIMIT, chinese_speech_length, plan_dialogue
 
 
 COLOR = "黑白故事板仅作镜头、构图、站位和动作参考；成片按本组实际交付的彩色资产上色，禁止黑白、灰度或线稿成片。"
-LANGUAGE = "成片中的画面文字、字幕、标牌和 HUD 禁止中文，仅允许英文或通用符号。"
+ENGLISH_COLOR = ("16:9 彩色真人电影。黑白线稿只管机位、构图、站位与动作；颜色、材质、光影用对应彩色参考。"
+                 "禁止黑白、灰度和线稿成片。")
+LANGUAGE = "成片画面、标牌、界面及拟声字禁止中文，仅允许英文或通用符号。无配乐、无字幕。"
 CHINESE_LANGUAGE = "成片字幕、标牌、UI/HUD、系统提示和拟声字允许中文，按本剧已批准文案呈现。参考标签仅用于制作定位。"
 MARKS = "故事板的彩色辅助线、箭头、序号和图例仅作动作参考，不得出现在成片中。"
+ENGLISH_COMMON = ("一个格号对应一个镜头。只出现指定人物，保持方向、持物手、伤势和设备状态。"
+                  "原说话人发声，听者不代说，跨镜续声不从头重念。"
+                  "辅助线、标注、运动箭头、格号和参考图标签不得出现在成片。")
+ENGLISH_SCENE_PREFIX = re.compile(r"^@图\s*\d+\s*的局部\s*\d+。\s*地点「[^」]+」。\s*")
+ENGLISH_REFERENCE_PREFIX = re.compile(r"^\d+_")
+ENGLISH_SCENE_VIEW = re.compile(r"^scene_(.+)_(main|reverse)_16x9$", re.IGNORECASE)
+ENGLISH_PROP_NAME = re.compile(r"^(?:props(?:_hud)?|hud|interface_overlay)_?(.*?)_16x9$", re.IGNORECASE)
 PRODUCTION_SHOT_FIELDS = tuple(key for key in SHOT_FIELDS if key not in OPTIONAL_SHOT_FIELDS)
 CHINESE_REQUIRED_REVIEWS = (
     "组间镜头衔接核对", "景别衔接核对", "主角判定", "武器轴线核对",
@@ -111,7 +122,52 @@ def render_dialogue(project: ProductionProject, planner: Path | None, scope=None
     return output, "\n" + "\n".join(ledger) if ledger else "无对白", count
 
 
-def shot_records(shot, name, dialogue, sources):
+def check_english_board_input(project: ProductionProject, planner: Path | None) -> None:
+    """Check the full English group before committing to a board image request."""
+    if project.rules != ENGLISH:
+        return
+    require_english_camera_rules(project)
+    scope = active_scope(project, planner)
+    _, _, words = render_dialogue(project, planner, scope)
+    spec = project.notes.get("对白规格", "").strip()
+    status = project.notes.get("分组状态", "").strip()
+    pure_fight = project.notes.get("内容类型", "").strip() == "纯打斗"
+    if status not in {"常规", "整集尾组", "对白容量拆组"}:
+        raise ValueError("生成正式故事板前，请先在「项目与组」确认分组状态。")
+    if spec == "无对白" and not scope:
+        panels = tuple(range(9, 13 if pure_fight else 11))
+        if pure_fight and project.notes.get("打斗节奏依据", "").strip() in {"", "无"}:
+            raise ValueError("纯打斗无对白组需要具体的「打斗节奏依据」。")
+    elif spec in {"1-2句短对白", "1—2句短对白", "1–2句短对白"} and 1 <= len(scope) <= 2:
+        panels = (8,)
+    elif spec in {"三句以上或长对白", "3句以上或长对白"} and scope:
+        panels = (6,)
+    else:
+        raise ValueError("请核对「对白规格」和已分配的批准对白，再生成正式故事板。")
+    count = len(project.shots)
+    if status == "整集尾组":
+        if pending_record(project, scope) or not project.notes.get("尾组说明", "").strip():
+            raise ValueError("整集尾组需填写实际结尾说明，并核完余下镜头和对白。")
+        panels = tuple(range(1, max(panels) + 1))
+    elif status == "对白容量拆组":
+        evidence = re.fullmatch(r"(\d+)\s*\|\s*(\S.*)", project.notes.get("对白容量拆组说明", "").strip())
+        if not scope or not words or not evidence or int(evidence[1]) <= 60:
+            raise ValueError("对白容量拆组须保留原方案超 60 词的记录及拆组原因。")
+        panels = tuple(range(1, panels[0]))
+    if count not in panels:
+        raise ValueError(f"本组当前 {count} 格，「{spec}／{status}」可用格数为 {'、'.join(map(str, panels))}。")
+    required = ("景别", "机位/角度", "机位空间", "可见范围", "画面/事件", "人物站位", "动作起止",
+                "唯一角色数量锁定", "本格新增叙事功能")
+    for index, shot in enumerate(project.shots, 1):
+        missing = [key for key in required if not shot.fields.get(key, "").strip()]
+        if missing:
+            raise ValueError(f"{project.group}-{index:02d} 的正式故事板缺少：{'、'.join(missing)}。")
+    formal = [image for image in project.images if not image.reference_only]
+    if len(formal) + int(not any("storyboard" in image.filename.lower() for image in formal)) > IMAGE_LIMIT:
+        raise ValueError("计入正式故事板后超过九图上限。请先安排正式图片预算。")
+
+
+def shot_records(shot, name, dialogue, sources, *, english_scene=None):
     if shot.source not in sources or not shot.anchor.strip() or any(char in shot.anchor for char in "|\n\r"):
         raise ValueError(f"{name} 请绑定批准剧本和源段位置。")
     fields = shot.fields
@@ -129,7 +185,87 @@ def shot_records(shot, name, dialogue, sources):
               "场景/环境": fields["场景/环境"], "对白": spoken,
               "声音/音效": f"{fields['声源位置']}；{fields.get('成片声音', '').strip() or fields['声音']}",
               "本镜必要限制": fields["视频模型约束"]}
-    return production, f"分镜编号：{name}\n" + format_fields(prompt, tuple(prompt))
+    if english_scene is not None:
+        previous_scene = ENGLISH_SCENE_PREFIX.sub("", prompt["场景/环境"].strip())
+        if re.search(r"@图\s*\d+", previous_scene):
+            raise ValueError(f"{name} 的「场景/环境」有另一个图片编号，请保留文字描述并使用已绑定的正式净板。")
+        prompt["场景/环境"] = english_scene + previous_scene
+        prompt = {key: one_line(value) for key, value in prompt.items()}
+        model = "\n".join(f"{key}：{value}" for key, value in prompt.items())
+    else:
+        model = format_fields(prompt, tuple(prompt))
+    return production, f"分镜编号：{name}\n{model}"
+
+
+def one_line(value: str) -> str:
+    """Keep production-record lists out of the model's fixed-field layout."""
+    return "；".join(filter(None, (re.sub(r"^[-*•]\s+", "", line.strip()) for line in value.splitlines())))
+
+
+def english_references(images, storyboard, notes, plate_slots):
+    """Number the actual approved PNGs by the intended model upload order."""
+    characters = defaultdict(list)
+    for line in notes.get("人物资产表", "").splitlines():
+        parts = [part.strip() for part in line.lstrip("-*• ").split("|")]
+        if len(parts) == 5:
+            identity, _, filename, _, state = parts
+            characters[filename].append(f"{identity}（{state}）" if state and state != "无" else identity)
+    combined_views = defaultdict(list)
+    for line in notes.get("场景拼接对应表", "").splitlines():
+        parts = [part.strip() for part in line.lstrip("-*• ").split("|")]
+        if len(parts) == 4 and parts[1] in {"main", "reverse"}:
+            scene, view, filename, slot = parts
+            angle = "正打" if view == "main" else "反打"
+            combined_views[filename].append(f"{slot}「{scene}」{angle}")
+
+    def asset_usage(image):
+        filename = image.filename
+        stem = ENGLISH_REFERENCE_PREFIX.sub("", Path(filename).stem)
+        lower = stem.casefold()
+        if filename in characters:
+            role = 2 if lower.startswith(("other_characters_", "其他人物")) else 1
+            return role, "只调用本组镜号所列身份：" + "、".join(characters[filename]) + "。"
+        if lower.startswith(("protagonist_", "main_character", "mixed_characters_", "other_characters_", "主角", "其他人物")):
+            raise ValueError(f"{filename} 请在「人物资产表」绑定实际身份和状态。")
+        if prop := ENGLISH_PROP_NAME.fullmatch(stem):
+            return 3, f"按本镜阶段调用：{prop[1] or '道具/界面'}参考。"
+        if slots := plate_slots.get(image.id):
+            return 4, f"使用本页对应镜号的局部{'、'.join(slots)}。"
+        if view := ENGLISH_SCENE_VIEW.fullmatch(stem):
+            angle = "正打" if view[2].lower() == "main" else "反打"
+            return 4, f"地点「{view[1]}」的{angle}彩色参考，保持已批准的空间结构。"
+        if filename in combined_views:
+            return 4, "本页按实际地点取" + "、".join(combined_views[filename]) + "分区。"
+        raise ValueError(f"{filename} 缺少正式图片用途，请核对文件命名和资产绑定。")
+
+    assets = [(0, storyboard, "原批准线稿，按格号取机位、构图、站位和动作；辅助标记不得出现在成片。")]
+    for image in images:
+        if image.id != storyboard.id:
+            order, usage = asset_usage(image)
+            assets.append((order, image, usage))
+    ordered = sorted(assets, key=lambda item: (item[0], item[1].filename.casefold()))
+    manifest, numbers = [], {}
+    for number, (_, image, usage) in enumerate(ordered, 1):
+        if "）" in image.filename:
+            raise ValueError(f"{image.filename} 的全角右括号会截断 @图 引用，请调整文件名。")
+        numbers[image.id] = number
+        manifest.append(f"@图{number}（{image.filename}）{one_line(usage)}")
+    return manifest, numbers
+
+
+def english_prompt_header(project, storyboard, manifest):
+    format_fields(project.prompt, PROMPT_FIELDS)
+    common = one_line(project.prompt["公共限制"])
+    state = one_line(project.prompt["场景/总体状态"])
+    return "\n".join((
+        f"分组：{project.group}",
+        f"按 @图1（{storyboard.filename}）的格号顺序硬切，逐格使用同号局部。",
+        *manifest,
+        f"场景/总体状态：{state}",
+        f"视频上色约束：{ENGLISH_COLOR}",
+        f"视频文字约束：{LANGUAGE}",
+        f"公共限制：{ENGLISH_COMMON}{common}",
+    ))
 
 
 def check_chinese_panels(project, spoken_ids, pending):
@@ -413,6 +549,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     windows = windows_for_shots(project)
     if len(storyboard_files) != 1 or not re.search(rf"(?<!\d){len(project.shots)}panel", storyboard_files[0].filename, re.I):
         raise ValueError("请导入一张格数与镜头清单一致的正式故事板，文件名包含实际格数，如 storyboard_8panel。")
+    require_english_camera_rules(project)
 
     planner = validator.with_name("plan_english_dialogue.py")
     scope = active_scope(project, planner)
@@ -434,16 +571,13 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
 
     production = [f"分组：{group_id}\n格数：{len(project.shots)}\n视频任务时长：待剪辑\n画面格式：16:9 彩色视频",
                   format_fields(notes, GROUP_FIELDS, GROUP_OPTIONAL | {"图片预算核对", "资产清单"}),
-                  f"对白保全核对：{dialogue_ledger}\n视频上色约束：{COLOR}\n视频文字约束：{LANGUAGE}"]
+                  f"对白保全核对：{dialogue_ledger}\n视频上色约束：{ENGLISH_COLOR}\n视频文字约束：{LANGUAGE}"]
     if cross_rows:
         production.append("跨组对白原文：\n" + "\n".join(cross_rows))
-    common = dict(project.prompt)
-    common["公共限制"] = (common.get("公共限制", "").strip() + " " + MARKS).strip()
-    sd2 = [f"分组：{group_id}\n视频上色约束：{COLOR}\n视频文字约束：{LANGUAGE}", format_fields(common, PROMPT_FIELDS)]
-    plate_rows, shot_rows, window_rows = [], [], []
-    for number, (shot, dialogue) in enumerate(zip(project.shots, dialogues), 1):
-        name = f"{group_id}-{number:02d}"
-        record, model_prompt = shot_records(shot, name, dialogue, sources)
+    plate_slots, shot_plates = defaultdict(list), []
+    for number, shot in enumerate(project.shots, 1):
+        slot = f"{number:02d}"
+        name = f"{group_id}-{slot}"
         plate = assets.get(shot.plate)
         if not plate or ("_details" not in plate.filename.lower() and "场景合辑" not in plate.filename):
             raise ValueError(f"{name} 缺少正式净板绑定。")
@@ -451,10 +585,21 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
             char in shot.scene + shot.plate_note for char in "|\n\r"
         ):
             raise ValueError(f"{name} 缺少单行地点和净板机位说明。")
-        plate_rows.append(f"- {name} | {plate.filename} | 局部{number:02d} | {shot.scene} | {shot.plate_note}")
+        if "」" in shot.scene:
+            raise ValueError(f"{name} 的地点名含有右引号，请填写实际地点名。")
+        plate_slots[plate.id].append(slot)
+        shot_plates.append((name, plate, slot))
+    storyboard = storyboard_files[0]
+    manifest, picture_numbers = english_references(images, storyboard, notes, plate_slots)
+    sd2 = [english_prompt_header(project, storyboard, manifest)]
+    plate_rows, shot_rows, window_rows = [], [], []
+    for shot, dialogue, (name, plate, slot) in zip(project.shots, dialogues, shot_plates):
+        scene_reference = f"@图{picture_numbers[plate.id]} 的局部{slot}。地点「{shot.scene.strip()}」。"
+        record, model_prompt = shot_records(shot, name, dialogue, sources, english_scene=scene_reference)
+        plate_rows.append(f"- {name} | {plate.filename} | 局部{slot} | {shot.scene} | {shot.plate_note}")
         production.append(record)
         sd2.append(model_prompt)
-        shot_rows.append(f"- {name} | {shot.id} | {sources[shot.source].name} {sources[shot.source].version} | {shot.anchor} | 局部{number:02d}")
+        shot_rows.append(f"- {name} | {shot.id} | {sources[shot.source].name} {sources[shot.source].version} | {shot.anchor} | 局部{slot}")
         if windows:
             board, board_box = windows[shot.id]["board"]
             _, plate_box = windows[shot.id]["plate"]
@@ -484,7 +629,7 @@ def build_delivery(project: ProductionProject, project_path: Path, folder: Path,
     (group_folder / f"{group_id}_shot_details.txt").write_text("\n\n".join(production) + "\n", encoding="utf-8-sig")
     (group_folder / "SD2_prompt.txt").write_text("\n\n".join(sd2) + "\n", encoding="utf-8-sig")
     readme = (
-        f"{project.name} · {project.episode}\n制作规则：{project.rules}\n组号：{group_id}\n"
+        f"{project.name} · {project.episode}\n制作规则：{rule_revision(project.rules)}\n组号：{group_id}\n"
         f"镜头数：{len(project.shots)}\n图片数：{len(images)}\n本组进入状态：{notes['本组进入状态']}\n"
         f"本组退出状态：{notes['本组退出状态']}\n镜头与来源：\n" + "\n".join(shot_rows) + "\n"
     )

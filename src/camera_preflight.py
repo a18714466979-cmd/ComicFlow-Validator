@@ -88,8 +88,27 @@ def camera_cuts(shots, rules, *, fight=False) -> tuple[CameraCut, ...]:
 
 
 def project_camera_cuts(project):
-    shots = ((f"{project.group}-{index:02d}", shot.fields) for index, shot in enumerate(project.shots, 1))
-    return camera_cuts(shots, project.rules, fight=project.notes.get("内容类型", "").strip() in {"打斗", "纯打斗"})
+    shots = [(f"{project.group}-{index:02d}", shot.fields) for index, shot in enumerate(project.shots, 1)]
+    findings = camera_cuts(shots, project.rules, fight=project.notes.get("内容类型", "").strip() in {"打斗", "纯打斗"})
+    if project.rules != ENGLISH:
+        return findings
+    repeated_purposes = []
+    for (left, first), (right, second) in zip(shots, shots[1:]):
+        size, _ = declared_framing(first)
+        purpose = normalized_text(first.get("本格新增叙事功能"))
+        if (size in {"中景", "大全景"} and size == declared_framing(second)[0]
+                and purpose and purpose not in MISSING_ANGLES
+                and purpose == normalized_text(second.get("本格新增叙事功能"))):
+            repeated_purposes.append(CameraCut("same_purpose", (left, right), size))
+    return (*findings, *repeated_purposes)
+
+
+def require_english_camera_rules(project):
+    if project.rules != ENGLISH:
+        return
+    blockers = tuple(item for item in project_camera_cuts(project) if item.kind in {"fight_triple", "same_purpose"})
+    if blockers:
+        raise ValueError("英文分镜规则未通过。请先调整镜头清单再继续。\n\n" + camera_findings_text(blockers))
 
 
 def camera_findings_text(findings, *, english=False):
@@ -100,5 +119,7 @@ def camera_findings_text(findings, *, english=False):
                          "Same recorded shot size and angle. Check the shot purpose and match on action."),
         "fight_triple": ("打斗规则禁止三连同景别同角度。请核对并调整实际画面。",
                          "The fight rule prohibits three cuts with the same shot size and angle. Check the actual panels."),
+        "same_purpose": ("相邻镜头以同一中景或大全景表达同一个已登记目的。请合镜或明确不同的叙事功能。",
+                         "Adjacent shots repeat the same stated purpose at medium or extreme wide size."),
     }
     return "\n".join(f"{' → '.join(item.shots)} · {messages[item.kind][int(english)]}" for item in findings)
